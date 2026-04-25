@@ -45,7 +45,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
   display: flex; align-items: center; justify-content: space-between; gap: 24px;
 }
 .brand-lockup { display: flex; align-items: center; gap: 14px; }
-.brand-lockup img { height: 40px; width: auto; display: block; }
+.brand-lockup img { height: 44px; width: auto; display: block; }
 .brand-text { line-height: 1.1; }
 .brand-text .name {
   font-family: var(--bbl-font-brand);

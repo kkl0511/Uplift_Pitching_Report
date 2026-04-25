@@ -31,7 +31,7 @@ function TopBar({ pitchers, activeId, onSelect }) {
     <div className="topbar">
       <div className="topbar-inner">
         <div className="brand-lockup">
-          <img src="assets/logo-bbl.svg" alt="BBL"/>
+          <img src="assets/logo-bbl.png" alt="BBL"/>
           <div className="brand-text">
             <div className="name">BioMotion Baseball Lab</div>
             <div className="sub">Pitcher Integrated Report · v4</div>
