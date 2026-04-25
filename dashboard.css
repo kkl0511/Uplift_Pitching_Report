@@ -518,6 +518,7 @@ html[data-theme="light"] .kpi.kpi-hero {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
+  max-height: 75vh;
   border-radius: 10px;
   overflow: hidden;
   background: #000;

@@ -491,7 +491,6 @@ function VideoPanel({ p }) {
             <video ref={videoRef} src={src} playsInline preload="auto" muted
               onPlay={() => setIsPaused(false)}
               onPause={() => setIsPaused(true)}
-              onClick={toggle}
               onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
               onLoadedMetadata={(e) => {
                 const v = e.currentTarget;
@@ -499,8 +498,7 @@ function VideoPanel({ p }) {
                 setDuration(v.duration || 0);
                 // 첫 프레임 강제 표시 (검은 화면 방지)
                 try { v.currentTime = 0.001; } catch(_) {}
-              }}
-              style={{ cursor: 'pointer' }}/>
+              }}/>
           ) : (
             <MocapPlaceholder p={p}/>
           )}
@@ -514,22 +512,6 @@ function VideoPanel({ p }) {
             fontSize: 11, fontWeight: 600, cursor: 'pointer', zIndex: 5,
           }}>
             {trans.scale.toFixed(1)}× · Reset
-          </button>
-        )}
-        {showScrubber && !zoomed && (
-          <button className="video-overlay-btn" onClick={toggle}
-                  aria-label={isPaused ? '재생' : '일시정지'}
-                  title={isPaused ? '재생 (Space)' : '일시정지 (Space)'}>
-            {isPaused ? (
-              <svg viewBox="0 0 64 64" width="40" height="40" aria-hidden="true">
-                <polygon points="20,14 50,32 20,50" fill="currentColor"/>
-              </svg>
-            ) : (
-              <svg viewBox="0 0 64 64" width="40" height="40" aria-hidden="true">
-                <rect x="18" y="14" width="10" height="36" rx="2" fill="currentColor"/>
-                <rect x="36" y="14" width="10" height="36" rx="2" fill="currentColor"/>
-              </svg>
-            )}
           </button>
         )}
         {showScrubber && (
@@ -813,7 +795,6 @@ function VideoCard({ src }) {
         <video ref={videoRef} src={src} playsInline preload="auto" muted
           onPlay={() => setIsPaused(false)}
           onPause={() => setIsPaused(true)}
-          onClick={toggle}
           onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
           onLoadedMetadata={(e) => {
             const v = e.currentTarget;
@@ -821,21 +802,7 @@ function VideoCard({ src }) {
             setDuration(v.duration || 0);
             try { v.currentTime = 0.001; } catch(_) {}
           }}
-          style={{ width: '100%', display: 'block', borderRadius: 12, background: '#000', cursor: 'pointer' }}/>
-        <button className="video-overlay-btn" onClick={toggle}
-                aria-label={isPaused ? '재생' : '일시정지'}
-                title={isPaused ? '재생 (Space)' : '일시정지 (Space)'}>
-          {isPaused ? (
-            <svg viewBox="0 0 64 64" width="40" height="40" aria-hidden="true">
-              <polygon points="20,14 50,32 20,50" fill="currentColor"/>
-            </svg>
-          ) : (
-            <svg viewBox="0 0 64 64" width="40" height="40" aria-hidden="true">
-              <rect x="18" y="14" width="10" height="36" rx="2" fill="currentColor"/>
-              <rect x="36" y="14" width="10" height="36" rx="2" fill="currentColor"/>
-            </svg>
-          )}
-        </button>
+          style={{ width: '100%', display: 'block', borderRadius: 12, background: '#000' }}/>
         <div className="seek-bar">
           <span className="seek-time">{formatTime(currentTime)}</span>
           <input type="range" className="seek-slider"
@@ -885,9 +852,11 @@ function SinglePitcherView({ p }) {
         </span>
       </div>
 
-      {/* Hero — Video + Core Issue */}
-      <div className="hero-grid">
+      {/* Hero — Video (full width) + Core Issue (below) */}
+      <div style={{ marginBottom: 20 }}>
         <VideoPanel p={p}/>
+      </div>
+      <div style={{ marginBottom: 24 }}>
         <CoreIssuePanel p={p}/>
       </div>
 
