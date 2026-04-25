@@ -1328,3 +1328,54 @@ html[data-theme="light"] .chart-caption { color: var(--d-fg3); }
   stroke: currentColor; fill: none; stroke-width: 2;
   stroke-linecap: round; stroke-linejoin: round;
 }
+
+/* ====== Pitcher silhouette energy flow ====== */
+.energy-silhouette {
+  background: linear-gradient(180deg, #0d1628 0%, #0a1122 100%);
+  border: 1px solid var(--d-border);
+  border-radius: 10px;
+  padding: 8px 12px 12px;
+  position: relative;
+}
+[data-theme="light"] .energy-silhouette {
+  background: linear-gradient(180deg, #f1f5fb 0%, #e6ecf5 100%);
+  border-color: #cbd5e1;
+}
+.silhouette-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  aspect-ratio: 800 / 520;
+}
+[data-theme="light"] .silhouette-svg line[stroke="#2a3a5a"] { stroke: #94a3b8; }
+[data-theme="light"] .silhouette-svg text[fill="#e2e8f0"] { fill: #0f172a; }
+[data-theme="light"] .silhouette-svg text[fill="#94a3b8"] { fill: #475569; }
+[data-theme="light"] .silhouette-svg rect[fill="#0b1220"] { fill: #ffffff; }
+
+.silhouette-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--d-border);
+  font-size: 11px;
+  color: var(--d-fg2);
+  font-family: var(--bbl-font-latin);
+}
+.silhouette-legend .leg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.silhouette-legend .dot {
+  display: inline-block;
+  width: 18px;
+  height: 6px;
+  border-radius: 3px;
+}
+.silhouette-legend .note {
+  color: var(--d-fg3);
+  font-style: italic;
+  margin-left: auto;
+}

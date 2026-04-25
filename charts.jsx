@@ -210,49 +210,331 @@ function AngularChart({ angular }) {
   );
 }
 
-// ----------------- Energy flow (React component, mixed SVG/HTML) -----------------
+// ----------------- Energy flow (pitcher silhouette overlay) -----------------
 function EnergyFlow({ energy }) {
   const { etiPT, etiTA, leakPct } = energy;
-  const ptLeak = false; // ETI 1+ between pelvis→trunk is normal (ratio denominator different)
+  const ptLeak = false;
   const taLeak = etiTA < 0.85;
+  const uid = React.useMemo(() => Math.random().toString(36).slice(2, 8), []);
 
-  const Arrow = ({ leak, eti }) => (
-    <div className="arrow-block">
-      <div className={`arrow-eti ${leak ? 'leak' : 'ok'}`}>ETI {eti.toFixed(2)} {leak ? '· 누수' : '· 정상'}</div>
-      <svg className="arrow-svg" viewBox="0 0 120 40">
-        <defs>
-          <linearGradient id={`arrG${leak ? 'L' : 'O'}`} x1="0" x2="1">
-            <stop offset="0" stopColor={leak ? '#f87171' : '#60a5fa'} stopOpacity="0.3"/>
-            <stop offset="1" stopColor={leak ? '#ef4444' : '#2563EB'} stopOpacity="0.95"/>
-          </linearGradient>
-        </defs>
-        <rect x="0" y="14" width="94" height="12" rx="6" fill={`url(#arrG${leak ? 'L' : 'O'})`}/>
-        <polygon points="90,6 116,20 90,34" fill={leak ? '#ef4444' : '#2563EB'}/>
-      </svg>
-      {leak && <div style={{ fontSize: 11, color: '#f87171', fontWeight: 700 }}>에너지 누수 {leakPct}%</div>}
-    </div>
+  // Silhouette keypoints — 3D mannequin, release-just-before pose
+  // RHP viewed from 1루 side. Front foot planted with DEEP knee flexion (~95°).
+  const K = {
+    head:     [470, 100],
+    neck:     [478, 138],
+    rShoulder:[520, 162],
+    lShoulder:[438, 158],
+    rElbow:   [572, 108],
+    rWrist:   [612, 72],
+    ball:     [634, 60],
+    lElbow:   [376, 176],
+    lWrist:   [424, 220],
+    pelvisR:  [506, 264],
+    pelvisL:  [446, 264],
+    pelvisC:  [476, 264],
+    rKnee:    [556, 352],   // back leg driving
+    rAnkle:   [620, 412],
+    lKnee:    [370, 378],   // FRONT knee bent more (forward + down)
+    lAnkle:   [332, 472],   // front foot planted
+    lToe:     [290, 474],
+    rToe:     [658, 420],
+  };
+
+  const L = (a, b, w=14, stroke='#1b2740') => (
+    <line x1={K[a][0]} y1={K[a][1]} x2={K[b][0]} y2={K[b][1]} stroke={stroke} strokeWidth={w} strokeLinecap="round"/>
   );
 
+  // Energy path: FRONT ankle (braced) → front knee → pelvis center → trunk (neck) → shoulder → elbow → wrist → ball
+  const energyPath = `
+    M ${K.lAnkle[0]} ${K.lAnkle[1]}
+    L ${K.lKnee[0]} ${K.lKnee[1]}
+    L ${K.pelvisC[0]} ${K.pelvisC[1]}
+    L ${K.neck[0]} ${K.neck[1] + 5}
+    L ${K.rShoulder[0]} ${K.rShoulder[1]}
+    L ${K.rElbow[0]} ${K.rElbow[1]}
+    L ${K.rWrist[0]} ${K.rWrist[1]}
+    L ${K.ball[0]} ${K.ball[1]}
+  `;
+
+  // Approximate path lengths (for color stop placement on the gradient-along-path)
+  // We'll split into 3 stages for coloring: leg→pelvis (drive), pelvis→trunk (PT), trunk→ball (TA)
+  // Stage stops: ~0–28% drive, 28–55% PT, 55–100% TA
+
   return (
-    <div>
-      <div className="energy-flow">
-        <div className="segment-box pelvis">
-          <div className="ko">골반</div>
-          <div className="en">Pelvis</div>
-        </div>
-        <Arrow leak={ptLeak} eti={etiPT}/>
-        <div className="segment-box trunk">
-          <div className="ko">몸통</div>
-          <div className="en">Trunk</div>
-        </div>
-        <Arrow leak={taLeak} eti={etiTA}/>
-        <div className="segment-box arm">
-          <div className="ko">상완</div>
-          <div className="en">Arm</div>
-        </div>
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--bbl-fg3)', textAlign: 'center', marginTop: 4, fontFamily: 'Inter' }}>
-        ETI 1.0 근처 = 에너지가 다음 분절로 거의 전부 전달 · 0.85 미만 = 누수 신호
+    <div className="energy-silhouette">
+      <svg viewBox="0 0 800 520" className="silhouette-svg" role="img" aria-label="투구 실루엣 위의 에너지 전달 경로">
+        <defs>
+          {/* Background gradient subtle */}
+          <linearGradient id={`bg-${uid}`} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stopColor="#0b1220" stopOpacity="0"/>
+            <stop offset="1" stopColor="#0b1220" stopOpacity="0.35"/>
+          </linearGradient>
+          {/* Energy pipe gradient along path */}
+          <linearGradient id={`energy-${uid}`} gradientUnits="userSpaceOnUse"
+            x1={K.lAnkle[0]} y1={K.lAnkle[1]} x2={K.ball[0]} y2={K.ball[1]}>
+            <stop offset="0%"   stopColor="#22d3ee"/>
+            <stop offset="28%"  stopColor="#60a5fa"/>
+            <stop offset="55%"  stopColor={taLeak ? '#f59e0b' : '#2563EB'}/>
+            <stop offset="85%"  stopColor={taLeak ? '#ef4444' : '#1d4ed8'}/>
+            <stop offset="100%" stopColor={taLeak ? '#7f1d1d' : '#1e3a8a'}/>
+          </linearGradient>
+          {/* Glow */}
+          <filter id={`glow-${uid}`} x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          {/* Leak burst */}
+          <radialGradient id={`leak-${uid}`}>
+            <stop offset="0%" stopColor="#fee2e2" stopOpacity="0.95"/>
+            <stop offset="40%" stopColor="#ef4444" stopOpacity="0.7"/>
+            <stop offset="100%" stopColor="#7f1d1d" stopOpacity="0"/>
+          </radialGradient>
+
+          {/* ---- 3D Mannequin shaders ---- */}
+          {/* Head / sphere shader */}
+          <radialGradient id={`mSphere-${uid}`} cx="35%" cy="30%" r="75%">
+            <stop offset="0%" stopColor="#f1f5f9"/>
+            <stop offset="45%" stopColor="#cbd5e1"/>
+            <stop offset="85%" stopColor="#64748b"/>
+            <stop offset="100%" stopColor="#334155"/>
+          </radialGradient>
+          {/* Limb shader — linear top-light */}
+          <linearGradient id={`mLimb-${uid}`} x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stopColor="#e2e8f0"/>
+            <stop offset="50%" stopColor="#94a3b8"/>
+            <stop offset="100%" stopColor="#475569"/>
+          </linearGradient>
+          {/* Limb shader — darker for back/shadow-side limbs */}
+          <linearGradient id={`mLimbD-${uid}`} x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stopColor="#94a3b8"/>
+            <stop offset="55%" stopColor="#64748b"/>
+            <stop offset="100%" stopColor="#1e293b"/>
+          </linearGradient>
+          {/* Torso shader */}
+          <linearGradient id={`mTorso-${uid}`} x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stopColor="#e2e8f0"/>
+            <stop offset="40%" stopColor="#94a3b8"/>
+            <stop offset="100%" stopColor="#334155"/>
+          </linearGradient>
+          {/* Joint shader */}
+          <radialGradient id={`mJoint-${uid}`} cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stopColor="#f8fafc"/>
+            <stop offset="60%" stopColor="#94a3b8"/>
+            <stop offset="100%" stopColor="#334155"/>
+          </radialGradient>
+          {/* Soft ambient occlusion shadow under figure */}
+          <radialGradient id={`aoShadow-${uid}`} cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#000" stopOpacity="0.45"/>
+            <stop offset="100%" stopColor="#000" stopOpacity="0"/>
+          </radialGradient>
+        </defs>
+
+        {/* ground */}
+        <line x1="40" y1="485" x2="760" y2="485" stroke="#2a3a5a" strokeWidth="1.5" strokeDasharray="3 6"/>
+        <rect x="0" y="0" width="800" height="520" fill={`url(#bg-${uid})`}/>
+
+        {/* -------- 3D Mannequin figure -------- */}
+        {/* Ground shadow (AO) */}
+        <ellipse cx={(K.lAnkle[0]+K.rAnkle[0])/2} cy="488" rx="180" ry="12" fill={`url(#aoShadow-${uid})`}/>
+
+        {/* ---- Glove-side arm (behind body) ---- */}
+        <g>
+          {/* upper arm */}
+          <line x1={K.lShoulder[0]} y1={K.lShoulder[1]} x2={K.lElbow[0]} y2={K.lElbow[1]}
+                stroke={`url(#mLimbD-${uid})`} strokeWidth="22" strokeLinecap="round"/>
+          {/* elbow joint */}
+          <circle cx={K.lElbow[0]} cy={K.lElbow[1]} r="12" fill={`url(#mJoint-${uid})`}/>
+          {/* forearm */}
+          <line x1={K.lElbow[0]} y1={K.lElbow[1]} x2={K.lWrist[0]} y2={K.lWrist[1]}
+                stroke={`url(#mLimbD-${uid})`} strokeWidth="19" strokeLinecap="round"/>
+          {/* wrist/hand sphere (glove-side fist) */}
+          <circle cx={K.lWrist[0]} cy={K.lWrist[1]} r="13" fill={`url(#mSphere-${uid})`}/>
+        </g>
+
+        {/* ---- Back leg (drive leg) ---- */}
+        <g>
+          {/* thigh */}
+          <line x1={K.pelvisR[0]-2} y1={K.pelvisR[1]} x2={K.rKnee[0]} y2={K.rKnee[1]}
+                stroke={`url(#mLimb-${uid})`} strokeWidth="32" strokeLinecap="round"/>
+          {/* knee */}
+          <circle cx={K.rKnee[0]} cy={K.rKnee[1]} r="15" fill={`url(#mJoint-${uid})`}/>
+          {/* shin */}
+          <line x1={K.rKnee[0]} y1={K.rKnee[1]} x2={K.rAnkle[0]} y2={K.rAnkle[1]}
+                stroke={`url(#mLimb-${uid})`} strokeWidth="24" strokeLinecap="round"/>
+          {/* ankle */}
+          <circle cx={K.rAnkle[0]} cy={K.rAnkle[1]} r="11" fill={`url(#mJoint-${uid})`}/>
+          {/* foot */}
+          <path d={`
+            M ${K.rAnkle[0]-8} ${K.rAnkle[1]+4}
+            Q ${K.rAnkle[0]-4} ${K.rAnkle[1]+18} ${K.rToe[0]-6} ${K.rToe[1]+10}
+            L ${K.rToe[0]+4} ${K.rToe[1]+2}
+            Q ${K.rToe[0]-2} ${K.rAnkle[1]-2} ${K.rAnkle[0]+6} ${K.rAnkle[1]-4}
+            Z
+          `} fill={`url(#mLimb-${uid})`}/>
+        </g>
+
+        {/* ---- Front leg (braced, DEEP knee flexion) ---- */}
+        <g>
+          {/* thigh */}
+          <line x1={K.pelvisL[0]+2} y1={K.pelvisL[1]} x2={K.lKnee[0]} y2={K.lKnee[1]}
+                stroke={`url(#mLimb-${uid})`} strokeWidth="34" strokeLinecap="round"/>
+          {/* knee (prominent) */}
+          <circle cx={K.lKnee[0]} cy={K.lKnee[1]} r="17" fill={`url(#mJoint-${uid})`}/>
+          {/* shin */}
+          <line x1={K.lKnee[0]} y1={K.lKnee[1]} x2={K.lAnkle[0]} y2={K.lAnkle[1]}
+                stroke={`url(#mLimb-${uid})`} strokeWidth="26" strokeLinecap="round"/>
+          {/* ankle */}
+          <circle cx={K.lAnkle[0]} cy={K.lAnkle[1]} r="12" fill={`url(#mJoint-${uid})`}/>
+          {/* planted foot */}
+          <path d={`
+            M ${K.lAnkle[0]-12} ${K.lAnkle[1]+2}
+            Q ${K.lToe[0]-4} ${K.lToe[1]-8} ${K.lToe[0]-12} ${K.lToe[1]+8}
+            L ${K.lAnkle[0]-4} ${K.lAnkle[1]+14}
+            Z
+          `} fill={`url(#mLimb-${uid})`}/>
+        </g>
+
+        {/* ---- Torso (3D mannequin — smooth anatomical shape) ---- */}
+        {/* Shoulder yoke: capsule between shoulders to anchor the trapezius line */}
+        <line x1={K.lShoulder[0]+2} y1={K.lShoulder[1]+4}
+              x2={K.rShoulder[0]-2} y2={K.rShoulder[1]+4}
+              stroke={`url(#mLimb-${uid})`} strokeWidth="34" strokeLinecap="round"/>
+
+        {/* Ribcage (chest) — inverted trapezoid, broader at shoulders */}
+        <path d={`
+          M ${K.lShoulder[0]+4} ${K.lShoulder[1]+8}
+          C ${K.lShoulder[0]-2} ${K.lShoulder[1]+50}, ${K.pelvisL[0]+2} ${K.pelvisL[1]-68}, ${K.pelvisL[0]+6} ${K.pelvisL[1]-20}
+          L ${K.pelvisR[0]-6} ${K.pelvisR[1]-20}
+          C ${K.pelvisR[0]-2} ${K.pelvisR[1]-68}, ${K.rShoulder[0]+2} ${K.rShoulder[1]+50}, ${K.rShoulder[0]-4} ${K.rShoulder[1]+8}
+          Z
+        `} fill={`url(#mTorso-${uid})`} stroke="#1e293b" strokeWidth="1.2"/>
+
+        {/* Abdomen / waist — narrower band connecting ribcage to pelvis */}
+        <path d={`
+          M ${K.pelvisL[0]+6} ${K.pelvisL[1]-22}
+          C ${K.pelvisL[0]+2} ${K.pelvisL[1]-10}, ${K.pelvisL[0]+6} ${K.pelvisL[1]+4}, ${K.pelvisL[0]+10} ${K.pelvisL[1]+6}
+          L ${K.pelvisR[0]-10} ${K.pelvisR[1]+6}
+          C ${K.pelvisR[0]-6} ${K.pelvisR[1]+4}, ${K.pelvisR[0]-2} ${K.pelvisR[1]-10}, ${K.pelvisR[0]-6} ${K.pelvisR[1]-22}
+          Z
+        `} fill={`url(#mTorso-${uid})`} stroke="#1e293b" strokeWidth="1"/>
+
+        {/* Pelvis/hip block — rounded capsule */}
+        <path d={`
+          M ${K.pelvisL[0]-4} ${K.pelvisL[1]+4}
+          Q ${K.pelvisL[0]-16} ${K.pelvisL[1]+16} ${K.pelvisL[0]-2} ${K.pelvisL[1]+26}
+          L ${K.pelvisR[0]+2} ${K.pelvisR[1]+26}
+          Q ${K.pelvisR[0]+16} ${K.pelvisR[1]+16} ${K.pelvisR[0]+4} ${K.pelvisR[1]+4}
+          Z
+        `} fill={`url(#mLimb-${uid})`} stroke="#1e293b" strokeWidth="1"/>
+
+        {/* Sternum center-line (subtle 3D split) */}
+        <path d={`M ${(K.lShoulder[0]+K.rShoulder[0])/2} ${(K.lShoulder[1]+K.rShoulder[1])/2 + 12}
+                  L ${K.pelvisC[0]+2} ${K.pelvisC[1]-12}`}
+              stroke="#334155" strokeWidth="1" strokeOpacity="0.35" fill="none"/>
+
+        {/* Shoulder joints (caps) — spheres over the yoke */}
+        <circle cx={K.lShoulder[0]} cy={K.lShoulder[1]} r="15" fill={`url(#mJoint-${uid})`}/>
+        <circle cx={K.rShoulder[0]} cy={K.rShoulder[1]} r="16" fill={`url(#mJoint-${uid})`}/>
+
+        {/* ---- Neck + head (featureless mannequin sphere) ---- */}
+        <line x1={K.neck[0]-2} y1={K.neck[1]-6} x2={K.neck[0]+2} y2={K.neck[1]+8}
+              stroke={`url(#mLimb-${uid})`} strokeWidth="16" strokeLinecap="round"/>
+        <circle cx={K.head[0]} cy={K.head[1]} r="28" fill={`url(#mSphere-${uid})`} stroke="#1e293b" strokeWidth="1"/>
+        {/* subtle head facet line (shows orientation toward batter) */}
+        <path d={`M ${K.head[0]-28} ${K.head[1]-4} Q ${K.head[0]-10} ${K.head[1]+10} ${K.head[0]+22} ${K.head[1]+4}`}
+              stroke="#475569" strokeWidth="1" strokeOpacity="0.4" fill="none"/>
+
+        {/* ---- Throwing arm (front) ---- */}
+        <g>
+          {/* upper arm */}
+          <line x1={K.rShoulder[0]} y1={K.rShoulder[1]} x2={K.rElbow[0]} y2={K.rElbow[1]}
+                stroke={`url(#mLimb-${uid})`} strokeWidth="26" strokeLinecap="round"/>
+          {/* elbow */}
+          <circle cx={K.rElbow[0]} cy={K.rElbow[1]} r="13" fill={`url(#mJoint-${uid})`}/>
+          {/* forearm */}
+          <line x1={K.rElbow[0]} y1={K.rElbow[1]} x2={K.rWrist[0]} y2={K.rWrist[1]}
+                stroke={`url(#mLimb-${uid})`} strokeWidth="20" strokeLinecap="round"/>
+          {/* wrist/hand */}
+          <circle cx={K.rWrist[0]} cy={K.rWrist[1]} r="11" fill={`url(#mJoint-${uid})`}/>
+        </g>
+
+        {/* ---- Ball ---- */}
+        <circle cx={K.ball[0]} cy={K.ball[1]} r="9" fill="#f8fafc" stroke="#1e293b" strokeWidth="1.2"/>
+        <path d={`M ${K.ball[0]-6} ${K.ball[1]-3} Q ${K.ball[0]} ${K.ball[1]-8} ${K.ball[0]+6} ${K.ball[1]-3}`} stroke="#ef4444" strokeWidth="1.2" fill="none"/>
+        <path d={`M ${K.ball[0]-6} ${K.ball[1]+3} Q ${K.ball[0]} ${K.ball[1]+8} ${K.ball[0]+6} ${K.ball[1]+3}`} stroke="#ef4444" strokeWidth="1.2" fill="none"/>
+
+        {/* -------- Energy pipe overlay -------- */}
+        {/* dim underlay */}
+        <path d={energyPath} stroke="#0f1a30" strokeOpacity="0.6" strokeWidth="22" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+        {/* animated flowing pipe */}
+        <path d={energyPath}
+              stroke={`url(#energy-${uid})`}
+              strokeWidth="14"
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              filter={`url(#glow-${uid})`}
+              strokeDasharray="24 14">
+          <animate attributeName="stroke-dashoffset" from="0" to="-76" dur="1.6s" repeatCount="indefinite"/>
+        </path>
+
+        {/* Leak burst at throwing shoulder if Trunk→Arm leak */}
+        {taLeak && (
+          <g>
+            <circle cx={(K.rShoulder[0]+K.rElbow[0])/2} cy={(K.rShoulder[1]+K.rElbow[1])/2} r="38" fill={`url(#leak-${uid})`}>
+              <animate attributeName="r" values="28;44;28" dur="1.2s" repeatCount="indefinite"/>
+              <animate attributeName="opacity" values="0.9;0.4;0.9" dur="1.2s" repeatCount="indefinite"/>
+            </circle>
+            {/* escaping sparks */}
+            {[0,1,2,3].map(i => (
+              <circle key={i} cx={(K.rShoulder[0]+K.rElbow[0])/2} cy={(K.rShoulder[1]+K.rElbow[1])/2} r="3" fill="#fca5a5">
+                <animate attributeName="cx" values={`${(K.rShoulder[0]+K.rElbow[0])/2};${(K.rShoulder[0]+K.rElbow[0])/2 + 30 + i*8}`} dur={`${1.2+i*0.2}s`} repeatCount="indefinite"/>
+                <animate attributeName="cy" values={`${(K.rShoulder[1]+K.rElbow[1])/2};${(K.rShoulder[1]+K.rElbow[1])/2 - 20 - i*6}`} dur={`${1.2+i*0.2}s`} repeatCount="indefinite"/>
+                <animate attributeName="opacity" values="1;0" dur={`${1.2+i*0.2}s`} repeatCount="indefinite"/>
+              </circle>
+            ))}
+          </g>
+        )}
+
+        {/* -------- Annotations -------- */}
+        {/* Stage 1: front foot block (energy starts here) */}
+        <g className="anno">
+          <line x1={K.lAnkle[0]-6} y1={K.lAnkle[1]-14} x2="150" y2="430" stroke="#22d3ee" strokeWidth="1.2" strokeDasharray="2 3"/>
+          <rect x="42" y="412" width="176" height="44" rx="6" fill="#0b1220" stroke="#22d3ee" strokeOpacity="0.55"/>
+          <text x="130" y="428" fill="#22d3ee" fontSize="10" fontFamily="Inter" fontWeight="700" textAnchor="middle" letterSpacing="1">FRONT-FOOT BLOCK</text>
+          <text x="130" y="446" fill="#e2e8f0" fontSize="11" fontFamily="Inter" fontWeight="600" textAnchor="middle">지면 반력 · 에너지 시작</text>
+        </g>
+
+        {/* Stage 2: Pelvis→Trunk */}
+        <g className="anno">
+          <line x1={K.pelvisC[0]-20} y1={K.pelvisC[1]-10} x2="150" y2="280" stroke={ptLeak ? '#ef4444' : '#60a5fa'} strokeWidth="1.2" strokeDasharray="2 3"/>
+          <rect x="42" y="252" width="176" height="52" rx="6" fill="#0b1220" stroke={ptLeak ? '#ef4444' : '#60a5fa'} strokeOpacity="0.6"/>
+          <text x="130" y="268" fill={ptLeak ? '#ef4444' : '#60a5fa'} fontSize="10" fontFamily="Inter" fontWeight="700" textAnchor="middle" letterSpacing="1">PELVIS → TRUNK</text>
+          <text x="130" y="284" fill="#e2e8f0" fontSize="13" fontFamily="Inter" fontWeight="700" textAnchor="middle">ETI {etiPT.toFixed(2)}</text>
+          <text x="130" y="298" fill="#94a3b8" fontSize="10" fontFamily="Inter" textAnchor="middle">{ptLeak ? '누수 감지' : '정상 전달'}</text>
+        </g>
+
+        {/* Stage 3: Trunk→Arm */}
+        <g className="anno">
+          <line x1={K.rShoulder[0]+12} y1={K.rShoulder[1]-4} x2="700" y2="140" stroke={taLeak ? '#ef4444' : '#2563EB'} strokeWidth="1.2" strokeDasharray="2 3"/>
+          <rect x="592" y="110" width="180" height="60" rx="6" fill="#0b1220" stroke={taLeak ? '#ef4444' : '#2563EB'} strokeOpacity="0.7"/>
+          <text x="682" y="126" fill={taLeak ? '#ef4444' : '#2563EB'} fontSize="10" fontFamily="Inter" fontWeight="700" textAnchor="middle" letterSpacing="1">TRUNK → ARM</text>
+          <text x="682" y="144" fill="#e2e8f0" fontSize="15" fontFamily="Inter" fontWeight="800" textAnchor="middle">ETI {etiTA.toFixed(2)}</text>
+          <text x="682" y="160" fill={taLeak ? '#fca5a5' : '#94a3b8'} fontSize="10" fontFamily="Inter" fontWeight={taLeak ? 700 : 400} textAnchor="middle">
+            {taLeak ? `⚠ 누수 ${leakPct}% · 어깨 부하↑` : '정상 전달'}
+          </text>
+        </g>
+
+        {/* Ball label */}
+        <g>
+          <line x1={K.ball[0]} y1={K.ball[1]} x2={K.ball[0]+60} y2={K.ball[1]-36} stroke="#fbbf24" strokeWidth="1" strokeDasharray="2 3"/>
+        </g>
+      </svg>
+
+      <div className="silhouette-legend">
+        <div className="leg-item"><span className="dot" style={{ background: 'linear-gradient(90deg,#22d3ee,#2563EB)' }}/>에너지 흐름 (발 → 골반 → 몸통 → 팔 → 공)</div>
+        <div className="leg-item"><span className="dot" style={{ background: '#ef4444' }}/>누수 지점 · 어깨/팔꿈치 부하 증가</div>
+        <div className="leg-item note">ETI 1.0 근처 = 거의 전부 전달 · 0.85 미만 = 누수 신호</div>
       </div>
     </div>
   );

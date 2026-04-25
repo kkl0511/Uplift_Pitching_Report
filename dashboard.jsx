@@ -871,6 +871,17 @@ function SinglePitcherView({ p }) {
           <div className="panel">
             <div className="panel-head">
               <div>
+                <div className="kicker">Energy Transfer</div>
+                <h3>에너지 전달과 누수</h3>
+                <div className="sub">· ETI = 분절 간 에너지 전달 비율 · 1.0이면 손실 없음</div>
+              </div>
+            </div>
+            <EnergyFlow energy={p.energy}/>
+            <div className="chart-caption">{p.energy.comment}</div>
+          </div>
+          <div className="panel">
+            <div className="panel-head">
+              <div>
                 <div className="kicker">Peak Angular Velocity</div>
                 <h3>분절별 최대 회전 속도</h3>
                 <div className="sub">· 프로 범위: 골반 580–640 · 몸통 800–900 · 상완 1450–1600 °/s</div>
@@ -882,17 +893,6 @@ function SinglePitcherView({ p }) {
               <div className="gain-chip">골반→몸통 <b>×{p.angular.gainPT.toFixed(2)}</b></div>
               <div className="gain-chip">몸통→상완 <b>×{p.angular.gainTA.toFixed(2)}</b></div>
             </div>
-          </div>
-          <div className="panel">
-            <div className="panel-head">
-              <div>
-                <div className="kicker">Energy Transfer</div>
-                <h3>에너지 전달과 누수</h3>
-                <div className="sub">· ETI = 분절 간 에너지 전달 비율 · 1.0이면 손실 없음</div>
-              </div>
-            </div>
-            <EnergyFlow energy={p.energy}/>
-            <div className="chart-caption">{p.energy.comment}</div>
           </div>
           <div className="panel">
             <div className="panel-head">
