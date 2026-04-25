@@ -456,8 +456,8 @@ function FlagsSection({ p }) {
   return (
     <section className="section">
       <div className="container">
-        <SectionHead num="05" kicker="Diagnostic Flags"
-          title="진단 플래그"
+        <SectionHead num="05" kicker="Check Points"
+          title="체크 포인트"
           lead="· 자동 규칙 엔진 감지 주의·경계 신호 · 훈련 우선순위 근거"/>
         <div className="reveal-stagger">
           {p.flags.map((f,i) => (

@@ -527,19 +527,19 @@ html[data-theme="light"] .kpi.kpi-hero {
 }
 
 .seek-bar {
-  position: absolute;
-  left: 0; right: 0; bottom: 48px;
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  background: linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0.15));
-  z-index: 3;
+  margin-top: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--d-border);
+  border-radius: 10px;
   touch-action: pan-x;
 }
 @media (max-width: 700px) {
   .seek-bar {
-    bottom: 40px;
     padding: 8px 10px;
     gap: 8px;
   }
@@ -623,14 +623,15 @@ html[data-theme="light"] .kpi.kpi-hero {
 
 /* frame-controls는 화면 하단에 absolute로 고정 */
 .frame-controls {
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
+  position: relative;
   display: flex;
   justify-content: center;
   gap: 8px;
-  padding: 8px 10px;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 3;
+  padding: 10px;
+  margin-top: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--d-border);
+  border-radius: 10px;
 }
 .frame-btn {
   display: inline-flex;

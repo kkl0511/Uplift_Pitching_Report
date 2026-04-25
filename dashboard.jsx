@@ -514,28 +514,28 @@ function VideoPanel({ p }) {
             {trans.scale.toFixed(1)}× · Reset
           </button>
         )}
-        {showScrubber && (
-          <div className="seek-bar">
-            <span className="seek-time">{formatTime(currentTime)}</span>
-            <input type="range" className="seek-slider"
-                   min={0} max={duration || 0} step={FRAME} value={currentTime}
-                   onChange={onSeek}
-                   onInput={onSeek}
-                   onPointerDown={() => { try { videoRef.current && videoRef.current.pause(); } catch(_) {} }}
-                   onTouchStart={() => { try { videoRef.current && videoRef.current.pause(); } catch(_) {} }}
-                   style={{ '--seek-progress': `${duration ? (currentTime / duration) * 100 : 0}%` }}
-                   aria-label="동영상 시점 이동"/>
-            <span className="seek-time">{formatTime(duration)}</span>
-          </div>
-        )}
-        {showScrubber && (
-          <div className="frame-controls">
-            <button className="frame-btn" onClick={() => step(-1)}>◀ −1f</button>
-            <button className="frame-btn play" onClick={toggle}>{isPaused ? '▶ 재생' : '❚❚ 정지'}</button>
-            <button className="frame-btn" onClick={() => step(1)}>+1f ▶</button>
-          </div>
-        )}
       </div>
+      {showScrubber && (
+        <div className="seek-bar">
+          <span className="seek-time">{formatTime(currentTime)}</span>
+          <input type="range" className="seek-slider"
+                 min={0} max={duration || 0} step={FRAME} value={currentTime}
+                 onChange={onSeek}
+                 onInput={onSeek}
+                 onPointerDown={() => { try { videoRef.current && videoRef.current.pause(); } catch(_) {} }}
+                 onTouchStart={() => { try { videoRef.current && videoRef.current.pause(); } catch(_) {} }}
+                 style={{ '--seek-progress': `${duration ? (currentTime / duration) * 100 : 0}%` }}
+                 aria-label="동영상 시점 이동"/>
+          <span className="seek-time">{formatTime(duration)}</span>
+        </div>
+      )}
+      {showScrubber && (
+        <div className="frame-controls">
+          <button className="frame-btn" onClick={() => step(-1)}>◀ −1f</button>
+          <button className="frame-btn play" onClick={toggle}>{isPaused ? '▶ 재생' : '❚❚ 정지'}</button>
+          <button className="frame-btn" onClick={() => step(1)}>+1f ▶</button>
+        </div>
+      )}
 
       <div className="video-tags">
         <span className="video-tag">{p.archetype}</span>
@@ -692,7 +692,7 @@ function CoreIssuePanel({ p }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--d-fg2)' }}>
           <svg className="ic-svg" viewBox="0 0 24 24" style={{ color: '#fbbf24' }}><path d="M12 9v4m0 3v.01M12 3l10 18H2z"/></svg>
-          <b>플래그 {p.flags.length}</b>
+          <b>체크 {p.flags.length}</b>
           <span style={{ color: 'var(--d-fg3)' }}>· {p.flags[0]?.title || '특이 신호 없음'}</span>
         </div>
       </div>
@@ -805,23 +805,23 @@ function VideoCard({ src }) {
             try { v.currentTime = 0.001; } catch(_) {}
           }}
           style={{ width: '100%', display: 'block', borderRadius: 12, background: '#000' }}/>
-        <div className="seek-bar">
-          <span className="seek-time">{formatTime(currentTime)}</span>
-          <input type="range" className="seek-slider"
-                 min={0} max={duration || 0} step={FRAME} value={currentTime}
-                 onChange={onSeek}
-                 onInput={onSeek}
-                 onPointerDown={() => { try { videoRef.current && videoRef.current.pause(); } catch(_) {} }}
-                   onTouchStart={() => { try { videoRef.current && videoRef.current.pause(); } catch(_) {} }}
-                 style={{ '--seek-progress': `${duration ? (currentTime / duration) * 100 : 0}%` }}
-                 aria-label="동영상 시점 이동"/>
-          <span className="seek-time">{formatTime(duration)}</span>
-        </div>
-        <div className="frame-controls">
-          <button className="frame-btn" onClick={() => step(-1)}>◀ −1f</button>
-          <button className="frame-btn play" onClick={toggle}>{isPaused ? '▶ 재생' : '❚❚ 정지'}</button>
-          <button className="frame-btn" onClick={() => step(1)}>+1f ▶</button>
-        </div>
+      </div>
+      <div className="seek-bar">
+        <span className="seek-time">{formatTime(currentTime)}</span>
+        <input type="range" className="seek-slider"
+               min={0} max={duration || 0} step={FRAME} value={currentTime}
+               onChange={onSeek}
+               onInput={onSeek}
+               onPointerDown={() => { try { videoRef.current && videoRef.current.pause(); } catch(_) {} }}
+               onTouchStart={() => { try { videoRef.current && videoRef.current.pause(); } catch(_) {} }}
+               style={{ '--seek-progress': `${duration ? (currentTime / duration) * 100 : 0}%` }}
+               aria-label="동영상 시점 이동"/>
+        <span className="seek-time">{formatTime(duration)}</span>
+      </div>
+      <div className="frame-controls">
+        <button className="frame-btn" onClick={() => step(-1)}>◀ −1f</button>
+        <button className="frame-btn play" onClick={toggle}>{isPaused ? '▶ 재생' : '❚❚ 정지'}</button>
+        <button className="frame-btn" onClick={() => step(1)}>+1f ▶</button>
       </div>
     </div>
   );
@@ -1023,25 +1023,50 @@ function SinglePitcherView({ p }) {
         </div>
       </SectionBlock>
 
-      {/* Section: Flags */}
-      {p.flags.length > 0 && (
-        <SectionBlock num="04" title="Diagnostic Flags · 진단 플래그"
-          sub="· 자동 규칙 엔진이 감지한 주의·경계 신호">
-          {p.flags.map((f,i) => (
-            <div className={`flag-item ${f.severity}`} key={i}>
-              <div className="head">
-                <span className={`sev sev-${f.severity}`} style={{ padding: '4px 8px', fontSize: 10 }}>{f.severity}</span>
-                <span className="t">{f.title}</span>
-              </div>
-              <ul>{f.evidence.map((e,j) => <li key={j}>{e}</li>)}</ul>
-              <div className="impl">{f.implication}</div>
+      {/* Section: Flags — 항상 표시 (빈 경우 '특이사항 없음' 메시지) */}
+      <SectionBlock num="04" title="Check Points · 체크 포인트"
+        sub="· 자동 규칙 엔진이 감지한 확인 필요 항목">
+        {p.flags.length > 0 ? p.flags.map((f,i) => (
+          <div className={`flag-item ${f.severity}`} key={i}>
+            <div className="head">
+              <span className={`sev sev-${f.severity}`} style={{ padding: '4px 8px', fontSize: 10 }}>{f.severity}</span>
+              <span className="t">{f.title}</span>
             </div>
-          ))}
-        </SectionBlock>
-      )}
+            <ul>{f.evidence.map((e,j) => <li key={j}>{e}</li>)}</ul>
+            <div className="impl">{f.implication}</div>
+          </div>
+        )) : (
+          <div style={{
+            padding: '32px 24px',
+            borderRadius: 12,
+            border: '1px dashed var(--d-border)',
+            background: 'rgba(74, 222, 128, 0.04)',
+            textAlign: 'center',
+          }}>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 44, height: 44, borderRadius: '50%',
+              background: 'rgba(74, 222, 128, 0.15)',
+              border: '1px solid rgba(74, 222, 128, 0.4)',
+              marginBottom: 14,
+            }}>
+              <svg width="22" height="22" viewBox="0 0 16 16">
+                <path d="M3 8l4 4 6-8" stroke="#4ade80" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--d-fg1)', marginBottom: 6 }}>
+              특이사항 없음
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--d-fg3)', lineHeight: 1.6 }}>
+              · 측정 전 영역에서 주의·경계 신호 미감지<br/>
+              · 현재 수준 유지 + 보강 여력 확보 차원의 트레이닝 권장
+            </div>
+          </div>
+        )}
+      </SectionBlock>
 
       {/* Section: Training */}
-      <SectionBlock num={p.flags.length ? '05' : '04'}
+      <SectionBlock num="05"
         title="Physical Training Guide · 피지컬 트레이닝 가이드"
         sub="· 선수가 혼자 수행하는 자기주도 프로그램 · 최소 장비 · 4–12주 블록">
         <div className="training-list">
@@ -1062,7 +1087,7 @@ function SinglePitcherView({ p }) {
       </SectionBlock>
 
       {/* Section: Mechanic Drills */}
-      <SectionBlock num={p.flags.length ? '06' : '05'}
+      <SectionBlock num="06"
         title="Movement Correction Drills · 동작 교정 드릴"
         sub="· 선수가 혼자서도 수행할 수 있는 자기주도 드릴">
         <div style={{ marginBottom: 24 }}>
@@ -1539,7 +1564,7 @@ function App() {
     { id: 'physical', label: '체력 프로파일', icon: Ic.body,     num: '01' },
     { id: 'mech',     label: '투구 메카닉스', icon: Ic.motion,   num: '02' },
     { id: 'sw',       label: '강점·약점',     icon: Ic.star,     num: '03' },
-    { id: 'flags',    label: '진단 플래그',   icon: Ic.flag,     num: '04' },
+    { id: 'flags',    label: '체크 포인트',   icon: Ic.flag,     num: '04' },
     { id: 'training', label: '피지컬 트레이닝', icon: Ic.dumbbell, num: '05' },
     { id: 'drills',   label: '동작 교정 드릴', icon: Ic.motion,   num: '06' },
   ];
