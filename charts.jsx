@@ -260,23 +260,23 @@ function EnergyFlow({ energy }) {
 
 // ----------------- Layback meter -----------------
 function LaybackMeter({ deg }) {
-  // half-circle dial from -10° to 220°
+  // 3시 위치(오른쪽 수평) = 0°, 반시계방향 → 12시 = 90°, 9시 = 180°, 6시 = 270°
+  // 상단 반원 (0° → 90° → 180°) 형태로 220°까지 표시
   const size = 300;
-  const cx = size/2, cy = size * 0.82;
+  const cx = size/2, cy = size * 0.78;
   const r = size * 0.38;
-  const startAng = 180, endAng = 360; // top half
   const angle = Math.min(220, Math.max(0, deg));
-  // map 0..220 to startAng..endAng
   const toRad = (a) => (a * Math.PI) / 180;
+  // 눈금 각도(degree)를 SVG 좌표 각도로. SVG 좌표에서 3시=0°, 반시계방향은 음수 방향(y축 뒤집힘)
+  // 즉, 수학 좌표계 그대로 쓰되 y에 마이너스를 붙여야 반시계방향이 위쪽으로 가게 됨
   const angleToPos = (a) => {
-    const t = a / 220;
-    const deg2 = startAng + t * (endAng - startAng);
-    return [cx + Math.cos(toRad(deg2)) * r, cy + Math.sin(toRad(deg2)) * r];
+    return [cx + Math.cos(toRad(a)) * r, cy - Math.sin(toRad(a)) * r];
   };
   const arc = (from, to, color, w = 6) => {
     const [x1,y1] = angleToPos(from), [x2,y2] = angleToPos(to);
-    const large = 0;
-    return <path d={`M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`} fill="none" stroke={color} strokeWidth={w} strokeLinecap="round"/>;
+    const large = Math.abs(to - from) > 180 ? 1 : 0;
+    // 화면상 반시계방향으로 호를 그림 (SVG y축 뒤집힘 때문에 sweep=0)
+    return <path d={`M ${x1} ${y1} A ${r} ${r} 0 ${large} 0 ${x2} ${y2}`} fill="none" stroke={color} strokeWidth={w} strokeLinecap="round"/>;
   };
 
   const [needle, setNeedle] = useState(0);
@@ -297,7 +297,7 @@ function LaybackMeter({ deg }) {
   const [nx, ny] = angleToPos(needle);
 
   return (
-    <svg width={size} height={size * 0.72} viewBox={`0 0 ${size} ${size * 0.72}`}>
+    <svg width={size} height={size * 1.15} viewBox={`0 0 ${size} ${size * 1.15}`}>
       <defs>
         <linearGradient id="laybackG" x1="0" x2="1">
           <stop offset="0" stopColor="#2563EB"/>
@@ -314,10 +314,10 @@ function LaybackMeter({ deg }) {
       {[0,60,120,180,220].map(t => {
         const [x,y] = angleToPos(t);
         const rOut = r + 16;
-        const ang = startAng + (t/220)*(endAng-startAng);
-        const [xo,yo] = [cx + Math.cos(toRad(ang)) * rOut, cy + Math.sin(toRad(ang)) * rOut];
+        const [xo,yo] = [cx + Math.cos(toRad(t)) * rOut, cy - Math.sin(toRad(t)) * rOut];
+        const [xi,yi] = [cx + Math.cos(toRad(t)) * (r-8), cy - Math.sin(toRad(t)) * (r-8)];
         return <g key={t}>
-          <line x1={x} y1={y} x2={cx + Math.cos(toRad(ang)) * (r-8)} y2={cy + Math.sin(toRad(ang)) * (r-8)} stroke="rgba(255,255,255,0.18)"/>
+          <line x1={x} y1={y} x2={xi} y2={yi} stroke="rgba(255,255,255,0.18)"/>
           <text x={xo} y={yo + 4} textAnchor="middle" fontSize="12" fontWeight="600" fill="#cbd5e1" fontFamily="Inter">{t}°</text>
         </g>;
       })}

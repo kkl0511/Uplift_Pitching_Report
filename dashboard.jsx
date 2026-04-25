@@ -96,13 +96,20 @@ function PitcherSelect({ pitchers, activeId, onSelect }) {
 /* ---------------- SIDEBAR ---------------- */
 function Sidebar({ pitchers, activeId, onSelect, mode, onMode, navItems, activeNav, onNavSelect, isOpen, onClose }) {
   return (
-    <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
+    <>
+      {isOpen && <div className="sb-overlay show" onClick={onClose}/>}
+      <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
       <div className="sb-brand">
         <img src="assets/logo-bbl.png" alt="BBL"/>
         <div>
           <div className="name">BioMotion Lab</div>
           <div className="sub">Pitcher Dashboard</div>
         </div>
+        <button className="sb-close" onClick={onClose} aria-label="닫기">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M6 6l12 12M18 6L6 18"/>
+          </svg>
+        </button>
       </div>
 
       <div className="sb-section-title">Pitcher</div>
@@ -139,7 +146,8 @@ function Sidebar({ pitchers, activeId, onSelect, mode, onMode, navItems, activeN
           <span>PDF</span>
         </button>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
 
@@ -293,6 +301,102 @@ function VelocityPanel({ p }) {
   );
 }
 
+function usePinchZoom() {
+  const ref = useRef(null);
+  const stateRef = useRef({ scale: 1, tx: 0, ty: 0, pinchDist: 0, pinchCx: 0, pinchCy: 0, startScale: 1, startTx: 0, startTy: 0, panX: 0, panY: 0, isPanning: false });
+  const [trans, setTrans] = useState({ scale: 1, tx: 0, ty: 0 });
+
+  const apply = (s, tx, ty) => {
+    stateRef.current.scale = s;
+    stateRef.current.tx = tx;
+    stateRef.current.ty = ty;
+    setTrans({ scale: s, tx, ty });
+  };
+
+  const reset = () => apply(1, 0, 0);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    const mid = (a, b) => ({ x: (a.clientX + b.clientX)/2, y: (a.clientY + b.clientY)/2 });
+
+    const onTouchStart = (e) => {
+      const s = stateRef.current;
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const [t1, t2] = e.touches;
+        s.pinchDist = dist(t1, t2);
+        const m = mid(t1, t2);
+        const rect = el.getBoundingClientRect();
+        s.pinchCx = m.x - rect.left;
+        s.pinchCy = m.y - rect.top;
+        s.startScale = s.scale;
+        s.startTx = s.tx;
+        s.startTy = s.ty;
+      } else if (e.touches.length === 1 && s.scale > 1) {
+        s.isPanning = true;
+        s.panX = e.touches[0].clientX - s.tx;
+        s.panY = e.touches[0].clientY - s.ty;
+      }
+    };
+
+    const onTouchMove = (e) => {
+      const s = stateRef.current;
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const [t1, t2] = e.touches;
+        const newDist = dist(t1, t2);
+        const ratio = newDist / (s.pinchDist || 1);
+        const newScale = Math.max(1, Math.min(5, s.startScale * ratio));
+        // 핀치 중심 기준 확대/축소
+        const dx = s.pinchCx - (el.clientWidth/2);
+        const dy = s.pinchCy - (el.clientHeight/2);
+        const newTx = s.startTx - dx * (newScale - s.startScale);
+        const newTy = s.startTy - dy * (newScale - s.startScale);
+        apply(newScale, newTx, newTy);
+      } else if (e.touches.length === 1 && s.isPanning && s.scale > 1) {
+        e.preventDefault();
+        const newTx = e.touches[0].clientX - s.panX;
+        const newTy = e.touches[0].clientY - s.panY;
+        apply(s.scale, newTx, newTy);
+      }
+    };
+
+    const onTouchEnd = (e) => {
+      const s = stateRef.current;
+      if (e.touches.length === 0) {
+        s.isPanning = false;
+        if (s.scale < 1.05) reset();
+      }
+    };
+
+    const onDblClick = (e) => {
+      const s = stateRef.current;
+      if (s.scale > 1) reset();
+      else {
+        const rect = el.getBoundingClientRect();
+        const dx = (e.clientX - rect.left) - el.clientWidth/2;
+        const dy = (e.clientY - rect.top) - el.clientHeight/2;
+        apply(2, -dx, -dy);
+      }
+    };
+
+    el.addEventListener('touchstart', onTouchStart, { passive: false });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd);
+    el.addEventListener('dblclick', onDblClick);
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('dblclick', onDblClick);
+    };
+  }, []);
+
+  return { ref, trans, reset };
+}
+
 function VideoPanel({ p }) {
   const videoRef = useRef(null);
   const [rate, setRate] = useState(0.1);
@@ -330,6 +434,8 @@ function VideoPanel({ p }) {
   };
 
   const showScrubber = !!src && !ytEmbed;
+  const { ref: zoomRef, trans, reset: resetZoom } = usePinchZoom();
+  const zoomed = trans.scale > 1.05;
 
   return (
     <div className="panel" style={{ minHeight: 280, display: 'flex', flexDirection: 'column' }}>
@@ -337,7 +443,7 @@ function VideoPanel({ p }) {
         <div>
           <div className="kicker">Motion Capture</div>
           <h3>투구 영상 시퀀스</h3>
-          <div className="sub">· {p.name} {showScrubber ? '· ← → 프레임 · Space 재생/정지' : '· 3D 스켈레톤 트래킹'}</div>
+          <div className="sub">· {p.name} {showScrubber ? '· ← → 프레임 · Space 재생/정지 · 핀치 줌' : '· 3D 스켈레톤 트래킹'}</div>
         </div>
         {showScrubber ? (
           <div className="rate-switch">
@@ -354,16 +460,35 @@ function VideoPanel({ p }) {
         )}
       </div>
 
-      <div className="video-wrap" tabIndex={0} onKeyDown={onKey}>
-        {ytEmbed ? (
-          <iframe src={ytEmbed} title={`${p.name} mocap`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen/>
-        ) : src ? (
-          <video ref={videoRef} src={src} playsInline preload="auto"
-            onPlay={() => setIsPaused(false)}
-            onPause={() => setIsPaused(true)}
-            onLoadedMetadata={(e) => { e.currentTarget.playbackRate = rate; }}/>
-        ) : (
-          <MocapPlaceholder p={p}/>
+      <div className="video-wrap" tabIndex={0} onKeyDown={onKey} ref={zoomRef}
+           style={{ touchAction: zoomed ? 'none' : 'auto', overflow: 'hidden' }}>
+        <div style={{
+          width: '100%', height: '100%',
+          transform: `translate(${trans.tx}px, ${trans.ty}px) scale(${trans.scale})`,
+          transformOrigin: 'center center',
+          transition: zoomed ? 'none' : 'transform .25s ease',
+        }}>
+          {ytEmbed ? (
+            <iframe src={ytEmbed} title={`${p.name} mocap`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen/>
+          ) : src ? (
+            <video ref={videoRef} src={src} playsInline preload="auto"
+              onPlay={() => setIsPaused(false)}
+              onPause={() => setIsPaused(true)}
+              onLoadedMetadata={(e) => { e.currentTarget.playbackRate = rate; }}/>
+          ) : (
+            <MocapPlaceholder p={p}/>
+          )}
+        </div>
+        {zoomed && (
+          <button onClick={resetZoom} style={{
+            position: 'absolute', top: 12, right: 12,
+            padding: '6px 12px', borderRadius: 6,
+            background: 'rgba(0,0,0,.75)', color: '#fff',
+            border: '1px solid rgba(255,255,255,.2)',
+            fontSize: 11, fontWeight: 600, cursor: 'pointer', zIndex: 5,
+          }}>
+            {trans.scale.toFixed(1)}× · Reset
+          </button>
         )}
         {showScrubber && (
           <div className="frame-controls">
@@ -544,8 +669,19 @@ function CoreIssuePanel({ p }) {
 /* ---------------- COLLAPSIBLE SECTION ---------------- */
 function SectionBlock({ num, title, sub, defaultOpen = true, children }) {
   const [open, setOpen] = useState(defaultOpen);
+  const ref = useRef(null);
+
+  // 외부 네비게이션에서 이 섹션으로 이동할 때 자동 open
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const handler = () => setOpen(true);
+    el.addEventListener('__open', handler);
+    return () => el.removeEventListener('__open', handler);
+  }, []);
+
   return (
-    <div className={`section-block ${open ? 'open' : ''}`}>
+    <div ref={ref} className={`section-block ${open ? 'open' : ''}`} data-section-num={num}>
       <button className="section-bar" onClick={() => setOpen(o => !o)}>
         <div className="num">{num}</div>
         <div>
@@ -755,7 +891,7 @@ function SinglePitcherView({ p }) {
                 <div className="sub">· 프로 범위 160°–180°</div>
               </div>
             </div>
-            <div className="layback-card" style={{ padding: 0, background: 'transparent', border: 'none', display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 24, alignItems: 'center' }}>
+            <div className="layback-card" style={{ padding: 0, background: 'transparent', border: 'none', display: 'grid', gridTemplateColumns: '1fr auto', gap: 32, alignItems: 'center' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 16 }}>
                   <div className="layback-value">{p.layback.deg.toFixed(1)}<span className="deg">°</span></div>
@@ -764,14 +900,14 @@ function SinglePitcherView({ p }) {
                   </div>
                 </div>
                 <div style={{ color: 'var(--d-fg2)', marginTop: 12, fontSize: 13 }}>{p.layback.note}</div>
-              </div>
-              <div>
-                <div className="layback-photo" style={{ maxWidth: 200 }}>
+                <div className="layback-photo" style={{ maxWidth: 220, marginTop: 16 }}>
                   <img src="assets/max-layback.png" alt="Max Layback reference"/>
                 </div>
-                <div className="layback-photo-caption">Reference</div>
+                <div className="layback-photo-caption" style={{ marginTop: 6 }}>Reference</div>
               </div>
-              <LaybackMeter deg={p.layback.deg}/>
+              <div style={{ flexShrink: 0 }}>
+                <LaybackMeter deg={p.layback.deg}/>
+              </div>
             </div>
           </div>
         </div>
@@ -831,8 +967,8 @@ function SinglePitcherView({ p }) {
 
       {/* Section: Training */}
       <SectionBlock num={p.flags.length ? '05' : '04'}
-        title="Training Priorities · 훈련 우선순위"
-        sub="· 진단 기반 4–12주 블록">
+        title="Physical Training Guide · 피지컬 트레이닝 가이드"
+        sub="· 선수가 혼자 수행하는 자기주도 프로그램 · 최소 장비 · 4–12주 블록">
         <div className="training-list">
           {p.training.map((t,i) => (
             <div className="training-card" data-idx={`0${i+1}`} key={i}>
@@ -850,12 +986,294 @@ function SinglePitcherView({ p }) {
         </div>
       </SectionBlock>
 
+      {/* Section: Mechanic Drills */}
+      <SectionBlock num={p.flags.length ? '06' : '05'}
+        title="Movement Correction Drills · 동작 교정 드릴"
+        sub="· 선수가 혼자서도 수행할 수 있는 자기주도 드릴">
+        <MechanicDrills p={p}/>
+      </SectionBlock>
+
       <div style={{ marginTop: 24, padding: 20, borderRadius: 14, background: 'var(--d-surface)', border: '1px solid var(--d-border)', fontSize: 11, color: 'var(--d-fg3)', textAlign: 'center' }}>
         <b style={{ color: 'var(--d-fg1)' }}>BioMotion Baseball Lab</b> · Kookmin University · 
         <a href="https://biomotion.kr" style={{ color: 'var(--bbl-primary)', marginLeft: 4 }}>biomotion.kr</a>
         <div style={{ marginTop: 4 }}>· Uplift Labs 마커리스 모션캡처 · VALD ForceDecks · 랩소도 통합 분석</div>
       </div>
     </>
+  );
+}
+
+/* ---------------- MECHANIC DRILLS ---------------- */
+const DRILL_CATALOG = [
+  {
+    id: 'hip-shoulder',
+    tag: '분리',
+    title: 'Hip-Shoulder Separation · 골반-어깨 분리 드릴',
+    target: '몸통-골반 분리각 부족 · 시퀀스 동기화 불량',
+    triggers: ['시퀀스', '몸통', '골반', 'ETI', '분리'],
+    level: '기본',
+    equipment: '긴 막대(PVC·배트·수건 묶음) 1개',
+    duration: '10분',
+    cue: '"골반 먼저, 가슴은 늦게 — 고무줄을 비틀어 감는 느낌"',
+    steps: [
+      { t: '거울 세팅', d: '전신 거울 앞 또는 휴대폰을 삼각대/벽에 기대 측면에서 촬영. 앞발 착지 자세로 시작.' },
+      { t: '막대 올리기', d: '막대를 어깨 위에 수평으로 얹는다. 양손으로 잡고 어깨와 평행 유지.' },
+      { t: '골반 선행', d: '골반을 타겟 쪽으로 먼저 돌린다. 이때 어깨(막대)는 측방(1·3루 방향)을 유지 — 스스로 "골반 1박, 어깨 2박" 카운트.' },
+      { t: '지연 회전', d: '골반이 완전히 열렸다는 감각이 온 뒤에 어깨를 던진다. 스냅 없이 풀리듯.' },
+      { t: '셀프 체크', d: '영상을 보며 골반 라인과 어깨 라인 각도가 엇갈리는 순간이 한 프레임 이상 유지되는지 확인.' },
+    ],
+    reps: '3세트 × 6회 (던지는 쪽만)',
+    fail: [
+      '골반과 어깨가 동시에 회전 → 분리각 0°',
+      '상체가 먼저 열림 → 팔이 끌려나옴',
+    ],
+    selfCheck: '측면 영상에서 골반 라인과 어깨 라인의 교차 각도가 30–45°로 0.05초 이상 유지되는지. 스마트폰 슬로우모션(240fps)으로 찍으면 프레임 단위로 확인 가능.',
+  },
+  {
+    id: 'layback',
+    tag: '레이백',
+    title: 'External Rotation Layback · 최대 외회전 드릴',
+    target: '최대 외회전(Layback) 부족 · 경직된 어깨',
+    triggers: ['레이백', 'layback', '외회전', 'ER', '어깨'],
+    level: '기본 → 중급',
+    equipment: '야구공 1개 · 벽',
+    duration: '8분',
+    cue: '"공을 뒤로 던지듯 눕혀라 — 손목이 귀 뒤에 위치"',
+    steps: [
+      { t: '벽 터치 세팅', d: '투구측 옆면을 벽에 대고 선다. 앞발 착지 자세(스트라이드 상태)까지 만든다.' },
+      { t: '공 젖히기', d: '공을 든 손을 뒤로 눕혀 손등이 벽에 닿도록. 팔꿈치 높이는 어깨와 같은 높이(90°).' },
+      { t: '정지 유지', d: '그 자세로 2초 정지. 통증 없이 자연스러운 젖힘 범위에서 멈춘다.' },
+      { t: '리듬 추가', d: '정지 없이 "하나-눕혀-둘-앞으로" 리듬으로 반복. 릴리스는 공을 멀리 안 보내도 OK.' },
+      { t: '셀프 체크', d: '정면 셀카 동영상으로 공을 든 손이 귀 뒤쪽 위치까지 눕는지, 팔꿈치가 어깨 높이와 같은지 확인.' },
+    ],
+    reps: '3세트 × 5회',
+    fail: [
+      '팔꿈치가 어깨보다 낮음 → 회전근개 부담 ↑',
+      '상체가 과도하게 측굴 → 진짜 레이백이 아닌 몸통 기울임',
+    ],
+    selfCheck: '정면에서 찍은 영상에서 공이 최대로 젖혀진 순간, 팔꿈치가 어깨 라인과 수평이면 OK. 팔꿈치가 아래로 처지면 힘을 뺀 후 다시 시도.',
+  },
+  {
+    id: 'stride',
+    tag: '스트라이드',
+    title: 'Directional Stride · 스트라이드 방향 드릴',
+    target: '스트라이드 방향 이탈 · 앞발 착지 불안정',
+    triggers: ['스트라이드', 'stride', '방향', '앞발', '착지'],
+    level: '기본',
+    equipment: '마스킹 테이프 또는 분필 · 콘 1개(없으면 신발)',
+    duration: '10분',
+    cue: '"타겟과 앞발 발가락을 한 줄로 — 수평으로 눕히듯"',
+    steps: [
+      { t: '라인 그리기', d: '평지에서 타겟(콘 또는 신발)까지 직선을 테이프로 표시. 양 옆 5cm 지점에도 허용선을 그린다.' },
+      { t: '쉐도우 투구', d: '공 없이 와인드업 → 앞발 착지. 앞발이 라인 위 또는 허용선 안에 정확히 떨어지는지 눈으로 확인.' },
+      { t: '느린 속도 투구', d: '공 들고 50% 강도로 실제 투구. 매 투구 후 본인이 앞발 위치 바로 체크.' },
+      { t: '점진 증가', d: '80% → 100%로 올리면서 10구 중 8구 이상 허용선 내 성공 시 다음 단계.' },
+      { t: '셀프 체크', d: '휴대폰으로 마운드 뒤 상단 각도에서 촬영. 앞발 착지점과 타겟이 같은 수직선상인지.' },
+    ],
+    reps: '4세트 × 10구 (정확도 > 속도)',
+    fail: [
+      '앞발이 타겟 라인 안쪽으로 교차(크로스파이어) → 몸통 회전 차단',
+      '앞발이 바깥쪽 이탈 → 몸통 조기 열림',
+    ],
+    selfCheck: '정면 상단(등 뒤에 카메라 높이 세우고) 영상에서 앞발 착지점이 타겟과 한 직선상에 있는지. 벗어나면 허용선 안에 들 때까지 반복.',
+  },
+  {
+    id: 'front-block',
+    tag: '차단',
+    title: 'Front Leg Block · 앞다리 차단 드릴',
+    target: '앞다리 차단(브레이싱) 부족 · 체중 이동 누수',
+    triggers: ['차단', '브레이싱', '앞다리', '앞발', 'block', 'front leg', '체중'],
+    level: '중급',
+    equipment: '박스 또는 낮은 계단(15cm) · (선택) 2kg 공 또는 물통',
+    duration: '12분',
+    cue: '"앞무릎을 잠그고 몸통을 튕겨라 — 기둥처럼 서라"',
+    steps: [
+      { t: '스텝업 홀드', d: '앞발을 박스/계단 위에 올리고 축각으로 체중을 앞으로 이동. 앞무릎이 발끝을 넘지 않게 잠근다. 5초 × 5회.' },
+      { t: '메디볼 슬램', d: '공(또는 물통)을 머리 위에서 앞발 직전 바닥으로 내려찍기. 앞다리가 "벽" 역할. 3세트 × 6회.' },
+      { t: '쉐도우 피치', d: '박스 없이 평지에서 투구 동작. 착지 순간 앞무릎을 "탁" 하고 펴지는 감각에 집중.' },
+      { t: '셀프 체크', d: '측면 촬영 후 앞발 착지 프레임 → 릴리스 프레임을 비교. 무릎 각도가 넓어지는(펴지는) 방향이어야 정상.' },
+    ],
+    reps: '3세트 × 6회 (스텝업) + 3세트 × 6회 (슬램)',
+    fail: [
+      '착지 후 앞무릎이 계속 굽음 → 에너지 누수',
+      '무릎이 안쪽으로 무너짐(발생 시 즉시 중단, 통증 여부 확인)',
+    ],
+    selfCheck: '측면 슬로우모션 영상에서 앞발 착지 → 릴리스 사이 무릎 각도 변화를 확인. 각도가 40–50° 정도 "펴지면" 정상 블로킹.',
+  },
+  {
+    id: 'arm-path',
+    tag: '팔궤도',
+    title: 'Clean Arm Path · 팔 궤적 정리 드릴',
+    target: '팔 궤적 비효율 · 릴리스 포인트 불안정',
+    triggers: ['팔', '궤도', 'arm', 'path', '릴리스', 'release'],
+    level: '기본',
+    equipment: '수건 1장 · 야구공',
+    duration: '10분',
+    cue: '"엄지 아래로 → 공은 위로 — W가 아닌 반원"',
+    steps: [
+      { t: '타월 드릴', d: '공 대신 수건을 쥐고 투구 동작. 팔을 뒤로 보낼 때 엄지가 아래(thumbs down)로 향하는지 스스로 확인.' },
+      { t: '피봇 픽오프', d: '축각만으로 회전해 공 없이 릴리스. 팔꿈치가 어깨보다 아래로 떨어지지 않도록 한다.' },
+      { t: '리버스 스로우', d: '타겟을 등지고 선 상태에서 공을 머리 위 방향으로 가볍게 던진다(4m). 팔 궤도 리듬 회복용.' },
+      { t: '실투 통합', d: '캐치볼로 교정된 팔 궤도를 실제 투구에 적용. 20m × 15개, 힘 70%.' },
+      { t: '셀프 체크', d: '후면 영상으로 팔이 "큰 원"을 그리는지 확인. 팔꿈치가 어깨 아래로 떨어지면 타월 드릴 재반복.' },
+    ],
+    reps: '3세트 × 8회 (타월) + 캐치볼 15구',
+    fail: [
+      '팔꿈치가 어깨보다 낮음 (elbow drop / inverted W)',
+      '릴리스 포인트가 매번 바뀜 → 제구 흔들림',
+    ],
+    selfCheck: '후면에서 슬로우모션으로 팔 궤적을 찍어 팔꿈치 높이를 프레임별로 본다. 어깨 라인 아래로 내려가면 OUT, 같거나 높으면 OK.',
+  },
+  {
+    id: 'tempo',
+    tag: '템포',
+    title: 'Tempo Reset · 동작 타이밍 드릴',
+    target: '동작 타이밍 붕괴 · 에너지 전달 지연',
+    triggers: ['템포', 'tempo', '타이밍', '시퀀스', '에너지', '전달'],
+    level: '기본',
+    equipment: '스마트폰 메트로놈 앱 · 거울 또는 셀카 영상',
+    duration: '10분',
+    cue: '"1-2-3 리듬 — 들어, 모아, 던져"',
+    steps: [
+      { t: '메트로놈 60bpm', d: '앱 실행(60bpm). "1박: 와인드업, 2박: 핸드브레이크, 3박: 릴리스". 박자에 맞춰 천천히 반복.' },
+      { t: '가속 구간 강조', d: '앞발 착지 → 릴리스까지는 반박(0.5박)에 빠르게. 앞은 느리게, 뒤는 폭발적으로.' },
+      { t: '거울/셀카 피드백', d: '거울 앞에서 동작. 각 구간 정지 포지션에서 자세 점검. 또는 셀카 영상으로 확인.' },
+      { t: '실투 전환', d: '메트로놈 없이 캐치볼 20개. 몸으로 익힌 리듬을 유지하는지 스스로 느낀다.' },
+      { t: '셀프 체크', d: '영상 스톱워치로 핸드브레이크 → 릴리스 구간을 측정. 0.4–0.5초가 이상적.' },
+    ],
+    reps: '3세트 × 10회 (리듬 드릴) + 캐치볼 20구',
+    fail: [
+      '전반이 너무 빠름 → 후반 가속 불가',
+      '핸드브레이크에서 멈춤이 길어 리듬 붕괴',
+    ],
+    selfCheck: '스마트폰 스톱워치/영상 플레이어로 앞발 착지 프레임과 릴리스 프레임을 찍어 시간차 계산. 0.4–0.5초 범위면 정상.',
+  },
+];
+
+function pickDrills(p) {
+  // 선수 약점 + 코어이슈 + 플래그 텍스트를 매칭에 사용
+  const haystack = [
+    p.coreIssue || '',
+    ...(p.weaknesses||[]).map(w => w.title + ' ' + (w.detail||'')),
+    ...(p.flags||[]).map(f => f.title + ' ' + (f.detail||'')),
+  ].join(' ').toLowerCase();
+
+  const scored = DRILL_CATALOG.map(d => {
+    const hits = d.triggers.filter(tr => haystack.includes(tr.toLowerCase())).length;
+    return { d, hits };
+  }).sort((a,b) => b.hits - a.hits);
+
+  const picked = scored.filter(s => s.hits > 0).map(s => s.d);
+  if (picked.length < 3) {
+    DRILL_CATALOG.forEach(d => {
+      if (picked.length < 3 && !picked.includes(d)) picked.push(d);
+    });
+  }
+  return picked.slice(0, 4);
+}
+
+function MechanicDrills({ p }) {
+  const drills = pickDrills(p);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const active = drills[activeIdx] || drills[0];
+
+  return (
+    <div className="drills-wrap">
+      {/* 상단 인트로 */}
+      <div className="drills-intro">
+        <div className="drills-intro-head">
+          <div className="drills-intro-kicker">For Athletes · 선수용</div>
+          <h3 className="drills-intro-title">혼자서 수행하는 교정 드릴 {drills.length}개</h3>
+          <div className="drills-intro-sub">
+            {p.name} 선수의 <b>진단 결과</b>에 따라 자동 선별된 드릴입니다.
+            모든 드릴은 <b>최소 장비 · 셀프 체크 방법 · 단계별 지시</b>를 포함해
+            혼자서도 안전하게 진행할 수 있도록 구성했습니다.
+          </div>
+        </div>
+        <div className="drills-legend">
+          <div className="dl-item"><span className="dl-dot" style={{background:'#60a5fa'}}/>타겟</div>
+          <div className="dl-item"><span className="dl-dot" style={{background:'#fbbf24'}}/>단계</div>
+          <div className="dl-item"><span className="dl-dot" style={{background:'#f87171'}}/>주의</div>
+          <div className="dl-item"><span className="dl-dot" style={{background:'#4ade80'}}/>셀프 체크</div>
+        </div>
+      </div>
+
+      {/* 탭 */}
+      <div className="drills-tabs">
+        {drills.map((d, i) => (
+          <button key={d.id}
+            className={`drill-tab ${i === activeIdx ? 'active' : ''}`}
+            onClick={() => setActiveIdx(i)}>
+            <span className="dt-num">0{i+1}</span>
+            <div className="dt-txt">
+              <div className="dt-tag">{d.tag}</div>
+              <div className="dt-title">{d.title}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* 드릴 상세 */}
+      {active && (
+        <div className="drill-card" key={active.id}>
+          <div className="dc-head">
+            <div>
+              <div className="dc-tag">{active.tag} · {active.level}</div>
+              <h3 className="dc-title">{active.title}</h3>
+              <div className="dc-target">🎯 <b>타겟</b> · {active.target}</div>
+            </div>
+            <div className="dc-meta">
+              <div className="dcm-row"><span>장비</span><b>{active.equipment}</b></div>
+              <div className="dcm-row"><span>소요</span><b>{active.duration}</b></div>
+              <div className="dcm-row"><span>세트</span><b>{active.reps}</b></div>
+            </div>
+          </div>
+
+          <div className="dc-cue">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+            <span>{active.cue}</span>
+          </div>
+
+          <div className="dc-body">
+            <div className="dc-col">
+              <div className="dc-col-title">
+                <span className="dl-dot" style={{background:'#fbbf24'}}/>
+                단계별 실행
+              </div>
+              <ol className="dc-steps">
+                {active.steps.map((s, i) => (
+                  <li key={i}>
+                    <span className="ds-num">{i+1}</span>
+                    <div>
+                      <b>{s.t}</b>
+                      <p>{s.d}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            <div className="dc-col">
+              <div className="dc-col-title">
+                <span className="dl-dot" style={{background:'#f87171'}}/>
+                주의할 실수
+              </div>
+              <ul className="dc-fails">
+                {active.fail.map((f, i) => <li key={i}>⚠️ {f}</li>)}
+              </ul>
+
+              <div className="dc-col-title" style={{ marginTop: 20 }}>
+                <span className="dl-dot" style={{background:'#4ade80'}}/>
+                셀프 체크 방법
+              </div>
+              <div className="dc-coach">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>
+                <span>{active.selfCheck}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -991,7 +1409,8 @@ function App() {
     { id: 'mech',     label: '투구 메카닉스', icon: Ic.motion,   num: '02' },
     { id: 'sw',       label: '강점·약점',     icon: Ic.star,     num: '03' },
     { id: 'flags',    label: '진단 플래그',   icon: Ic.flag,     num: '04' },
-    { id: 'training', label: '훈련 우선순위', icon: Ic.dumbbell, num: '05' },
+    { id: 'training', label: '피지컬 트레이닝', icon: Ic.dumbbell, num: '05' },
+    { id: 'drills',   label: '동작 교정 드릴', icon: Ic.motion,   num: '06' },
   ];
 
   // Smooth scroll to section
@@ -1001,16 +1420,19 @@ function App() {
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
-    const numMap = { physical: '01', mech: '02', sw: '03', flags: '04', training: '05' };
+    const numMap = { physical: '01', mech: '02', sw: '03', flags: '04', training: '05', drills: '06' };
+    const targetNum = numMap[id];
     setTimeout(() => {
-      const blocks = document.querySelectorAll('.section-block');
-      blocks.forEach(b => {
-        const num = b.querySelector('.num')?.textContent;
-        if (num === numMap[id]) {
-          b.classList.add('open');
-          b.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      });
+      const block = document.querySelector(`.section-block[data-section-num="${targetNum}"]`);
+      if (block) {
+        // React 내부 state도 변경되도록 커스텀 이벤트 발송
+        block.dispatchEvent(new Event('__open'));
+        // open 클래스 적용 대기 후 스크롤
+        setTimeout(() => {
+          const y = block.getBoundingClientRect().top + window.pageYOffset - 16;
+          window.scrollTo({ top: y, behavior: 'smooth' });
+        }, 80);
+      }
     }, 50);
   };
 
