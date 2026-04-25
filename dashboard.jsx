@@ -372,6 +372,8 @@ function usePinchZoom() {
     };
 
     const onDblClick = (e) => {
+      // 버튼/컨트롤 클릭은 zoom 토글에서 제외 (프레임 스텝 연타 오작동 방지)
+      if (e.target.closest && e.target.closest('button, .frame-controls, .rate-switch')) return;
       const s = stateRef.current;
       if (s.scale > 1) reset();
       else {
@@ -399,9 +401,9 @@ function usePinchZoom() {
 
 function VideoPanel({ p }) {
   const videoRef = useRef(null);
-  const [rate, setRate] = useState(0.1);
+  const [rate, setRate] = useState(1);
   const [isPaused, setIsPaused] = useState(true);
-  const rates = [0.1, 0.25, 1];
+  const rates = [1, 0.25, 0.1];
   const src = p.mocapUrl || p.video || p.videoUrl;
   const isYouTube = src && /youtu\.?be/.test(src);
   let ytEmbed = null;
@@ -471,10 +473,15 @@ function VideoPanel({ p }) {
           {ytEmbed ? (
             <iframe src={ytEmbed} title={`${p.name} mocap`} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen/>
           ) : src ? (
-            <video ref={videoRef} src={src} playsInline preload="auto"
+            <video ref={videoRef} src={src} playsInline preload="auto" muted
               onPlay={() => setIsPaused(false)}
               onPause={() => setIsPaused(true)}
-              onLoadedMetadata={(e) => { e.currentTarget.playbackRate = rate; }}/>
+              onLoadedMetadata={(e) => {
+                const v = e.currentTarget;
+                v.playbackRate = rate;
+                // 첫 프레임 강제 표시 (검은 화면 방지)
+                try { v.currentTime = 0.001; } catch(_) {}
+              }}/>
           ) : (
             <MocapPlaceholder p={p}/>
           )}
@@ -700,9 +707,9 @@ function SectionBlock({ num, title, sub, defaultOpen = true, children }) {
 /* ---------------- VIDEO CARD (reused) ---------------- */
 function VideoCard({ src }) {
   const videoRef = useRef(null);
-  const [rate, setRate] = useState(0.1);
+  const [rate, setRate] = useState(1);
   const [isPaused, setIsPaused] = useState(true);
-  const rates = [0.1, 1];
+  const rates = [1, 0.25, 0.1];
   useEffect(() => {
     if (videoRef.current) videoRef.current.playbackRate = rate;
   }, [rate]);
@@ -741,10 +748,14 @@ function VideoCard({ src }) {
         </div>
       </div>
       <div className="video-wrap" tabIndex={0} onKeyDown={onKey}>
-        <video ref={videoRef} src={src} playsInline preload="auto"
+        <video ref={videoRef} src={src} playsInline preload="auto" muted
           onPlay={() => setIsPaused(false)}
           onPause={() => setIsPaused(true)}
-          onLoadedMetadata={(e) => { e.currentTarget.playbackRate = rate; }}
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget;
+            v.playbackRate = rate;
+            try { v.currentTime = 0.001; } catch(_) {}
+          }}
           style={{ width: '100%', display: 'block', borderRadius: 12, background: '#000' }}/>
         <div className="frame-controls">
           <button className="frame-btn" onClick={() => step(-1)}>◀ −1f</button>
