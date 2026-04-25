@@ -240,7 +240,7 @@ function MechanicsSection({ p }) {
     <section className="section">
       <div className="container">
         <SectionHead num="02" kicker="Pitching Mechanics"
-          title="투구 메카닉스 — 키네매틱 시퀀스와 에너지 흐름"
+          title="투구 메카닉스 — 에너지 흐름과 키네매틱 시퀀스"
           lead={<>■ 투구 = 채찍질 동작 (하체 → 몸통 → 팔 → 손 순차 전달)<br/>■ 구속 결정 요인: 분절 순서 정확성 + 단계별 에너지 손실 최소화</>}/>
 
         {p.video && <VideoCard src={p.video}/>}
@@ -248,7 +248,19 @@ function MechanicsSection({ p }) {
         <div className="card card-stripe reveal" style={{ marginBottom: 24 }}>
           <div className="card-head">
             <div>
-              <div className="section-kicker" style={{ fontSize: 10 }}>2.1 · Sequence Timing</div>
+              <div className="section-kicker" style={{ fontSize: 10 }}>2.1 · Energy Transfer & Leak</div>
+              <h3 className="card-title" style={{ marginTop: 4 }}>에너지 전달과 누수 — 하체에서 팔까지의 흐름</h3>
+              <div className="card-sub">· ETI = 분절 간 에너지 전달 비율<br/>· 몸통 → 상완 ETI ≈ 1.0 → 에너지 거의 전부 전달<br/>· ETI &lt; 0.85 → 해당 구간 에너지 리크 발생</div>
+            </div>
+          </div>
+          <EnergyFlow energy={p.energy}/>
+          <div className="chart-caption">{p.energy.comment}</div>
+        </div>
+
+        <div className="card card-stripe reveal" style={{ marginBottom: 24 }}>
+          <div className="card-head">
+            <div>
+              <div className="section-kicker" style={{ fontSize: 10 }}>2.2 · Sequence Timing</div>
               <h3 className="card-title" style={{ marginTop: 4 }}>키네매틱 시퀀스 — 분절 회전 순서</h3>
               <div className="card-sub">· 이상적인 순서: 골반 → 몸통 → 상완 (proximal-to-distal)<br/>· 이상적인 간격: 분절 간 약 30–60 ms</div>
             </div>
@@ -260,7 +272,7 @@ function MechanicsSection({ p }) {
         <div className="card card-stripe reveal" style={{ marginBottom: 24 }}>
           <div className="card-head">
             <div>
-              <div className="section-kicker" style={{ fontSize: 10 }}>2.2 · Peak Angular Velocity</div>
+              <div className="section-kicker" style={{ fontSize: 10 }}>2.3 · Peak Angular Velocity</div>
               <h3 className="card-title" style={{ marginTop: 4 }}>분절별 최대 회전 속도</h3>
               <div className="card-sub">· 측정: 분절별 최대 회전 속도<br/>· 프로 범위: 골반 580–640°/s · 몸통 800–900°/s · 상완 1450–1600°/s<br/>· 막대가 회색 띠(기준 범위) 초과 → 강점</div>
             </div>
@@ -271,18 +283,6 @@ function MechanicsSection({ p }) {
             <div className="gain-chip">Speed Gain · 골반→몸통 <b>×{p.angular.gainPT.toFixed(2)}</b></div>
             <div className="gain-chip">Speed Gain · 몸통→상완 <b>×{p.angular.gainTA.toFixed(2)}</b></div>
           </div>
-        </div>
-
-        <div className="card card-stripe reveal" style={{ marginBottom: 24 }}>
-          <div className="card-head">
-            <div>
-              <div className="section-kicker" style={{ fontSize: 10 }}>2.3 · Energy Transfer & Leak</div>
-              <h3 className="card-title" style={{ marginTop: 4 }}>에너지 전달과 누수 — 하체에서 팔까지의 흐름</h3>
-              <div className="card-sub">· ETI = 분절 간 에너지 전달 비율<br/>· 몸통 → 상완 ETI ≈ 1.0 → 에너지 거의 전부 전달<br/>· ETI &lt; 0.85 → 해당 구간 에너지 리크 발생</div>
-            </div>
-          </div>
-          <EnergyFlow energy={p.energy}/>
-          <div className="chart-caption">{p.energy.comment}</div>
         </div>
 
         <div className="card card-stripe layback-card reveal">
