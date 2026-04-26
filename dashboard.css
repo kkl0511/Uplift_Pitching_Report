@@ -1756,6 +1756,26 @@ html[data-theme="light"] .chart-caption { color: var(--d-fg3); }
   /* compare-bar 숨김 (인쇄에서 select는 무의미) */
   .compare-bar { display: none !important; }
   
+  /* 비교 요약은 페이지 새로 시작 */
+  .compare-grid + div {
+    page-break-before: auto;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  
+  /* 비교 요약 표 인쇄 스타일 */
+  .compare-grid + div table {
+    border-collapse: collapse !important;
+  }
+  .compare-grid + div th,
+  .compare-grid + div td {
+    border: 1px solid #d4d8e0 !important;
+    color: #1a1a2e !important;
+  }
+  .compare-grid + div th {
+    background: #eef0f4 !important;
+  }
+  
   /* === 첫 페이지 헤더 영역 === */
   .page-head {
     page-break-after: avoid;

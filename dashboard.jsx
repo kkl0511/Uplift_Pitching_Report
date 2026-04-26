@@ -2321,6 +2321,347 @@ function CompareCol({ p }) {
   );
 }
 
+function CompareSummary({ left, right }) {
+  if (!left || !right) return null;
+  
+  const GRADE_PT = { A: 4, B: 3, C: 2, D: 1, na: 2.5 };
+  const ARROW = ' → ';
+  
+  // 색상 팔레트
+  const C = {
+    a: '#60a5fa',   // 선수 A 색
+    b: '#fbbf24',   // 선수 B 색
+    pos: '#4ade80', // 우월
+    neg: '#f87171', // 약점
+    neu: 'var(--d-fg2)',
+  };
+  
+  // === 데이터 분석 ===
+  
+  // 1. 구속 비교
+  const velDiff = left.velocity - right.velocity;
+  const velAvgDiff = left.velocityAvg - right.velocityAvg;
+  
+  // 2. 체력 비교 (CMJ, IMTP, RSI)
+  const cmpPhys = (a, b) => {
+    if (a == null || b == null || a === '—' || b === '—') return null;
+    return Number(a) - Number(b);
+  };
+  const cmjDiff = cmpPhys(left.physical.cmjPower.cmj, right.physical.cmjPower.cmj);
+  const imtpDiff = cmpPhys(left.physical.maxStrength.perKg, right.physical.maxStrength.perKg);
+  const rsiDiff = cmpPhys(left.physical.reactive.cmj, right.physical.reactive.cmj);
+  const gripDiff = cmpPhys(left.physical.release.value, right.physical.release.value);
+  
+  // 체력 우세도 카운트
+  const physWinL = [cmjDiff, imtpDiff, rsiDiff, gripDiff].filter(d => d !== null && d > 0).length;
+  const physWinR = [cmjDiff, imtpDiff, rsiDiff, gripDiff].filter(d => d !== null && d < 0).length;
+  
+  // 3. 메카닉스 비교
+  const armDiff = left.angular.arm - right.angular.arm;
+  const trunkDiff = left.angular.trunk - right.angular.trunk;
+  const pelvisDiff = left.angular.pelvis - right.angular.pelvis;
+  const etiTaDiff = left.energy.etiTA - right.energy.etiTA;
+  const laybackDiff = left.layback.deg - right.layback.deg;
+  
+  // 4. 제구 비교
+  const strikeDiff = (left.command?.strikePct || 0) - (right.command?.strikePct || 0);
+  const leftGrade = left.command?.grade || 'na';
+  const rightGrade = right.command?.grade || 'na';
+  
+  // 5. 7대 요인 등급 비교 + 종합 점수
+  const leftFactors = left.factors || [];
+  const rightFactors = right.factors || [];
+  const leftAvgPt = leftFactors.length ? leftFactors.reduce((s, f) => s + GRADE_PT[f.grade], 0) / leftFactors.length : 0;
+  const rightAvgPt = rightFactors.length ? rightFactors.reduce((s, f) => s + GRADE_PT[f.grade], 0) / rightFactors.length : 0;
+  
+  // 7대 요인 칸별 우세
+  const factorWins = leftFactors.map((lf, i) => {
+    const rf = rightFactors[i];
+    if (!rf) return 'tie';
+    const ld = GRADE_PT[lf.grade];
+    const rd = GRADE_PT[rf.grade];
+    if (ld > rd) return 'L';
+    if (rd > ld) return 'R';
+    return 'tie';
+  });
+  const factorWinL = factorWins.filter(w => w === 'L').length;
+  const factorWinR = factorWins.filter(w => w === 'R').length;
+  
+  // === 자연어 요약 생성 ===
+  
+  // 헤드라인
+  const headline = (() => {
+    if (Math.abs(velDiff) >= 5 && Math.abs(strikeDiff) >= 8) {
+      // 구속/제구 모두 차이
+      const velSup = velDiff > 0 ? left.name : right.name;
+      const strikeSup = strikeDiff > 0 ? left.name : right.name;
+      if (velSup === strikeSup) {
+        return `${velSup}이(가) 구속과 제구 모두에서 우위`;
+      } else {
+        return `${velSup}은(는) 구속에서, ${strikeSup}은(는) 제구에서 우위 (트레이드오프 패턴)`;
+      }
+    } else if (Math.abs(velDiff) >= 5) {
+      const velSup = velDiff > 0 ? left.name : right.name;
+      return `${velSup}이(가) 구속에서 ${Math.abs(velDiff).toFixed(1)} km/h 우위 · 제구는 비슷`;
+    } else if (Math.abs(strikeDiff) >= 8) {
+      const strikeSup = strikeDiff > 0 ? left.name : right.name;
+      return `구속은 비슷하나 ${strikeSup}이(가) 제구에서 분명한 우위`;
+    } else {
+      return `구속·제구 모두 비슷한 수준의 두 투수 비교`;
+    }
+  })();
+  
+  // 요약 섹션 1: 종합 한 줄
+  const overall = (() => {
+    const lc = leftAvgPt > 3.5 ? 'A급 메카닉' : leftAvgPt > 2.5 ? '안정적 메카닉' : '개선 여지 큼';
+    const rc = rightAvgPt > 3.5 ? 'A급 메카닉' : rightAvgPt > 2.5 ? '안정적 메카닉' : '개선 여지 큼';
+    return `${left.name} ${left.velocity.toFixed(1)}km/h · ${leftGrade} (${lc})  vs  ${right.name} ${right.velocity.toFixed(1)}km/h · ${rightGrade} (${rc})`;
+  })();
+  
+  // 체력 분석
+  const physAnalysis = (() => {
+    const items = [];
+    if (cmjDiff !== null) {
+      const dom = cmjDiff > 0 ? left.name : right.name;
+      const mag = Math.abs(cmjDiff);
+      if (mag >= 5) items.push(`CMJ 단위파워는 ${dom}이(가) ${mag.toFixed(1)} W/kg 우위`);
+    }
+    if (imtpDiff !== null) {
+      const dom = imtpDiff > 0 ? left.name : right.name;
+      const mag = Math.abs(imtpDiff);
+      if (mag >= 1) items.push(`절대근력은 ${dom}이(가) ${mag.toFixed(1)} N/kg 높음`);
+    }
+    if (rsiDiff !== null) {
+      const dom = rsiDiff > 0 ? left.name : right.name;
+      const mag = Math.abs(rsiDiff);
+      if (mag >= 0.05) items.push(`RSI(반응성)는 ${dom}이(가) ${mag.toFixed(2)} 높음`);
+    }
+    if (items.length === 0) return '두 선수의 체력 변수는 거의 비슷한 수준입니다.';
+    return items.join(' · ') + '.';
+  })();
+  
+  // 메카닉스 분석
+  const mechAnalysis = (() => {
+    const items = [];
+    if (Math.abs(armDiff) >= 100) {
+      const dom = armDiff > 0 ? left.name : right.name;
+      items.push(`팔 회전속도는 ${dom}이(가) ${Math.abs(armDiff).toFixed(0)}°/s 빠름`);
+    }
+    if (Math.abs(trunkDiff) >= 80) {
+      const dom = trunkDiff > 0 ? left.name : right.name;
+      items.push(`몸통 회전은 ${dom}이(가) ${Math.abs(trunkDiff).toFixed(0)}°/s 빠름`);
+    }
+    if (Math.abs(etiTaDiff) >= 0.15) {
+      const dom = etiTaDiff > 0 ? left.name : right.name;
+      items.push(`Trunk→Arm 에너지 전달 효율(ETI)은 ${dom}이(가) ${Math.abs(etiTaDiff).toFixed(2)} 우월`);
+    }
+    if (Math.abs(laybackDiff) >= 10) {
+      const dom = laybackDiff > 0 ? left.name : right.name;
+      items.push(`Layback(어깨 외회전)은 ${dom}이(가) ${Math.abs(laybackDiff).toFixed(0)}° 더 큼`);
+    }
+    if (items.length === 0) return '구속 관련 메카닉 변수는 두 선수가 비슷한 패턴입니다.';
+    return items.join(' · ') + '.';
+  })();
+  
+  // 제구 분석 + D등급 식별 (recommendation에서도 사용)
+  const lefDs = leftFactors.filter(f => f.grade === 'D');
+  const rightDs = rightFactors.filter(f => f.grade === 'D');
+  
+  const cmdAnalysis = (() => {
+    if (factorWinL + factorWinR === 0) return '제구 메카닉 데이터가 충분하지 않습니다.';
+    
+    const items = [];
+    items.push(`7대 요인 우세 카운트: ${left.name} ${factorWinL}개 vs ${right.name} ${factorWinR}개 (동등 ${7 - factorWinL - factorWinR}개)`);
+    
+    if (lefDs.length > 0) {
+      items.push(`${left.name} D등급 요인: ${lefDs.map(f => f.name).join(', ')}`);
+    }
+    if (rightDs.length > 0) {
+      items.push(`${right.name} D등급 요인: ${rightDs.map(f => f.name).join(', ')}`);
+    }
+    return items.join(' · ') + '.';
+  })();
+  
+  // 트레이닝 권장
+  const recommendation = (() => {
+    const items = [];
+    
+    // 누가 더 우월한지 종합 판단
+    const leftBetter = (velDiff > 0 ? 1 : -1) + (strikeDiff > 0 ? 1 : -1) + (leftAvgPt > rightAvgPt ? 1 : -1);
+    
+    if (leftBetter >= 1) {
+      items.push(`${right.name}이(가) ${left.name}으로부터 학습할 수 있는 부분이 더 많은 비교입니다.`);
+    } else if (leftBetter <= -1) {
+      items.push(`${left.name}이(가) ${right.name}으로부터 학습할 수 있는 부분이 더 많은 비교입니다.`);
+    } else {
+      items.push('서로 강점·약점이 보완적이라 상호 학습이 가능한 비교입니다.');
+    }
+    
+    // 구속이 약한 쪽
+    if (Math.abs(velDiff) >= 5) {
+      const slower = velDiff > 0 ? right.name : left.name;
+      const slowerAvgPt = velDiff > 0 ? rightAvgPt : leftAvgPt;
+      const fasterAvgPt = velDiff > 0 ? leftAvgPt : rightAvgPt;
+      
+      if (slowerAvgPt > fasterAvgPt) {
+        items.push(`${slower}은(는) 메카닉이 더 좋음에도 구속이 낮음 → 체력(특히 폭발력) 보강이 우선`);
+      } else {
+        items.push(`${slower}은(는) 메카닉도 약하므로 메카닉 일관성 회복부터 시작`);
+      }
+    }
+    
+    // D등급 있는 선수
+    if (lefDs.length > 0) {
+      items.push(`${left.name}은(는) ${lefDs.map(f => f.name).join(', ')} 교정이 시급`);
+    }
+    if (rightDs.length > 0) {
+      items.push(`${right.name}은(는) ${rightDs.map(f => f.name).join(', ')} 교정이 시급`);
+    }
+    
+    return items;
+  })();
+  
+  // === 렌더링 ===
+  
+  return (
+    <div style={{
+      marginTop: 20,
+      padding: '20px 24px',
+      background: 'var(--d-surface-2)',
+      border: '1px solid var(--d-border)',
+      borderRadius: 12,
+    }}>
+      {/* 헤더 */}
+      <div style={{
+        paddingBottom: 14,
+        marginBottom: 16,
+        borderBottom: '1px solid var(--d-border)',
+      }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: '#93c5fd', letterSpacing: '1.5px', marginBottom: 6 }}>
+          COMPARISON SUMMARY · 비교 요약
+        </div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--d-fg1)', lineHeight: 1.4 }}>
+          {headline}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--d-fg3)', marginTop: 6, fontFamily: 'Inter' }}>
+          {overall}
+        </div>
+      </div>
+      
+      {/* 분석 섹션들 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginBottom: 16 }}>
+        {/* 구속 차이 */}
+        <div style={{ padding: '12px 14px', background: 'var(--d-surface-3)', borderRadius: 8, border: '1px solid var(--d-border)' }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, color: '#93c5fd', letterSpacing: '1.2px', marginBottom: 6 }}>VELOCITY 구속</div>
+          <div style={{ fontSize: 12, color: 'var(--d-fg2)', lineHeight: 1.6 }}>
+            {Math.abs(velDiff) >= 1 ? (
+              <>
+                Peak 구속 차이: <b style={{ color: velDiff > 0 ? C.a : C.b, fontFamily: 'Inter' }}>{Math.abs(velDiff).toFixed(1)} km/h</b> ({velDiff > 0 ? left.name : right.name} 우위)
+                <br/>평균 구속 차이: <span style={{ fontFamily: 'Inter' }}>{Math.abs(velAvgDiff).toFixed(1)} km/h</span>
+              </>
+            ) : (
+              <>두 선수 구속 차이는 1 km/h 미만, 동등 수준입니다.</>
+            )}
+          </div>
+        </div>
+        
+        {/* 체력 비교 */}
+        <div style={{ padding: '12px 14px', background: 'var(--d-surface-3)', borderRadius: 8, border: '1px solid var(--d-border)' }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, color: '#93c5fd', letterSpacing: '1.2px', marginBottom: 6 }}>① 구속 관련 체력</div>
+          <div style={{ fontSize: 12, color: 'var(--d-fg2)', lineHeight: 1.6 }}>
+            우세 변수 카운트: <b style={{ color: C.a, fontFamily: 'Inter' }}>{left.name} {physWinL}개</b> vs <b style={{ color: C.b, fontFamily: 'Inter' }}>{right.name} {physWinR}개</b>
+            <br/>
+            <span style={{ fontSize: 11, color: 'var(--d-fg3)' }}>{physAnalysis}</span>
+          </div>
+        </div>
+        
+        {/* 구속 메카닉스 */}
+        <div style={{ padding: '12px 14px', background: 'var(--d-surface-3)', borderRadius: 8, border: '1px solid var(--d-border)' }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, color: '#93c5fd', letterSpacing: '1.2px', marginBottom: 6 }}>② 구속 관련 메카닉스</div>
+          <div style={{ fontSize: 12, color: 'var(--d-fg2)', lineHeight: 1.6 }}>
+            <span style={{ fontSize: 11, color: 'var(--d-fg3)' }}>{mechAnalysis}</span>
+          </div>
+        </div>
+        
+        {/* 제구 메카닉스 */}
+        <div style={{ padding: '12px 14px', background: 'var(--d-surface-3)', borderRadius: 8, border: '1px solid var(--d-border)' }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, color: '#93c5fd', letterSpacing: '1.2px', marginBottom: 6 }}>③ 제구 관련 메카닉스</div>
+          <div style={{ fontSize: 12, color: 'var(--d-fg2)', lineHeight: 1.6 }}>
+            Strike% 차이: <b style={{ color: strikeDiff > 0 ? C.a : C.b, fontFamily: 'Inter' }}>{Math.abs(strikeDiff).toFixed(1)}%</b> ({strikeDiff > 0 ? left.name : right.name} 우위)
+            <br/>
+            <span style={{ fontSize: 11, color: 'var(--d-fg3)' }}>{cmdAnalysis}</span>
+          </div>
+        </div>
+      </div>
+      
+      {/* 7대 요인 등급 비교 표 */}
+      {leftFactors.length > 0 && rightFactors.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, color: '#93c5fd', letterSpacing: '1.2px', marginBottom: 8 }}>7대 요인 한 눈에 비교</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--d-border)' }}>
+                  <th style={{ padding: '6px 8px', textAlign: 'left', color: 'var(--d-fg3)', fontWeight: 600, fontSize: 10 }}>요인</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'center', color: C.a, fontWeight: 700 }}>{left.name}</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'center', color: C.b, fontWeight: 700 }}>{right.name}</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'center', color: 'var(--d-fg3)', fontWeight: 600, fontSize: 10 }}>우세</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leftFactors.map((lf, i) => {
+                  const rf = rightFactors[i];
+                  if (!rf) return null;
+                  const lpt = GRADE_PT[lf.grade];
+                  const rpt = GRADE_PT[rf.grade];
+                  const winner = lpt > rpt ? 'L' : rpt > lpt ? 'R' : 'tie';
+                  const gColor = (g) => g === 'A' ? '#4ade80' : g === 'B' ? '#60a5fa' : g === 'C' ? '#fbbf24' : g === 'D' ? '#f87171' : '#94a3b8';
+                  return (
+                    <tr key={lf.id} style={{ borderBottom: '1px solid var(--d-border)' }}>
+                      <td style={{ padding: '6px 8px', color: 'var(--d-fg2)' }}>{lf.name}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                        <span style={{ background: gColor(lf.grade), color: '#fff', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontFamily: 'Inter', fontSize: 11 }}>{lf.grade}</span>
+                      </td>
+                      <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                        <span style={{ background: gColor(rf.grade), color: '#fff', padding: '2px 8px', borderRadius: 4, fontWeight: 700, fontFamily: 'Inter', fontSize: 11 }}>{rf.grade}</span>
+                      </td>
+                      <td style={{ padding: '6px 8px', textAlign: 'center', fontSize: 11, color: winner === 'L' ? C.a : winner === 'R' ? C.b : 'var(--d-fg3)' }}>
+                        {winner === 'L' ? '◀' : winner === 'R' ? '▶' : '='}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      
+      {/* 코칭 권장 */}
+      <div style={{
+        padding: '14px 16px',
+        background: 'linear-gradient(135deg, rgba(74,222,128,0.06), rgba(96,165,250,0.04))',
+        border: '1px solid rgba(74,222,128,0.3)',
+        borderRadius: 8,
+      }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.pos, letterSpacing: '1.2px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={C.pos} strokeWidth="2.5"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          COACHING 코칭 권장
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--d-fg2)', lineHeight: 1.7 }}>
+          {recommendation.map((line, i) => (
+            <div key={i} style={{ paddingLeft: 8, marginBottom: 4 }}>· {line}</div>
+          ))}
+        </div>
+      </div>
+      
+      <div style={{ marginTop: 12, fontSize: 9.5, color: 'var(--d-fg3)', fontStyle: 'italic', textAlign: 'right' }}>
+        본 요약은 두 선수의 데이터를 기계적으로 비교한 결과입니다. 실제 코칭 적용은 영상 분석과 함께 진행하시기 바랍니다.
+      </div>
+    </div>
+  );
+}
+
 function CompareView({ pitchers, leftId, rightId, onLeft, onRight }) {
   const left = pitchers.find(p => p.id === leftId);
   const right = pitchers.find(p => p.id === rightId);
@@ -2359,6 +2700,9 @@ function CompareView({ pitchers, leftId, rightId, onLeft, onRight }) {
         {left && <CompareCol p={left}/>}
         {right && <CompareCol p={right}/>}
       </div>
+      
+      {/* === 비교 요약 (텍스트 기반 자동 생성) === */}
+      <CompareSummary left={left} right={right}/>
     </>
   );
 }

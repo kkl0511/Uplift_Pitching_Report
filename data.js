@@ -48,7 +48,7 @@ window.BBL_PITCHERS = [
       comment: '· ETI T→A 1.87 (4명 중 1위) · 누수 0% · 분절 lag P→T 41ms, T→A 51ms 모두 정상 · fc→release 482ms 일관성 압도적 (CV 1.3%)',
     },
     command: {
-      strikePct: 59.8, plateSdCm: 21.9, grade: 'B',
+      strikePct: 61.7, plateSdCm: 21.0, grade: 'B',
       breakdown: { wrist: -1.8, armslot: -2.8, trunkTilt: -2.4, layback: -2.5, stride: -2.3, fcRelease: -0.7 },
       measured: {
         wristHeightSdCm: 1.75,
@@ -59,20 +59,20 @@ window.BBL_PITCHERS = [
         fcReleaseMs: 482,
         fcReleaseCvPct: 1.3,
       },
-      note: '· 7대 요인 종합 평가: B/A/C/B/A/D/B · 5개 요인 정상 · ⑥ 머리 안정성 D등급(개선 필요) · ③⑦ 보강 여지',
+      note: '· 7대 요인 종합: B/A/B/B/A/D/B · 5개 요인 정상 · ⑥ 머리 안정성 D등급(개선 필요)',
       isDemo: false,
       nTrials: 10,
     },
     factors: [
       { id: 'F1_landing', name: '① 앞발 착지', grade: 'B', measured: { stride_m: 0.99, stride_cv: 1.5, knee_flex_deg: 53.0, knee_sd: 7.0 }, elite: 'stride CV 2-3% · knee 25-40° · SD 3-5°', comment: '· stride 0.99m · CV 1.5% · knee@FC 53° (엘리트 25-40°) · SD ±7.0° (엘리트 3-5°)' },
       { id: 'F2_separation', name: '② 골반-몸통 분리', grade: 'A', measured: { max_sep_deg: 28.0, sep_sd: 2.2, sep_lag_ms: 41.0, lag_sd: 5.2 }, elite: '40-60° · lag ~50ms · SD <10ms', comment: '· max separation 28° (엘리트 40-60° · 평균 미달) · separation lag 41ms (엘리트 ~50ms) · SD ±5.2ms' },
-      { id: 'F3_arm_timing', name: '③ 어깨-팔 타이밍', grade: 'C', measured: { mer_deg: 194.0, mer_sd: 12.3, fc_to_br_ms: 77.0, fcbr_sd: 21.0 }, elite: 'MER ~180° · FC→BR ~150ms · SD <10ms', comment: '· MER 194° (엘리트 ~180°) · SD ±12.3° · FC→BR 77ms · SD ±21ms' },
+      { id: 'F3_arm_timing', name: '③ 어깨-팔 타이밍', grade: 'B', measured: { mer_deg: 187.1, mer_sd: 2.6, fc_to_br_ms: 77.0, fcbr_sd: 21.0 }, elite: 'MER ~180° · FC→BR ~150ms · SD <10ms', comment: '· MER 194° (엘리트 ~180°) · SD ±12.3° · FC→BR 77ms · SD ±21ms' },
       { id: 'F4_knee', name: '④ 앞 무릎 안정성', grade: 'B', measured: { knee_fc_deg: 53.0, knee_sd: 7.0, blocking_deg: -17.0, block_sd: 9.1 }, elite: '25-40° · blocking + (펴짐) · SD <5°', comment: '· knee@FC 53° · SD ±7.0° · blocking -17° 굽힘 (no blocking)' },
       { id: 'F5_tilt', name: '⑤ 몸통 기울기', grade: 'A', measured: { forward_deg: 37.0, forward_sd: 2.0, lateral_deg: 19.0, lateral_sd: 1.3 }, elite: 'forward 30-40° · lateral 20-30° · SD 3-5°', comment: '· forward 37° (엘리트 30-40°) SD ±2.0° · lateral 19° (엘리트 20-30°) SD ±1.3°' },
       { id: 'F6_head', name: '⑥ 머리·시선 안정성', grade: 'D', measured: { head_disp_cm: 32.0, head_sd: 7.33 }, elite: '5-10cm · SD 1-2cm', comment: '· head displacement (FC→BR) 32cm · SD ±7.33cm (엘리트 1-2cm)' },
       { id: 'F7_wrist', name: '⑦ 그립·손목 정렬', grade: 'B', measured: { arm_slot_deg: 42.0, arm_sd: 3.48 }, elite: 'arm_slot SD <3°', comment: '· arm_slot 42° · SD ±3.48° (엘리트 2-3°)' }
     ],
-    layback: { deg: 193.9, band: 'high', note: '· 193.9° · 가장 큰 layback (4명 중 1위) · 가속 거리 충분 · SD ±12.3°' },
+    layback: { deg: 187.1, band: 'high', note: '· 187.1° · 4명 중 가장 큰 layback · 가속 거리 충분 · SD ±2.6°' },
     strengths: [
       { title: '하체 단위파워 우수', detail: '· CMJ 단위파워 56.9 W/kg · 기준 상위' },
       { title: '반응·폭발성 (RSI) 우수', detail: '· CMJ RSI-mod 0.67 m/s · 기준 상위' },
@@ -152,20 +152,20 @@ window.BBL_PITCHERS = [
         fcReleaseMs: 480,
         fcReleaseCvPct: 2.8,
       },
-      note: '· 7대 요인 모두 A등급 · 메카닉 일관성 4명 중 압도적 1위 · MLB 엘리트 수준에 근접 · 재현성의 달인',
+      note: '· 7대 요인 종합: A/A/A/A/A/A/A · 메카닉 일관성 4명 중 압도적 1위 · 모든 요인 A 또는 양호',
       isDemo: false,
       nTrials: 10,
     },
     factors: [
       { id: 'F1_landing', name: '① 앞발 착지', grade: 'A', measured: { stride_m: 1.0, stride_cv: 1.0, knee_flex_deg: 50.0, knee_sd: 3.0 }, elite: 'stride CV 2-3% · knee 25-40° · SD 3-5°', comment: '· stride 1.00m · CV 1.0% · knee@FC 50° (엘리트 25-40°) · SD ±3.0° (엘리트 3-5°)' },
       { id: 'F2_separation', name: '② 골반-몸통 분리', grade: 'A', measured: { max_sep_deg: 27.0, sep_sd: 1.3, sep_lag_ms: 42.0, lag_sd: 2.4 }, elite: '40-60° · lag ~50ms · SD <10ms', comment: '· max separation 27° (엘리트 40-60° · 평균 미달) · separation lag 42ms (엘리트 ~50ms) · SD ±2.4ms' },
-      { id: 'F3_arm_timing', name: '③ 어깨-팔 타이밍', grade: 'A', measured: { mer_deg: 132.0, mer_sd: 1.6, fc_to_br_ms: 46.0, fcbr_sd: 0.0 }, elite: 'MER ~180° · FC→BR ~150ms · SD <10ms', comment: '· MER 132° (엘리트 ~180°) · SD ±1.6° · FC→BR 46ms · SD ±0ms' },
+      { id: 'F3_arm_timing', name: '③ 어깨-팔 타이밍', grade: 'A', measured: { mer_deg: 169.2, mer_sd: 4.2, fc_to_br_ms: 46.0, fcbr_sd: 0.0 }, elite: 'MER ~180° · FC→BR ~150ms · SD <10ms', comment: '· MER 132° (엘리트 ~180°) · SD ±1.6° · FC→BR 46ms · SD ±0ms' },
       { id: 'F4_knee', name: '④ 앞 무릎 안정성', grade: 'A', measured: { knee_fc_deg: 50.0, knee_sd: 3.0, blocking_deg: -2.0, block_sd: 1.9 }, elite: '25-40° · blocking + (펴짐) · SD <5°', comment: '· knee@FC 50° · SD ±3.0° · blocking -2° 굽힘 (no blocking)' },
       { id: 'F5_tilt', name: '⑤ 몸통 기울기', grade: 'A', measured: { forward_deg: 26.0, forward_sd: 1.0, lateral_deg: 9.0, lateral_sd: 0.7 }, elite: 'forward 30-40° · lateral 20-30° · SD 3-5°', comment: '· forward 26° (엘리트 30-40°) SD ±1.0° · lateral 9° (엘리트 20-30°) SD ±0.7°' },
       { id: 'F6_head', name: '⑥ 머리·시선 안정성', grade: 'A', measured: { head_disp_cm: 19.0, head_sd: 0.55 }, elite: '5-10cm · SD 1-2cm', comment: '· head displacement (FC→BR) 19cm · SD ±0.55cm (엘리트 1-2cm)' },
       { id: 'F7_wrist', name: '⑦ 그립·손목 정렬', grade: 'A', measured: { arm_slot_deg: 51.0, arm_sd: 1.44 }, elite: 'arm_slot SD <3°', comment: '· arm_slot 51° · SD ±1.44° (엘리트 2-3°)' }
     ],
-    layback: { deg: 131.5, band: 'low', note: '· 131.5° · 평균 미달 · 가속 거리 다소 짧음 · SD ±1.6°' },
+    layback: { deg: 169.2, band: 'mid', note: '· 169.2° · 정상 범위 · SD ±4.2° (4인 중 안정성 1위급)' },
     strengths: [
       { title: '신장성 활용 (SSC) 정상', detail: '· EUR 1.09 · SSC 활용 정상 범위' },
     ],
@@ -259,20 +259,20 @@ window.BBL_PITCHERS = [
         fcReleaseMs: 650,
         fcReleaseCvPct: 20.9,
       },
-      note: '· 7대 요인 종합: A/A/A/B/A/C/na · 5개 요인 우수 · ⑥ 머리 안정성 C등급 · ⑦ 손목 측정 실패 · 측정 가능 변수에서 매우 우수',
+      note: '· 7대 요인 종합: A/A/A/B/A/C/na · 측정 가능 변수 모두 우수 · ⑥ 머리 안정성만 보강 필요',
       isDemo: false,
       nTrials: 10,
     },
     factors: [
       { id: 'F1_landing', name: '① 앞발 착지', grade: 'A', measured: { stride_m: 1.09, stride_cv: 0.7, knee_flex_deg: 47.0, knee_sd: 3.3 }, elite: 'stride CV 2-3% · knee 25-40° · SD 3-5°', comment: '· stride 1.09m · CV 0.7% · knee@FC 47° (엘리트 25-40°) · SD ±3.3° (엘리트 3-5°)' },
       { id: 'F2_separation', name: '② 골반-몸통 분리', grade: 'A', measured: { max_sep_deg: 30.0, sep_sd: 2.4, sep_lag_ms: 51.0, lag_sd: 7.1 }, elite: '40-60° · lag ~50ms · SD <10ms', comment: '· max separation 30° (엘리트 40-60° · 평균 미달) · separation lag 51ms (엘리트 ~50ms) · SD ±7.1ms' },
-      { id: 'F3_arm_timing', name: '③ 어깨-팔 타이밍', grade: 'A', measured: { mer_deg: 140.0, mer_sd: 2.3, fc_to_br_ms: 89.0, fcbr_sd: 10.0 }, elite: 'MER ~180° · FC→BR ~150ms · SD <10ms', comment: '· MER 140° (엘리트 ~180°) · SD ±2.3° · FC→BR 89ms · SD ±10ms' },
+      { id: 'F3_arm_timing', name: '③ 어깨-팔 타이밍', grade: 'A', measured: { mer_deg: 196.6, mer_sd: 6.4, fc_to_br_ms: 89.0, fcbr_sd: 10.0 }, elite: 'MER ~180° · FC→BR ~150ms · SD <10ms', comment: '· MER 140° (엘리트 ~180°) · SD ±2.3° · FC→BR 89ms · SD ±10ms' },
       { id: 'F4_knee', name: '④ 앞 무릎 안정성', grade: 'B', measured: { knee_fc_deg: 47.0, knee_sd: 3.3, blocking_deg: -9.0, block_sd: 7.5 }, elite: '25-40° · blocking + (펴짐) · SD <5°', comment: '· knee@FC 47° · SD ±3.3° · blocking -9° 굽힘 (no blocking)' },
       { id: 'F5_tilt', name: '⑤ 몸통 기울기', grade: 'A', measured: { forward_deg: 37.0, forward_sd: 1.0, lateral_deg: 23.0, lateral_sd: 1.2 }, elite: 'forward 30-40° · lateral 20-30° · SD 3-5°', comment: '· forward 37° (엘리트 30-40°) SD ±1.0° · lateral 23° (엘리트 20-30°) SD ±1.2°' },
       { id: 'F6_head', name: '⑥ 머리·시선 안정성', grade: 'C', measured: { head_disp_cm: 50.0, head_sd: 5.39 }, elite: '5-10cm · SD 1-2cm', comment: '· head displacement (FC→BR) 50cm · SD ±5.39cm (엘리트 1-2cm)' },
       { id: 'F7_wrist', name: '⑦ 그립·손목 정렬', grade: 'na', measured: {  }, elite: 'arm_slot SD <3°', comment: '· wrist height 측정 실패 · 마커리스 모션캡처 한계' }
     ],
-    layback: { deg: 139.7, band: 'low', note: '· 139.7° · 평균 미달 · 가속 거리 다소 짧음 · SD ±2.3°' },
+    layback: { deg: 196.6, band: 'high', note: '· 196.6° · 4인 중 가장 큰 layback · 가속 거리 우수 · SD ±6.4°' },
     strengths: [
       { title: '반응·폭발성 (RSI) 우수', detail: '· SJ RSI-mod 0.62 m/s · 기준 상위' },
       { title: '신장성 활용 (SSC) 우수', detail: '· EUR 1.18 · SSC 활용 강함 · CMJ·SJ 격차 큼' },
@@ -355,7 +355,7 @@ window.BBL_PITCHERS = [
       comment: '· ETI T→A 1.61 4명 중 가장 작음 · 누수 0% · trunk peak 매우 빠르나(917°/s) arm 가속 못 따라감 · T→A lag CV 87.4% (4인 중 가장 변동) · fc→release 272ms로 너무 짧음 (다른 3명 480ms 대비 절반)',
     },
     command: {
-      strikePct: 54.0, plateSdCm: 24.6, grade: 'C',
+      strikePct: 57.9, plateSdCm: 22.8, grade: 'B',
       breakdown: { wrist: -3.9, armslot: -3.0, trunkTilt: -3.5, layback: -10.0, stride: -4.7, fcRelease: -16.9 },
       measured: {
         wristHeightSdCm: 3.88,
@@ -366,20 +366,20 @@ window.BBL_PITCHERS = [
         fcReleaseMs: 272,
         fcReleaseCvPct: 33.9,
       },
-      note: '· 7대 요인 종합: B/A/D/D/A/D/B · ③ 어깨-팔 타이밍, ④ 무릎 안정성, ⑥ 머리 모두 D등급 · 메카닉 다중 결함 · 일관성 회복이 최우선 과제',
+      note: '· 7대 요인 종합: B/A/B/D/A/D/B · ④ 무릎과 ⑥ 머리 D등급 · 메카닉 일관성 회복이 최우선 과제',
       isDemo: false,
       nTrials: 10,
     },
     factors: [
       { id: 'F1_landing', name: '① 앞발 착지', grade: 'B', measured: { stride_m: 1.0, stride_cv: 3.1, knee_flex_deg: 35.0, knee_sd: 8.0 }, elite: 'stride CV 2-3% · knee 25-40° · SD 3-5°', comment: '· stride 1.00m · CV 3.1% · knee@FC 35° (엘리트 25-40°) · SD ±8.0° (엘리트 3-5°)' },
       { id: 'F2_separation', name: '② 골반-몸통 분리', grade: 'A', measured: { max_sep_deg: 37.0, sep_sd: 2.1, sep_lag_ms: 31.0, lag_sd: 9.9 }, elite: '40-60° · lag ~50ms · SD <10ms', comment: '· max separation 37° (엘리트 40-60° · 평균 미달) · separation lag 31ms (엘리트 ~50ms) · SD ±9.9ms' },
-      { id: 'F3_arm_timing', name: '③ 어깨-팔 타이밍', grade: 'D', measured: { mer_deg: 159.0, mer_sd: 39.8, fc_to_br_ms: 111.0, fcbr_sd: 68.0 }, elite: 'MER ~180° · FC→BR ~150ms · SD <10ms', comment: '· MER 159° (엘리트 ~180°) · SD ±39.8° · FC→BR 111ms · SD ±68ms' },
+      { id: 'F3_arm_timing', name: '③ 어깨-팔 타이밍', grade: 'B', measured: { mer_deg: 186.4, mer_sd: 3.7, fc_to_br_ms: 111.0, fcbr_sd: 68.0 }, elite: 'MER ~180° · FC→BR ~150ms · SD <10ms', comment: '· MER 159° (엘리트 ~180°) · SD ±39.8° · FC→BR 111ms · SD ±68ms' },
       { id: 'F4_knee', name: '④ 앞 무릎 안정성', grade: 'D', measured: { knee_fc_deg: 35.0, knee_sd: 8.0, blocking_deg: -8.0, block_sd: 17.4 }, elite: '25-40° · blocking + (펴짐) · SD <5°', comment: '· knee@FC 35° · SD ±8.0° · blocking -8° 굽힘 (no blocking)' },
       { id: 'F5_tilt', name: '⑤ 몸통 기울기', grade: 'A', measured: { forward_deg: 38.0, forward_sd: 2.9, lateral_deg: 9.0, lateral_sd: 1.7 }, elite: 'forward 30-40° · lateral 20-30° · SD 3-5°', comment: '· forward 38° (엘리트 30-40°) SD ±2.9° · lateral 9° (엘리트 20-30°) SD ±1.7°' },
       { id: 'F6_head', name: '⑥ 머리·시선 안정성', grade: 'D', measured: { head_disp_cm: 48.0, head_sd: 18.2 }, elite: '5-10cm · SD 1-2cm', comment: '· head displacement (FC→BR) 48cm · SD ±18.20cm (엘리트 1-2cm)' },
       { id: 'F7_wrist', name: '⑦ 그립·손목 정렬', grade: 'B', measured: { arm_slot_deg: 54.0, arm_sd: 3.78 }, elite: 'arm_slot SD <3°', comment: '· arm_slot 54° · SD ±3.78° (엘리트 2-3°)' }
     ],
-    layback: { deg: 158.7, band: 'mid', note: '· 158.7° · 정상 범위 · 그러나 SD ±39.8°로 매우 불안정 (CV 25.1%, 4명 중 가장 변동)' },
+    layback: { deg: 186.4, band: 'high', note: '· 186.4° · 정상 범위 · 그러나 release 시점 ER만 154°로 떨어짐 · timing 불안정' },
     strengths: [
       { title: '하체 단위파워 우수', detail: '· CMJ 단위파워 56.7 W/kg · 기준 상위' },
       { title: '반응·폭발성 (RSI) 우수', detail: '· SJ RSI-mod 0.97 m/s · 기준 상위' },
