@@ -789,12 +789,13 @@ function expectedVelocity(p) {
   let physPred = BASE + Object.values(physContrib).reduce((a,b)=>a+b, 0);
   physPred = Math.max(BASE - CAP, Math.min(BASE + CAP, physPred));
 
-  // Mechanical Expected — 메카닉스 기반 (변경 없음)
+  // Mechanical Expected — 메카닉스 기반 (raw 시계열 4인 평균 baseline)
+  // 4인 평균: ETI T→A 1.82, arm peak 1478°/s, layback 156°, leak 0%
   const mechContrib = {
-    'ETI 상완 전달':   (p.energy.etiTA - 0.77) * 18.0,
-    '상완 회전 속도':  (p.angular.arm - 1463) / 50 * 1.2,
-    'Max layback':    (p.layback.deg - 184) * 0.10,
-    '에너지 누수':    -p.energy.leakPct * 0.10,
+    'ETI 상완 전달':   ((p.energy.etiTA ?? 1.82) - 1.82) * 8.0,
+    '상완 회전 속도':  ((p.angular.arm ?? 1478) - 1478) / 50 * 1.2,
+    'Max layback':    ((p.layback.deg ?? 156) - 156) * 0.10,
+    '에너지 누수':    -(p.energy.leakPct ?? 0) * 0.10,
   };
   let mechPred = BASE + Object.values(mechContrib).reduce((a,b)=>a+b, 0);
   mechPred = Math.max(BASE - CAP, Math.min(BASE + CAP, mechPred));
@@ -1078,36 +1079,51 @@ function ExpectedVelocityPanel({ p }) {
   );
 }
 
-/* ---------------- COMMAND PROFILE PANEL (DEMO) ---------------- */
-function CommandProfilePanel({ cmd, energy, layback }) {
+/* ---------------- COMMAND PROFILE PANEL ---------------- */
+function CommandProfilePanel({ cmd, energy, layback, factors }) {
   if (!cmd) return null;
-  const { strikePct, plateSdCm, grade, breakdown, note, isDemo } = cmd;
+  const { strikePct, plateSdCm, grade, breakdown, measured, note, isDemo, nTrials } = cmd;
 
   // 등급 색상 매핑
   const gradeColors = {
-    A: { c: '#4ade80', label: '상위' },
-    B: { c: '#60a5fa', label: '중상' },
-    C: { c: '#fbbf24', label: '중위' },
-    D: { c: '#f87171', label: '하위' },
+    A: { c: '#4ade80', label: '상위', bg: 'rgba(74,222,128,0.10)' },
+    B: { c: '#60a5fa', label: '중상', bg: 'rgba(96,165,250,0.10)' },
+    C: { c: '#fbbf24', label: '중위', bg: 'rgba(251,191,36,0.10)' },
+    D: { c: '#f87171', label: '하위', bg: 'rgba(248,113,113,0.10)' },
+    na: { c: '#94a3b8', label: '측정불가', bg: 'rgba(148,163,184,0.10)' },
   };
   const g = gradeColors[grade] || gradeColors['C'];
 
-  // 게이지 길이
   const strikePctClamped = Math.max(0, Math.min(100, strikePct));
 
-  // 분산 시각화 — strike zone box 안에 dispersion 원
-  // strike zone: 약 43cm × 60cm (홈플레이트 17"=43cm, 무릎-가슴 약 60cm)
-  // plate_sd cm를 SVG 박스 픽셀로 변환
-  const ZONE_W = 200;  // px
-  const ZONE_H = 240;  // px
-  const ZONE_REAL_W = 43;  // cm (홈플레이트 너비)
+  // 분산 시각화 — strike zone
+  const ZONE_W = 200;
+  const ZONE_H = 240;
+  const ZONE_REAL_W = 43;  // cm 홈플레이트 너비
   const cmToPx = ZONE_W / ZONE_REAL_W;
   const dispersionR = plateSdCm * cmToPx;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* DEMO 경고 박스 */}
-      {isDemo && (
+      {/* MEASURED 또는 DEMO 배지 */}
+      {!isDemo ? (
+        <div style={{
+          padding: '12px 16px',
+          background: 'linear-gradient(135deg, rgba(74,222,128,0.10), rgba(74,222,128,0.03))',
+          border: '1px solid rgba(74,222,128,0.4)',
+          borderRadius: 8,
+          fontSize: 12, color: 'var(--d-fg2)', lineHeight: 1.6,
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#4ade80', letterSpacing: '1.2px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            MEASURED · 10구 실측 데이터 기반
+          </div>
+          Uplift Labs 마커리스 모션캡처 <b>{nTrials || 10}구</b>의 시행간 표준편차(SD)와 변동계수(CV)를
+          기반으로 산출한 메카닉 일관성 점수입니다.
+          제구력은 메카닉 일관성과 강한 상관(Whiteside 2016, r ≈ 0.4–0.6)이 있어 추정 지표로 활용됩니다.
+          <br/><span style={{ color: 'var(--d-fg3)', fontSize: 10.5 }}>※ Rapsodo 측정 시 plate location SD로 직접 검증·교체 예정</span>
+        </div>
+      ) : (
         <div style={{
           padding: '12px 16px',
           background: 'linear-gradient(135deg, rgba(251,191,36,0.10), rgba(251,191,36,0.03))',
@@ -1115,13 +1131,10 @@ function CommandProfilePanel({ cmd, energy, layback }) {
           borderRadius: 8,
           fontSize: 12, color: 'var(--d-fg2)', lineHeight: 1.6,
         }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24', letterSpacing: '1.2px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2.5"><path d="M12 9v4m0 3v.01M12 3l10 18H2z" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            DEMO · Rapsodo 측정 전 임시 예시
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24', letterSpacing: '1.2px', marginBottom: 6 }}>
+            ⚠️ DEMO · 임시 추정치
           </div>
-          이 섹션의 수치는 메카닉 평균값과 선행 연구의 인과 chain(Whiteside 2016, Solomito 2018)에 근거한
-          <b style={{ color: '#fbbf24' }}> 추정 placeholder</b>입니다.
-          실제 Rapsodo 측정 데이터(strike zone location · plate location SD) 입력 시 자동 교체됩니다.
+          이 섹션의 수치는 메카닉 평균값 기반 추정 placeholder입니다.
         </div>
       )}
 
@@ -1131,7 +1144,7 @@ function CommandProfilePanel({ cmd, energy, layback }) {
           <div className="panel-head">
             <div>
               <div className="kicker">Estimated Command Grade</div>
-              <h3>제구력 등급 (추정)</h3>
+              <h3>제구력 등급</h3>
             </div>
           </div>
           <div style={{ padding: '20px 0', textAlign: 'center' }}>
@@ -1160,7 +1173,6 @@ function CommandProfilePanel({ cmd, energy, layback }) {
                 background: `linear-gradient(90deg, ${g.c}88, ${g.c})`,
                 borderRadius: 5,
               }}/>
-              {/* baseline 표시 */}
               <div style={{ position: 'absolute', left: '60%', top: -3, bottom: -3, width: 1, background: 'rgba(148,163,184,0.5)' }}/>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--d-fg3)', marginTop: 4 }}>
@@ -1177,7 +1189,7 @@ function CommandProfilePanel({ cmd, energy, layback }) {
             fontSize: 11.5, color: 'var(--d-fg2)', lineHeight: 1.6,
           }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: '#60a5fa', letterSpacing: '1px', marginBottom: 4 }}>
-              추론 근거
+              핵심 일관성 분석
             </div>
             {note}
           </div>
@@ -1189,27 +1201,20 @@ function CommandProfilePanel({ cmd, energy, layback }) {
             <div>
               <div className="kicker">Plate Dispersion Estimate</div>
               <h3>도착 위치 분산 (추정)</h3>
-              <div className="sub">· 작을수록 일관성 ↑</div>
+              <div className="sub">· 메카닉 일관성 → 릴리스 일관성 → 도착 분산</div>
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0' }}>
             <svg viewBox={`0 0 ${ZONE_W + 80} ${ZONE_H + 60}`} style={{ maxWidth: 280 }}>
-              {/* Strike Zone */}
               <rect x="40" y="30" width={ZONE_W} height={ZONE_H}
                 fill="rgba(96,165,250,0.04)" stroke="rgba(96,165,250,0.5)" strokeWidth="2" rx="2"/>
-              {/* 9분할 */}
               <line x1={40 + ZONE_W/3} y1="30" x2={40 + ZONE_W/3} y2={30 + ZONE_H} stroke="rgba(96,165,250,0.2)" strokeWidth="1"/>
               <line x1={40 + 2*ZONE_W/3} y1="30" x2={40 + 2*ZONE_W/3} y2={30 + ZONE_H} stroke="rgba(96,165,250,0.2)" strokeWidth="1"/>
               <line x1="40" y1={30 + ZONE_H/3} x2={40 + ZONE_W} y2={30 + ZONE_H/3} stroke="rgba(96,165,250,0.2)" strokeWidth="1"/>
               <line x1="40" y1={30 + 2*ZONE_H/3} x2={40 + ZONE_W} y2={30 + 2*ZONE_H/3} stroke="rgba(96,165,250,0.2)" strokeWidth="1"/>
-
-              {/* Dispersion 원 (중심 + radius) */}
               <circle cx={40 + ZONE_W/2} cy={30 + ZONE_H/2} r={dispersionR}
                 fill={`${g.c}25`} stroke={g.c} strokeWidth="2" strokeDasharray="4 3"/>
-              {/* 중심점 */}
               <circle cx={40 + ZONE_W/2} cy={30 + ZONE_H/2} r="3" fill={g.c}/>
-
-              {/* 라벨 */}
               <text x={40 + ZONE_W/2} y={30 + ZONE_H + 24} textAnchor="middle"
                 style={{ fontSize: 11, fill: 'var(--d-fg2)', fontFamily: 'Inter', fontWeight: 600 }}>
                 σ ≈ {plateSdCm.toFixed(1)} cm
@@ -1225,37 +1230,181 @@ function CommandProfilePanel({ cmd, energy, layback }) {
             </svg>
           </div>
 
-          {/* 기여도 분해 */}
-          <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(8,8,12,0.3)', border: '1px solid var(--d-border)', borderRadius: 6 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#60a5fa', letterSpacing: '1px', marginBottom: 8 }}>
-              기여도 분해 (vs baseline 55%)
-            </div>
-            {[
-              { k: '에너지 누수 영향', v: breakdown.leak },
-              { k: 'Layback 효과', v: breakdown.layback },
-              { k: 'ETI 전달 효율', v: breakdown.eti },
-            ].map((row, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px dashed rgba(148,163,184,0.12)', fontSize: 11 }}>
-                <span style={{ color: 'var(--d-fg2)' }}>· {row.k}</span>
-                <span style={{ color: row.v >= 0 ? '#4ade80' : '#f87171', fontFamily: 'Inter', fontWeight: 600 }}>
-                  {row.v >= 0 ? '+' : ''}{row.v.toFixed(1)}
-                </span>
+          {/* 실측 변수 표시 */}
+          {measured && (
+            <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(8,8,12,0.3)', border: '1px solid var(--d-border)', borderRadius: 6 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#60a5fa', letterSpacing: '1px', marginBottom: 8 }}>
+                10구 실측 변동성 (작을수록 일관 ↑)
               </div>
-            ))}
-          </div>
+              {[
+                { k: '릴리스 손목 높이 SD', v: measured.wristHeightSdCm, unit: 'cm', good: 2.0, bad: 4.0 },
+                { k: '암 슬롯 각도 SD', v: measured.armSlotSdDeg, unit: '°', good: 2.0, bad: 4.0 },
+                { k: '몸통 전방 기울기 SD', v: measured.trunkTiltSdDeg, unit: '°', good: 1.5, bad: 3.0 },
+                { k: 'Layback 변동계수', v: measured.laybackCvPct, unit: '%', good: 3.0, bad: 10.0 },
+                { k: '스트라이드 변동계수', v: measured.strideCvPct, unit: '%', good: 1.5, bad: 3.0 },
+                { k: 'FC→Release 변동계수', v: measured.fcReleaseCvPct, unit: '%', good: 3.0, bad: 10.0 },
+              ].map((row, i) => {
+                const v = row.v;
+                if (v == null) return (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px dashed rgba(148,163,184,0.12)', fontSize: 11 }}>
+                    <span style={{ color: 'var(--d-fg3)' }}>· {row.k}</span>
+                    <span style={{ color: 'var(--d-fg3)', fontFamily: 'Inter', fontStyle: 'italic' }}>측정 안됨</span>
+                  </div>
+                );
+                const color = v <= row.good ? '#4ade80' : v >= row.bad ? '#f87171' : '#fbbf24';
+                return (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px dashed rgba(148,163,184,0.12)', fontSize: 11 }}>
+                    <span style={{ color: 'var(--d-fg2)' }}>· {row.k}</span>
+                    <span style={{ color, fontFamily: 'Inter', fontWeight: 600 }}>{v.toFixed(2)}{row.unit}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* 방법론 출처 */}
+      {/* 7대 요인 */}
+      {factors && factors.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          <div style={{
+            display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+            padding: '12px 0 10px', borderBottom: '1px solid var(--d-border)', marginBottom: 14,
+            flexWrap: 'wrap', gap: 8,
+          }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#93c5fd', letterSpacing: '1.2px', marginBottom: 4 }}>
+                7 BIOMECHANICAL PILLARS · 제구력 7대 요인
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--d-fg2)' }}>
+                각 요인의 측정값 · 시행간 일관성 · MLB 엘리트 기준 비교
+              </div>
+            </div>
+            <div style={{ fontSize: 9.5, color: 'var(--d-fg3)', textAlign: 'right', lineHeight: 1.5 }}>
+              <div>등급 기준 (시행간 SD/CV)</div>
+              <div>A: 엘리트 수준 · B: 엘리트의 2배 이내</div>
+              <div>C: 2-3배 · D: 3배 이상</div>
+            </div>
+          </div>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: 12,
+          }}>
+            {factors.map((f, i) => {
+              const fg = gradeColors[f.grade] || gradeColors['na'];
+              return (
+                <div key={f.id} style={{
+                  padding: '14px 16px',
+                  background: fg.bg,
+                  border: `1px solid ${fg.c}55`,
+                  borderRadius: 10,
+                  display: 'flex', flexDirection: 'column', gap: 8,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--d-fg)', marginBottom: 2 }}>
+                        {f.name}
+                      </div>
+                      {f.elite && (
+                        <div style={{ fontSize: 9.5, color: 'var(--d-fg3)', letterSpacing: '0.3px' }}>
+                          엘리트 기준: <span style={{ color: 'var(--d-fg2)' }}>{f.elite}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{
+                      flexShrink: 0,
+                      width: 40, height: 40, borderRadius: 10,
+                      background: fg.c,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 20, fontWeight: 800, color: '#fff', fontFamily: 'Inter',
+                    }}>
+                      {f.grade}
+                    </div>
+                  </div>
+
+                  {/* 측정값 표 */}
+                  {f.measured && Object.keys(f.measured).length > 0 && (
+                    <div style={{
+                      padding: '8px 10px',
+                      background: 'rgba(8,8,12,0.4)',
+                      borderRadius: 6,
+                      fontSize: 10.5, fontFamily: 'Inter',
+                      display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px 12px',
+                    }}>
+                      {Object.entries(f.measured).map(([k, v]) => (
+                        v !== null && v !== undefined && (
+                          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                            <span style={{ color: 'var(--d-fg3)', fontSize: 9.5 }}>{k.replace(/_/g, ' ')}</span>
+                            <span style={{ color: fg.c, fontWeight: 600 }}>{v}</span>
+                          </div>
+                        )
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: 11, color: 'var(--d-fg2)', lineHeight: 1.55, paddingTop: 4, borderTop: `1px dashed ${fg.c}33` }}>
+                    {f.comment}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 약점 우선순위 박스 (D/C 요인 강조) */}
+          {(() => {
+            const weakest = factors.filter(f => f.grade === 'D' || f.grade === 'C');
+            if (weakest.length === 0) return null;
+            return (
+              <div style={{
+                marginTop: 16, padding: '14px 16px',
+                background: 'linear-gradient(135deg, rgba(248,113,113,0.08), rgba(251,191,36,0.04))',
+                border: '1px solid rgba(248,113,113,0.3)',
+                borderRadius: 8,
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#f87171', letterSpacing: '1.2px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2.5"><path d="M12 9v4m0 3v.01M12 3l10 18H2z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  약점 우선순위 · 교정 시작점 (Upstream → Downstream)
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--d-fg2)', lineHeight: 1.7 }}>
+                  {weakest.map((w, i) => (
+                    <div key={w.id} style={{ paddingLeft: 8 }}>
+                      <span style={{ color: w.grade === 'D' ? '#f87171' : '#fbbf24', fontWeight: 700 }}>
+                        {i + 1}. {w.name} ({w.grade}등급)
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(248,113,113,0.2)', fontSize: 10.5, color: 'var(--d-fg3)', lineHeight: 1.6 }}>
+                  <b style={{ color: '#fbbf24' }}>교정 원칙</b> · 손이 아니라 손을 흔드는 그 앞 단계를 먼저 잡아야 함.
+                  ① → ② → ③ 순서로 cascade 발생 → upstream 변수가 stable해야 downstream도 안정.
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* 방법론 */}
       <details style={{ fontSize: 11, color: 'var(--d-fg3)' }}>
-        <summary style={{ cursor: 'pointer', fontWeight: 600, padding: '6px 0' }}>방법론 · 메카닉 → 제구력 추정 근거</summary>
+        <summary style={{ cursor: 'pointer', fontWeight: 600, padding: '6px 0' }}>방법론 · 메카닉 일관성 → 제구력 추정 근거</summary>
         <div style={{ marginTop: 8, padding: 12, background: 'rgba(0,0,0,0.25)', borderRadius: 6, lineHeight: 1.7 }}>
           <div style={{ fontWeight: 700, color: '#93c5fd', marginBottom: 6 }}>이론적 인과 chain</div>
           <div style={{ paddingLeft: 8 }}>
-            메카닉 일관성 (low-leak, stable layback, efficient ETI)<br/>
+            메카닉 시행간 일관성 (low SD/CV)<br/>
             → release point variability ↓<br/>
             → plate location dispersion ↓<br/>
             → strike % ↑
+          </div>
+          <div style={{ fontWeight: 700, color: '#93c5fd', margin: '12px 0 6px' }}>측정 변수 6종 (Uplift Labs 10구)</div>
+          <div style={{ paddingLeft: 8 }}>
+            · <b>wrist_height_at_release SD</b> — 릴리스 손목 높이 표준편차<br/>
+            · <b>arm_slot_angle SD</b> — 팔 각도 표준편차 (어깨 외전 일관성)<br/>
+            · <b>trunk_forward_tilt_at_ball_release SD</b> — 릴리스 몸통 기울기 표준편차<br/>
+            · <b>max_layback_angle CV</b> — 최대 layback 변동계수<br/>
+            · <b>stride_length CV</b> — 보폭 변동계수 (하체 일관성)<br/>
+            · <b>foot_contact → release CV</b> — 풋 컨택트부터 릴리스까지 시간 변동계수 (BBL 자체 검출 · 전체 메카닉 일관성 종합 지표)
           </div>
           <div style={{ fontWeight: 700, color: '#93c5fd', margin: '12px 0 6px' }}>선행 연구</div>
           <div style={{ paddingLeft: 8 }}>
@@ -1264,9 +1413,8 @@ function CommandProfilePanel({ cmd, energy, layback }) {
             · Werner et al. (2008) — release point SD가 plate location SD를 직접 결정
           </div>
           <div style={{ marginTop: 12, paddingTop: 8, borderTop: '1px solid var(--d-border)', fontSize: 10 }}>
-            <b>한계</b> · 본 추정치는 10구 raw 데이터 부재 상태에서 메카닉 평균값 기반 임시 산출.
-            실제 strike% / plate dispersion은 Rapsodo 직접 측정으로 대체 예정.
-            현재 사용 중 추정 공식: strike% = 55 + leak·(-0.30) + (1 - |layback - 180|/30)·4 + (eti_ta - 0.85)·18
+            <b>현재 공식</b> · strike% = 75 − wrist_SD·1.0 − armSlot_SD·0.8 − trunkTilt_SD·1.2 − layback_CV·0.4 − stride_CV·1.5 − fcRelease_CV·0.5<br/>
+            <b>한계</b> · 본 추정치는 메카닉 일관성 기반 indirect 추정. 실제 Rapsodo plate location SD로 직접 검증·교체 예정.
           </div>
         </div>
       </details>
@@ -1578,10 +1726,10 @@ function SinglePitcherView({ p }) {
         </div>
       </SectionBlock>
 
-      {/* Section: Command Profile (DEMO) */}
+      {/* Section: Command Profile (7대 요인) */}
       <SectionBlock num="03" title="Command Profile · 제구력 프로파일"
-        sub="· 메카닉 평균값 기반 추정 · Rapsodo 측정 전 임시 예시">
-        <CommandProfilePanel cmd={p.command} energy={p.energy} layback={p.layback}/>
+        sub="· 10구 메카닉 일관성 + 제구력 7대 요인 평가 · Uplift Labs 실측">
+        <CommandProfilePanel cmd={p.command} energy={p.energy} layback={p.layback} factors={p.factors}/>
       </SectionBlock>
 
       {/* Section: SW */}
@@ -2103,7 +2251,7 @@ function App() {
     { id: 'overview', label: 'Overview',     icon: Ic.home,     num: '00' },
     { id: 'physical', label: '구속 관련 체력', icon: Ic.body,     num: '01' },
     { id: 'mech',     label: '투구 메카닉스', icon: Ic.motion,   num: '02' },
-    { id: 'command',  label: '제구력 (DEMO)', icon: Ic.flag,     num: '03' },
+    { id: 'command',  label: '제구력',         icon: Ic.flag,     num: '03' },
     { id: 'sw',       label: '강점·약점',     icon: Ic.star,     num: '04' },
     { id: 'flags',    label: '체크 포인트',   icon: Ic.flag,     num: '05' },
     { id: 'training', label: '피지컬 트레이닝', icon: Ic.dumbbell, num: '06' },
