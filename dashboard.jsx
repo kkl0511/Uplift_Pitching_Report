@@ -760,19 +760,36 @@ function CoreIssuePanel({ p }) {
  * - 참고: Driveline (2021), Werner (2008), Stodden (2005), Lehman et al. (2013) 등
  */
 function expectedVelocity(p) {
-  const BASE = 134.7; // BBL 4인 평균 km/h (한국 대학생 투수 baseline)
+  const BASE = 134.7; // BBL 4인 평균 km/h (한국 고교/대학생 투수 baseline)
   const CAP = 10;     // ±10 km/h cap (소표본 outlier 흡수)
 
-  // Physical Expected — 체력 기반
+  // 4인 baseline (옵션 D · 절대 + 상대 + mass) — 실측 체중 기반
+  const BASE_W_CMJ = 3749;  // 4인 평균 CMJ 절대 W (실측)
+  const BASE_W_SJ  = 3325;  // 4인 평균 SJ 절대 W (실측)
+  const BASE_MASS  = 76.1;  // 4인 평균 체중 kg (실측)
+  const BASE_CMJWKG = 50;   // 4인 평균 CMJ W/kg
+  const BASE_RSI    = 0.52; // 4인 평균 RSI-mod
+
+  // 체중 fallback (data에 없으면 평균 사용)
+  const mass = p.physical.weightKg ?? BASE_MASS;
+  const cmjAbs = p.physical.cmjPower.cmjAbs ?? (p.physical.cmjPower.cmj * mass);
+  const sjAbs  = p.physical.cmjPower.sjAbs  ?? (p.physical.cmjPower.sj  * mass);
+
+  // Physical Expected (옵션 D · Driveline 방식 차용)
+  // 절대값 (W, N) 위주 + 체격 보정 + RSI(체중 독립)
+  // 김주원 케이스 해결: 절대 IMTP·체격 큰 선수의 강점을 모델이 인식
+  // 권준서 케이스 검증: 체격 작아도 절대 W 충분하면 평가 유지
   const physContrib = {
-    'CMJ 단위파워':   (p.physical.cmjPower.cmj - 50) * 0.18,
-    'RSI 반응성':    (p.physical.reactive.cmj - 0.5) * 12.0,
-    'SJ 절대파워':    (p.physical.cmjPower.sj - 44) * 0.10,
+    'CMJ 절대파워 (W)':   (cmjAbs - BASE_W_CMJ) / 100 * 0.18,
+    'SJ 절대파워 (W)':    (sjAbs  - BASE_W_SJ)  / 100 * 0.10,
+    'CMJ 단위파워 (W/kg)': (p.physical.cmjPower.cmj - BASE_CMJWKG) * 0.08,
+    'RSI-mod 반응성':      (p.physical.reactive.cmj - BASE_RSI) * 14.0,
+    '체격 (mass)':         (mass - BASE_MASS) * 0.05,
   };
   let physPred = BASE + Object.values(physContrib).reduce((a,b)=>a+b, 0);
   physPred = Math.max(BASE - CAP, Math.min(BASE + CAP, physPred));
 
-  // Mechanical Expected — 메카닉스 기반
+  // Mechanical Expected — 메카닉스 기반 (변경 없음)
   const mechContrib = {
     'ETI 상완 전달':   (p.energy.etiTA - 0.77) * 18.0,
     '상완 회전 속도':  (p.angular.arm - 1463) / 50 * 1.2,
@@ -820,10 +837,10 @@ function ExpectedVelocityPanel({ p }) {
     secondary = '메카닉스 유지';
     advice = '메카닉스는 이미 효율적 — 절대 근력·파워 증가가 가장 큰 상승 여력';
   } else if (gapP > TOL && gapM > TOL) {
-    scenario = '실제 > 기대 (skill outperforming)';
-    primary = '재능 활용 + 미세 보강';
-    secondary = '부상 관리';
-    advice = '체력·메카닉스 기대치 대비 더 잘 던지는 케이스 — 워크로드 관리하며 양쪽 보강 시 추가 상승';
+    scenario = '재능형 · 측정 데이터 위에서 던짐 (Skill Outperforming)';
+    primary = '⚠️ 부상 예방 우선 + 체력·메카닉 보강';
+    secondary = '워크로드 모니터링';
+    advice = '체력·메카닉 기대치 대비 더 잘 던지는 케이스 · 측정에 안 잡히는 강점(악력·SSC·신경근 효율 등)으로 보완 중 추정 · 약한 분절 회전 + 누수 위에 빠른 공 = 어깨·UCL 부하 큼 · 즉시 체력·메카닉 보강 필요 · 보강 시 추가 큰 상승 잠재력';
   } else {
     scenario = '실제 ≈ 기대 (균형형)';
     primary = '전반 동시 향상';
@@ -942,6 +959,57 @@ function ExpectedVelocityPanel({ p }) {
           </div>
         )}
       </div>
+
+      {/* Skill Outperforming 케이스 — 가설 박스 (실제 > 기대 둘 다일 때만 표시) */}
+      {gapP > TOL && gapM > TOL && (
+        <div style={{
+          marginTop: 14,
+          padding: '14px 16px',
+          background: 'linear-gradient(135deg, rgba(251,191,36,0.10), rgba(251,191,36,0.03))',
+          border: '1px solid rgba(251,191,36,0.35)',
+          borderRadius: 10,
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24', letterSpacing: '1.2px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2.5"><path d="M12 9v4m0 3v.01M12 3l10 18H2z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            WHY THIS PATTERN? · 데이터 역설의 가능한 원인
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--d-fg2)', lineHeight: 1.7, marginBottom: 10 }}>
+            체력·메카닉 측정값보다 더 빠른 공을 던지는 경우 · 측정에 안 잡히는 강점이 작용 중일 가능성:
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', fontSize: 11.5, lineHeight: 1.65, color: 'var(--d-fg2)' }}>
+            <div>
+              <b style={{ color: '#fbbf24' }}>① 손목·전완 폭발력</b><br/>
+              <span style={{ color: 'var(--d-fg3)' }}>· 악력·grip 자체로 릴리스 직전 추가 가속</span>
+            </div>
+            <div>
+              <b style={{ color: '#fbbf24' }}>② 신경근 효율 (타고난 재능)</b><br/>
+              <span style={{ color: 'var(--d-fg3)' }}>· 분절 peak 외 timing 정밀도 + intent</span>
+            </div>
+            <div>
+              <b style={{ color: '#fbbf24' }}>③ 체격적 이점</b><br/>
+              <span style={{ color: 'var(--d-fg3)' }}>· 키·팔 길이 → release point 거리·각도 우위</span>
+            </div>
+            <div>
+              <b style={{ color: '#fbbf24' }}>④ SSC 활용 (탄성 회수)</b><br/>
+              <span style={{ color: 'var(--d-fg3)' }}>· EUR/RSI 우수 시 측정 외 가속 가능</span>
+            </div>
+          </div>
+          <div style={{
+            marginTop: 12,
+            padding: '10px 12px',
+            background: 'rgba(248,113,113,0.10)',
+            border: '1px solid rgba(248,113,113,0.30)',
+            borderRadius: 6,
+            fontSize: 11.5,
+            color: 'var(--d-fg2)',
+            lineHeight: 1.6,
+          }}>
+            <b style={{ color: '#f87171' }}>⚠️ 부상 위험 경고</b> · 약한 분절 회전 + 누수 위에 빠른 공 = 어깨·팔꿈치 보상 부하 큼 ·
+            "능력 위에서 던지는" 패턴은 투구 부상의 전형적 프로파일 ·
+            <b> 현재 구속에 의존하지 말고 즉시 체력·메카닉 보강 권장</b>
+          </div>
+        </div>
+      )}
 
       {/* 모델 설명 (작게) */}
       <details style={{ marginTop: 12, fontSize: 11, color: 'var(--d-fg3)' }}>
@@ -1136,11 +1204,11 @@ function VideoCard({ src }) {
 /* ---------------- SINGLE PITCHER VIEW ---------------- */
 function SinglePitcherView({ p }) {
   const physRows = [
-    { k: 'CMJ 단위파워', sub: 'W/kg', val: p.physical.cmjPower.cmj, band: p.physical.cmjPower.band },
-    { k: '절대근력 IMTP', sub: 'N/kg', val: p.physical.maxStrength.perKg ?? '—', band: p.physical.maxStrength.band },
-    { k: '반응성 RSI-mod', sub: 'm/s', val: p.physical.reactive.cmj, band: p.physical.reactive.band },
-    { k: '반동 활용 EUR', sub: '비율', val: p.physical.ssc.value, band: p.physical.ssc.band },
-    { k: '악력', sub: 'kg', val: p.physical.release.value, band: p.physical.release.band },
+    { k: '폭발력', sub: 'CMJ 단위파워 · W/kg', val: p.physical.cmjPower.cmj, band: p.physical.cmjPower.band },
+    { k: '버티는 힘', sub: '절대근력 IMTP · N/kg', val: p.physical.maxStrength.perKg ?? '—', band: p.physical.maxStrength.band },
+    { k: '빠른 반동', sub: '반응성 RSI-mod · m/s', val: p.physical.reactive.cmj, band: p.physical.reactive.band },
+    { k: '반동 활용', sub: 'EUR · CMJ/SJ 비율', val: p.physical.ssc.value, band: p.physical.ssc.band },
+    { k: '손목 힘', sub: '악력 · kg', val: p.physical.release.value, band: p.physical.release.band },
   ];
   const bandLabel = { high: '상위', mid: '범위', low: '미만', na: '미측정' };
   const taLeak = p.energy.etiTA < 0.85;
@@ -1182,7 +1250,7 @@ function SinglePitcherView({ p }) {
           foot="기준 50+"/>
       </div>
 
-      {/* Core Issue — KPI와 체력 프로파일 사이 */}
+      {/* Core Issue — KPI와 구속 관련 체력 사이 */}
       <div style={{ marginBottom: 24 }}>
         <CoreIssuePanel p={p}/>
       </div>
@@ -1193,26 +1261,41 @@ function SinglePitcherView({ p }) {
       </div>
 
       {/* Section: Physical */}
-      <SectionBlock num="01" title="Physical Profile · 체력 프로파일"
-        sub="· 5개 핵심 역량 종합 평가">
+      <SectionBlock num="01" title="Velocity Drivers · 구속 관련 체력 요소"
+        sub="· 빠른 공을 만드는 6가지 신체 능력 종합 평가">
         <div className="dash-grid">
           <div className="panel" style={{ background: 'transparent', border: '1px solid var(--d-border)' }}>
             <div className="panel-head">
               <div>
-                <div className="kicker">Physical Radar</div>
-                <h3>5축 역량 레이더</h3>
-                <div className="sub">· 안쪽 · 기준 미만 / 바깥 · 기준 상위</div>
+                <div className="kicker">Velocity Drivers Map</div>
+                <h3>구속 관련 체력 현황</h3>
+                <div className="sub">· 안쪽 · 기준 미만 (보강 필요) / 바깥 · 기준 상위 (잘 갖춤)</div>
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0' }}>
               <RadarChart data={p.radar}/>
+            </div>
+            {/* 각 요소가 구속에 어떻게 기여하는지 안내 */}
+            <div style={{ marginTop: 8, padding: '12px 14px', background: 'rgba(8,8,12,0.3)', border: '1px solid var(--d-border)', borderRadius: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#60a5fa', letterSpacing: '1px', marginBottom: 8 }}>
+                각 요소가 구속에 기여하는 방식
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 14px', fontSize: 11, lineHeight: 1.6, color: 'var(--d-fg2)' }}>
+                <div><b style={{ color: '#60a5fa' }}>· 폭발력</b> — 하체에서 공으로 가는 힘의 시작점</div>
+                <div><b style={{ color: '#60a5fa' }}>· 순수파워</b> — 와인드업 없이도 만드는 힘</div>
+                <div><b style={{ color: '#60a5fa' }}>· 버티는 힘</b> — 디딤발 착지 시 무너지지 않는 힘</div>
+                <div><b style={{ color: '#60a5fa' }}>· 빠른 반동</b> — 짧은 시간에 힘을 폭발시키는 능력</div>
+                <div><b style={{ color: '#60a5fa' }}>· 반동 활용</b> — 근육 늘림 → 수축 효율</div>
+                <div><b style={{ color: '#60a5fa' }}>· 손목 힘</b> — 마지막 가속 + 릴리스 안정성</div>
+              </div>
             </div>
           </div>
           <div className="panel">
             <div className="panel-head">
               <div>
                 <div className="kicker">Detailed Metrics</div>
-                <h3>세부 측정값</h3>
+                <h3>측정값 · 측정 단위 보기</h3>
+                <div className="sub">· 정확한 수치와 기준 비교</div>
               </div>
             </div>
             <div>
@@ -1816,7 +1899,7 @@ function App() {
 
   const navItems = [
     { id: 'overview', label: 'Overview',     icon: Ic.home,     num: '00' },
-    { id: 'physical', label: '체력 프로파일', icon: Ic.body,     num: '01' },
+    { id: 'physical', label: '구속 관련 체력', icon: Ic.body,     num: '01' },
     { id: 'mech',     label: '투구 메카닉스', icon: Ic.motion,   num: '02' },
     { id: 'sw',       label: '강점·약점',     icon: Ic.star,     num: '03' },
     { id: 'flags',    label: '체크 포인트',   icon: Ic.flag,     num: '04' },
