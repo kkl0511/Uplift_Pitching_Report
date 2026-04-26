@@ -251,8 +251,8 @@ window.BBL_PITCHERS = [
       strikePct: 66.4, plateSdCm: 18.8, grade: 'A',
       breakdown: { wrist: -2.5, armslot: -2.8, trunkTilt: -1.2, layback: -0.6, stride: -1.0, fcRelease: -10.4 },
       measured: {
-        wristHeightSdCm: None,
-        armSlotSdDeg: None,
+        wristHeightSdCm: null,
+        armSlotSdDeg: null,
         trunkTiltSdDeg: 0.97,
         laybackCvPct: 1.62,
         strideCvPct: 0.65,
