@@ -100,65 +100,227 @@
   // ═════════════════════════════════════════════════════════════════
   // Archetype + Severity + CoreIssue 자동 분류
   // ═════════════════════════════════════════════════════════════════
-  function classifyArchetype(physical, summary, energy) {
-    const cmjBand = physical.cmjPower?.band;
-    const strBand = physical.maxStrength?.band;
-    const rsiBand = physical.reactive?.band;
-    const mass    = physical.weightKg;
-    const etiTA   = summary.etiTA?.mean;
-    const armPeak = summary.peakArmVel?.mean;
+  // ⭐ v23 — 학술 근거 기반 archetype 분류
+  //   분류 축:
+  //   1. 절대 파워 (peakPowerArm + CMJ 절대값) — 학술적으로 가장 강한 신호
+  //   2. 키네틱 체인 효율 (ETI 평균 ≥ 1.5 = 효율, < 1.0 = 누수)
+  //   3. 체격 (체중 + BMI)
+  //   인자 확장: kineticChain, precision
+  function classifyArchetype(physical, summary, energy, kineticChain, precision) {
+    const mass = physical.weightKg;
+    const heightCm = physical.heightCm;
+    const cmjAbs = physical.cmjPower?.cmjAbs;
+    const imtpAbs = physical.maxStrength?.abs;
+    const peakArmW = kineticChain?.peakPowerArm;
+    const etiPT = summary.etiPT?.mean;
+    const etiTA = summary.etiTA?.mean;
+    const etiAvg = (etiPT != null && etiTA != null) ? (etiPT + etiTA) / 2 : null;
+    const cockPwr = precision?.cockPowerWPerKg;
 
-    // 1) 절대 근력 충분 + 단위파워 높음 → 파워 주도형
-    if (cmjBand === 'high' && (strBand === 'mid' || strBand === 'high')) {
-      return { archetype: '하체 파워 주도형', archetypeEn: 'Power-dominant (mid strength)' };
+    // 절대 파워 등급 분류
+    //   high: peakPowerArm ≥ 3500W AND (CMJ ≥ 3700W OR IMTP ≥ 2300N)
+    //   mid:  peakPowerArm ≥ 2200W
+    //   low:  그 외
+    let powerLevel = 'low';
+    if (peakArmW != null) {
+      if (peakArmW >= 3500 && ((cmjAbs != null && cmjAbs >= 3700) || (imtpAbs != null && imtpAbs >= 2300))) {
+        powerLevel = 'high';
+      } else if (peakArmW >= 2200) {
+        powerLevel = 'mid';
+      }
+    } else if (cmjAbs != null) {
+      if (cmjAbs >= 3700) powerLevel = 'high';
+      else if (cmjAbs >= 2800) powerLevel = 'mid';
     }
-    // 2) 단위파워 높지만 체격/근력 작음 → 탄력 중심형
-    if ((cmjBand === 'high' || rsiBand === 'high') && (strBand === 'low' || (mass && mass < 70))) {
-      return { archetype: '탄력 중심형', archetypeEn: 'Lightweight / Elastic' };
+
+    // 키네틱 체인 효율 등급
+    //   efficient: ETI 평균 ≥ 1.5 (Aguinaldo 2019)
+    //   leaky:     ETI 어느 한 단계 < 1.0
+    //   moderate:  그 외
+    let chainLevel = 'moderate';
+    if (etiAvg != null && etiAvg >= 1.5 && (etiPT >= 1.2 || etiTA >= 1.2)) chainLevel = 'efficient';
+    else if ((etiPT != null && etiPT < 1.0) || (etiTA != null && etiTA < 1.0)) chainLevel = 'leaky';
+
+    // 체격 등급 (Werner 2008: body mass + 9 params = 68% variance)
+    const small = mass != null && mass < 70;
+    const tall  = heightCm != null && heightCm >= 180;
+
+    // 분류 결정
+    // 1) 체격·절대 파워 모두 부족 → "체격·근육량 발달형"
+    if (powerLevel === 'low' && small) {
+      return { archetype: '체격·근육량 발달형',
+               archetypeEn: 'Body-mass · power development needed' };
     }
-    // 3) 절대 근력은 있지만 폭발력 부족 → 파워 변환 필요형
-    if ((cmjBand === 'mid' || cmjBand === 'low') && strBand === 'high') {
-      return { archetype: '파워 변환 필요형', archetypeEn: 'Strength-rich · power-deficit' };
+    // 2) 절대 파워 부족 → "절대 파워 발달형"
+    if (powerLevel === 'low') {
+      return { archetype: '절대 파워 발달형',
+               archetypeEn: 'Absolute power development needed' };
     }
-    // 4) 둘 다 부족 → 파워 개발 필요형
-    if (cmjBand === 'low' && (strBand === 'low' || strBand === 'na')) {
-      return { archetype: '파워 개발 필요형', archetypeEn: 'Power-deficit (untested or low)' };
+    // 3) 키네틱 체인 누수 → "키네틱 체인 누수형"
+    if (chainLevel === 'leaky') {
+      return { archetype: '키네틱 체인 누수형',
+               archetypeEn: 'Kinetic-chain leakage' };
     }
-    // 5) 기본
-    return { archetype: '균형형', archetypeEn: 'Balanced profile' };
+    // 4) 절대 파워 mid + 효율 양호 → "효율 우위형"
+    if (powerLevel === 'mid' && chainLevel === 'efficient') {
+      return { archetype: '효율 우위형 (체격 발달 여지)',
+               archetypeEn: 'Efficiency-led · room for mass gain' };
+    }
+    // 5) 절대 파워 high + 효율 양호 → "엘리트 균형형"
+    if (powerLevel === 'high' && chainLevel === 'efficient') {
+      return { archetype: '엘리트 균형형 (파워+효율 우수)',
+               archetypeEn: 'Elite balanced (power + efficiency)' };
+    }
+    // 6) 절대 파워 high + 효율 보통 → "파워 우위형"
+    if (powerLevel === 'high') {
+      return { archetype: '파워 우위형 (효율 다듬기 가능)',
+               archetypeEn: 'Power-dominant · efficiency tunable' };
+    }
+    // 7) 기본
+    return { archetype: '균형 발달형', archetypeEn: 'Balanced developing' };
   }
 
-  function classifyCoreIssue(physical, summary, energy, command) {
+  // ⭐ v23 학술 근거 기반 약점 판정
+  //   - 절대 KE/Power 부족 (peakPowerArm, KE_arm, cockPowerWPerKg)
+  //   - 키네틱 체인 누수 (ETI < 1.5 = 누수, ETI < 1.0 = 명확 누수)
+  //   - 절대 근력/파워 부족 (CMJ 절대값 W, IMTP 절대값 N)
+  //   - 핵심 메카닉 미달 (Trunk forward tilt, Lead knee extension)
+  //   인자 확장: kineticChain, precision 받음
+  function classifyCoreIssue(physical, summary, energy, command, kineticChain, precision) {
     const issues = [];
     let severity = 'NONE';
 
+    const etiPT = summary.etiPT?.mean;
     const etiTA = summary.etiTA?.mean;
-    const leakPct = energy?.leakRate;
-    const cmjBand = physical.cmjPower?.band;
-    const strBand = physical.maxStrength?.band;
+    const leakPct = energy?.leakPct;
     const mass = physical.weightKg;
 
-    // ETI T→A 누수
-    if (etiTA != null && etiTA < 0.85) {
-      issues.push({ type: 'mech', severity: 'HIGH', label: '몸통→상완 에너지 누수' });
+    // ━━ 키네틱 체인 누수 (사용자 강조 — 가장 핵심) ━━
+    // ETI < 1.0 = 명확 누수 (HIGH)
+    if (etiPT != null && etiPT < 1.0) {
+      issues.push({ type: 'mech', severity: 'HIGH', label: '골반→몸통 에너지 명확 누수 (ETI<1.0)' });
+      severity = 'HIGH';
+    } else if (etiPT != null && etiPT < 1.3) {
+      issues.push({ type: 'mech', severity: 'MEDIUM', label: '골반→몸통 에너지 부분 누수' });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+    if (etiTA != null && etiTA < 1.0) {
+      issues.push({ type: 'mech', severity: 'HIGH', label: '몸통→상완 에너지 명확 누수 (ETI<1.0)' });
+      severity = 'HIGH';
+    } else if (etiTA != null && etiTA < 1.3) {
+      issues.push({ type: 'mech', severity: 'MEDIUM', label: '몸통→상완 에너지 부분 누수' });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+    // 누수율 % 자체가 높으면
+    if (leakPct != null && leakPct > 30) {
+      issues.push({ type: 'mech', severity: 'HIGH', label: `에너지 누수율 ${leakPct.toFixed(0)}% (단계간 손실 과다)` });
       severity = 'HIGH';
     }
 
-    // 단위파워 부족
-    if (cmjBand === 'low') {
-      issues.push({ type: 'phys', severity: 'MEDIUM', label: '하체 단위파워 부족' });
+    // ━━ 절대 KE/Power 부족 (학술적 핵심 신호) ━━
+    // peakPowerArm: 한국 baseline 1500=낮음, 3000=평균 → 1800W 미만이면 절대 부족
+    if (kineticChain?.peakPowerArm != null && kineticChain.peakPowerArm < 1800) {
+      issues.push({ type: 'mech', severity: 'HIGH', label: `Peak Power Arm 절대값 부족 (${kineticChain.peakPowerArm.toFixed(0)}W)` });
+      severity = 'HIGH';
+    }
+    // cockPowerWPerKg: Naito 2014 기준, 25 미만 = 발달 필요
+    if (precision?.cockPowerWPerKg != null && precision.cockPowerWPerKg < 25) {
+      issues.push({ type: 'mech', severity: 'MEDIUM',
+        label: `Cocking phase 팔 파워 부족 (${precision.cockPowerWPerKg.toFixed(1)} W/kg)` });
       if (severity !== 'HIGH') severity = 'MEDIUM';
     }
 
-    // 절대 근력 부족 + 작은 체격
-    if (strBand === 'low' && mass != null && mass < 70) {
-      issues.push({ type: 'phys', severity: 'MEDIUM', label: '엔진 총량 부족' });
+    // ━━ 절대 근력/파워 부족 (Sakurai 2024) ━━
+    // CMJ 절대값 < 3000W = 하체 절대 폭발력 부족
+    if (physical.cmjPower?.cmjAbs != null && physical.cmjPower.cmjAbs < 3000) {
+      issues.push({ type: 'phys', severity: 'MEDIUM',
+        label: `CMJ 절대 파워 부족 (${physical.cmjPower.cmjAbs}W)` });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+    // IMTP 절대값 < 2000N = 절대 근력 부족
+    if (physical.maxStrength?.abs != null && physical.maxStrength.abs < 2000) {
+      issues.push({ type: 'phys', severity: 'MEDIUM',
+        label: `IMTP 절대 근력 부족 (${physical.maxStrength.abs}N)` });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+    // 체격 미달 — 체중 < 70 AND 절대 파워/근력 미달
+    const cmjLow = physical.cmjPower?.cmjAbs != null && physical.cmjPower.cmjAbs < 3200;
+    const strLow = physical.maxStrength?.abs != null && physical.maxStrength.abs < 2100;
+    if (mass != null && mass < 70 && (cmjLow || strLow)) {
+      issues.push({ type: 'phys', severity: 'MEDIUM',
+        label: `체격·근육량 발달 필요 (${mass.toFixed(1)}kg + 절대 파워 부족)` });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+
+    // ━━ 핵심 메카닉 미달 ━━
+    // Trunk peak angular velocity < 700°/s = 몸통 회전 부족
+    if (summary.peakTrunkVel?.mean != null && summary.peakTrunkVel.mean < 700) {
+      issues.push({ type: 'mech', severity: 'MEDIUM',
+        label: `몸통 회전 속도 부족 (${summary.peakTrunkVel.mean.toFixed(0)}°/s)` });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+
+    // ━━ 드라이브라인 핵심 변인 미달 ━━
+    // Layback (MER) < 160° = 어깨 외회전 가동성 부족 (드라이브라인 0.86)
+    if (summary.maxER?.mean != null && summary.maxER.mean < 160) {
+      issues.push({ type: 'mech', severity: 'MEDIUM',
+        label: `Layback 부족 (${summary.maxER.mean.toFixed(0)}°)` });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+    // CoG Decel < 1.2 m/s = 무게중심 감속 부족 (드라이브라인 0.70)
+    if (summary.cogDecel?.mean != null && summary.cogDecel.mean < 1.2) {
+      issues.push({ type: 'mech', severity: 'MEDIUM',
+        label: `CoG 감속 부족 (${summary.cogDecel.mean.toFixed(2)}m/s · 엘리트 1.61)` });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+    // Lead Knee Extension < 0° = 앞다리 신전 부족 (드라이브라인 0.58)
+    if (summary.leadKneeExtAtBR?.mean != null && summary.leadKneeExtAtBR.mean < 0) {
+      issues.push({ type: 'mech', severity: 'MEDIUM',
+        label: `앞다리 신전 부족 (${summary.leadKneeExtAtBR.mean.toFixed(0)}° · 엘리트 11°)` });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+    // Stride ratio < 0.75 = 스트라이드 짧음 (드라이브라인 0.58)
+    if (summary.strideRatio?.mean != null && summary.strideRatio.mean < 0.75) {
+      issues.push({ type: 'mech', severity: 'MEDIUM',
+        label: `스트라이드 짧음 (${(summary.strideRatio.mean*100).toFixed(0)}% · 엘리트 83-87%)` });
       if (severity !== 'HIGH') severity = 'MEDIUM';
     }
 
     // 제구 등급 D
     if (command?.overall === 'D') {
       issues.push({ type: 'cmd', severity: 'MEDIUM', label: '제구 일관성 부족' });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+
+    // ⭐ v26 — 제구 4그룹 핵심 변인 약점 판정
+    // [A] 앞발 착지 — Manzi 2021 #2 (4.2% MSE)
+    const kneeFcSd = summary.kneeFlexionAtFC?.sd ?? summary.frontKneeFlex?.sd;
+    if (kneeFcSd != null && kneeFcSd > 8) {
+      issues.push({ type: 'cmd', severity: 'MEDIUM',
+        label: `FC 무릎 굴곡 변동 큼 (${kneeFcSd.toFixed(1)}° SD · Manzi 2021 정확도 #2 예측)` });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+    if (summary.leadKneeExtAtBR?.sd != null && summary.leadKneeExtAtBR.sd > 8) {
+      issues.push({ type: 'cmd', severity: 'MEDIUM',
+        label: `FC→BR 무릎 신전 일관성 부족 (${summary.leadKneeExtAtBR.sd.toFixed(1)}° SD)` });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+    if (summary.strideLength?.cv != null && summary.strideLength.cv > 8) {
+      issues.push({ type: 'cmd', severity: 'MEDIUM',
+        label: `스트라이드 길이 변동 큼 (${summary.strideLength.cv.toFixed(1)}% CV · Drives/Fleisig 청소년 핵심 차이)` });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+    // [B] 회전 타이밍 — Wang 2025 r=0.78
+    if (summary.peakPelvisVel?.cv != null && summary.peakPelvisVel.cv > 15) {
+      issues.push({ type: 'cmd', severity: 'MEDIUM',
+        label: `골반 회전속도 변동 큼 (${summary.peakPelvisVel.cv.toFixed(1)}% CV · Wang 2025 r=0.78)` });
+      if (severity !== 'HIGH') severity = 'MEDIUM';
+    }
+    // [C] 자세 일관성 — Manzi 2021 #1 (6.6% MSE)
+    const trunkFcSd = summary.trunkForwardTiltAtFC?.sd ?? summary.trunkFlexAtFC?.sd;
+    if (trunkFcSd != null && trunkFcSd > 6) {
+      issues.push({ type: 'cmd', severity: 'MEDIUM',
+        label: `FC 몸통 자세 변동 큼 (${trunkFcSd.toFixed(1)}° SD · Manzi 2021 정확도 #1 예측)` });
       if (severity !== 'HIGH') severity = 'MEDIUM';
     }
 
@@ -171,8 +333,8 @@
     }
 
     return {
-      coreIssue: '· ' + issues.map(i => i.label).join(' · '),
-      coreIssueEn: issues.map(i => i.label).join(' + '),
+      coreIssue: '· ' + issues.slice(0, 4).map(i => i.label).join(' · '),
+      coreIssueEn: issues.slice(0, 4).map(i => i.label).join(' + '),
       severity
     };
   }
@@ -496,14 +658,27 @@
     const etiPT = sm.etiPT?.mean;
     const etiTA = sm.etiTA?.mean;
     const leakRate = energy?.leakRate;
-    let leakPct = 0;
-    if (etiTA != null && etiTA < 0.85) {
-      leakPct = Math.round((1 - etiTA) * 100);
+    // ⭐ v21 — 누수율 계산 보강
+    //   기존: etiTA < 0.85 만 누수로 인식 → 대부분 0% 동일하게 표시
+    //   신규: P→T와 T→A 양쪽 단계의 효율 부족분을 합산
+    //   이상적 키네틱 체인: 각 단계 ETI ≥ 1.5 (KE가 다음 분절로 1.5x 이상 증폭)
+    //   ETI < 1.5는 그만큼 효율 손실로 간주
+    function stageLeak(eti) {
+      if (eti == null) return 0;
+      const ideal = 1.5;
+      if (eti >= ideal) return 0;             // 충분한 증폭 → 누수 없음
+      // ETI 1.5에서 0%, 1.0에서 30%, 0.5에서 60%까지 선형
+      return Math.max(0, Math.round((ideal - eti) * 60));
     }
+    const ptLeak = stageLeak(etiPT);
+    const taLeak = stageLeak(etiTA);
+    const leakPct = Math.min(60, ptLeak + taLeak);  // 합산 (max 60%로 cap)
     return {
       etiPT: r2(etiPT) != null ? etiPT : 0,
       etiTA: r2(etiTA) != null ? etiTA : 0,
       leakPct: leakPct,
+      ptLeak: ptLeak,    // 단계별 누수 (디버그/세부 분석용)
+      taLeak: taLeak,
       comment: buildEnergyComment(etiPT, etiTA, leakPct)
     };
   }
@@ -611,60 +786,125 @@
     if (valid.length === 0) return null;
     return valid.reduce((a, b) => a + b, 0) / valid.length;
   }
-  function buildVelocityRadar(sm, energy) {
-    // 1. 팔 동작 (Arm Mechanics) — MER · 팔 회전 속도 · Arm slot
-    const armMechanics = avgScores([
-      varToScore(sm.maxER?.mean,        178, false, 165, 195),
-      varToScore(sm.peakArmVel?.mean,   1500, true),  // 한국 고교 우수 baseline
-      varToScore(sm.armSlotAngle?.mean, 84, false, 50, 110)
-    ]);
-    // 2. 하체 블록 — 앞다리 신전 · 스트라이드 + 실제 전진 속도(peakCogVel) · 감속(cogDecel)
-    const lowerBlock = avgScores([
-      varToScore(sm.leadKneeExtAtBR?.mean, 11, true),
-      varToScore(sm.strideRatio?.mean, 1.0, false, 0.85, 1.15),
-      // peakCogVel — 한국 고교 ~ 2.4 m/s baseline (Driveline elite 2.84 m/s)
-      sm.peakCogVel?.mean != null ? varToScore(sm.peakCogVel.mean, 2.4, true) : null,
-      // cogDecel — 1.2 m/s baseline (elite 1.6 m/s)
-      sm.cogDecel?.mean != null ? varToScore(sm.cogDecel.mean, 1.2, true) : null
-    ]);
-    // 3. ⭐ 변경 — "자세 안정성" → "로딩 능력": X-factor + Counter Rotation만 사용
-    //    Loading capacity = 골반-몸통 분리 + 반대방향 회전(elastic 에너지 저장)
-    const loadingCapacity = avgScores([
-      // X-factor — 골반-몸통 분리각 (한국 고1 우수 35-50°)
-      varToScore(sm.maxXFactor?.mean, 40, false, 30, 55),
-      // Counter Rotation — 음수일수록 좋음 (반대방향 깊은 회전 = elastic 저장)
-      sm.peakTorsoCounterRot?.mean != null
-        ? varToScore(Math.abs(sm.peakTorsoCounterRot.mean), 30, true)
-        : null
-    ]);
-    // 4. ⭐ 변경 — "회전 동력" → "회전 파워": 몸통 회전 속도만 사용
-    //    구속과 가장 직접 상관 있는 단일 변인 (Stodden 2005, Aguinaldo 2007)
-    //    baseline: 700°/s = 50점, 850°/s = 70점 (mid 중앙), 1000°/s = 90점
-    const rotationPower = sm.peakTrunkVel?.mean != null
-      ? Math.max(0, Math.min(100, (sm.peakTrunkVel.mean - 600) / 5))
-      : null;
-    // 5. ⭐ 키네틱 체인 효율 — 시퀀싱 + ETI + 누수율 통합
-    const kineticChainScore = avgScores([
-      sm.ptLagMs?.mean != null  ? varToScore(sm.ptLagMs.mean,  45, false, 25, 65) : null,
-      sm.taLagMs?.mean != null  ? varToScore(sm.taLagMs.mean,  30, false, 15, 45) : null,
-      sm.fcBrMs?.mean != null   ? varToScore(sm.fcBrMs.mean,   150, false, 130, 180) : null,
-      sm.etiPT?.mean != null    ? Math.max(0, Math.min(100, (sm.etiPT.mean - 1.0) * 200)) : null,
-      sm.etiTA?.mean != null    ? Math.max(0, Math.min(100, (sm.etiTA.mean - 1.0) * 143)) : null,
-      energy?.leakRate != null  ? Math.max(0, Math.min(100, 100 - energy.leakRate * 2)) : null
-    ]);
-
+  // ⭐ v25 — v24 가중치 7그룹과 일치하는 RadarChart 데이터
+  //   각 그룹의 점수는 그룹 내 변인 점수의 가중 평균
+  //   가중치는 calcVelocityScore와 동일
+  function buildVelocityRadar(sm, energy, kineticChain, precision) {
+    function pwLin(v, anchors) {
+      if (v == null || isNaN(v)) return null;
+      if (v <= anchors[0][0]) return Math.max(0, anchors[0][1] * (v / anchors[0][0]));
+      for (let i = 1; i < anchors.length; i++) {
+        if (v <= anchors[i][0]) {
+          const [x0, y0] = anchors[i-1], [x1, y1] = anchors[i];
+          return y0 + (v - x0) / (x1 - x0) * (y1 - y0);
+        }
+      }
+      const last = anchors[anchors.length - 1];
+      return Math.min(100, last[1] + (v - last[0]) * 0.05);
+    }
+    function targetScore(val, target, fwhm, max) {
+      if (val == null) return null;
+      const dist = Math.abs(val - target);
+      const score = max * Math.exp(-Math.LN2 * (dist / fwhm) * (dist / fwhm));
+      return Math.max(20, score);
+    }
+    function rangeScore(v, lo, hi) {
+      if (v == null) return null;
+      if (v >= lo && v <= hi) return 90;
+      const mid = (lo + hi) / 2, range = (hi - lo) / 2;
+      const off = Math.abs(v - mid);
+      if (off <= range * 1.5) return 70 - (off - range) / (range * 0.5) * 10;
+      if (off <= range * 2.5) return 60 - (off - range * 1.5) / range * 15;
+      return Math.max(20, 45 - (off - range * 2.5) / range * 10);
+    }
+    function avg(arr) {
+      const valid = arr.filter(x => x != null && !isNaN(x));
+      if (valid.length === 0) return null;
+      return valid.reduce((s, v) => s + v, 0) / valid.length;
+    }
     function disp(v) { return v == null ? '—' : Math.round(v).toString(); }
+
+    // [A] 키네틱 체인 (0.30) — ETI P→T, ETI T→A, 누수%, 시퀀싱
+    const kineticParts = [
+      sm.etiPT?.mean != null ? pwLin(sm.etiPT.mean, [[0.5,10],[0.8,30],[1.2,55],[1.5,75],[1.8,90],[2.2,98]]) : null,
+      sm.etiTA?.mean != null ? pwLin(sm.etiTA.mean, [[0.5,10],[0.8,30],[1.2,55],[1.5,75],[1.8,90],[2.2,98]]) : null,
+      energy?.leakPct != null ? Math.max(0, Math.min(100, 95 - energy.leakPct * 1.7)) : null,
+      sm.ptLagMs?.mean != null && sm.taLagMs?.mean != null
+        ? (rangeScore(sm.ptLagMs.mean, 25, 65) + rangeScore(sm.taLagMs.mean, 15, 45)) / 2
+        : null
+    ];
+    const kineticScore = avg(kineticParts);
+
+    // [B] Arm Action (0.18) — Layback, Shoulder Abd FP, Scap Load FP
+    const shAbdFP = sm.shoulderAbdFP?.mean ?? sm.shoulderAbductionFP?.mean;
+    const scapLoad = sm.scapLoadFP?.mean ?? sm.scapulaLoadFP?.mean ?? sm.scapLoad?.mean;
+    const armActionParts = [
+      sm.maxER?.mean != null ? pwLin(sm.maxER.mean, [[140,20],[170,55],[185,75],[200,92]]) : null,
+      shAbdFP != null ? pwLin(shAbdFP, [[60,30],[80,65],[90,85],[100,90]]) : null,
+      scapLoad != null ? pwLin(scapLoad, [[20,30],[40,55],[55,80],[75,93]]) : null
+    ];
+    const armActionScore = avg(armActionParts);
+
+    // [C] Posture (0.18) — Hip-Shoulder Sep FP, Trunk fwd tilt FP, Counter Rot, Trunk Rot FP
+    const hssVal = sm.hipShoulderSep?.mean ?? sm.hipShoulderSepFP?.mean ?? sm.maxXFactor?.mean;
+    const tftFP = sm.torsoFwdTiltFP?.mean ?? sm.trunkFwdTiltFP?.mean ?? sm.trunkForwardTiltAtFC?.mean;
+    const ptcr = sm.peakTorsoCounterRot?.mean ?? sm.torsoCounterRot?.mean;
+    const trFP = sm.torsoRotFP?.mean ?? sm.trunkRotFP?.mean ?? sm.trunkRotAtFP?.mean;
+    const postureParts = [
+      hssVal != null ? pwLin(hssVal, [[10,20],[20,45],[30,75],[40,90],[50,95]]) : null,
+      tftFP != null ? pwLin(tftFP, [[-10,30],[0,55],[5,75],[15,90]]) : null,
+      ptcr != null ? pwLin(Math.abs(ptcr), [[5,20],[20,45],[37,75],[50,90]]) : null,
+      trFP != null ? targetScore(trFP, 2, 10, 90) : null
+    ];
+    const postureScore = avg(postureParts);
+
+    // [D] Rotation (0.10) — Trunk Rotation Velo
+    const rotationScore = sm.peakTrunkVel?.mean != null
+      ? pwLin(sm.peakTrunkVel.mean, [[600,30],[750,55],[900,78],[1050,92]])
+      : null;
+
+    // [E] Block (0.09) — Lead Knee Ext at BR, Stride ratio
+    const blockParts = [
+      sm.leadKneeExtAtBR?.mean != null ? pwLin(sm.leadKneeExtAtBR.mean, [[-30,15],[-15,35],[0,55],[10,78],[20,92]]) : null,
+      sm.strideRatio?.mean != null ? pwLin(sm.strideRatio.mean, [[0.5,15],[0.7,40],[0.8,65],[0.85,80],[0.92,90],[1.0,85]]) : null
+    ];
+    const blockScore = avg(blockParts);
+
+    // [F] CoG (0.05) — CoG Decel
+    const cogScore = sm.cogDecel?.mean != null
+      ? pwLin(sm.cogDecel.mean, [[0.5,20],[1.0,45],[1.4,70],[1.6,82],[2.0,95]])
+      : null;
+
+    // [G] 절대 KE/Power (0.10) — peakPowerArm, KE_arm
+    const powerParts = [
+      kineticChain?.peakPowerArm != null ? pwLin(kineticChain.peakPowerArm, [[1000,15],[1500,30],[2500,55],[3500,75],[4500,92]]) : null,
+      kineticChain?.KE_arm?.val != null ? pwLin(kineticChain.KE_arm.val, [[80,25],[120,50],[160,75],[200,90]]) : null
+    ];
+    const powerScore = avg(powerParts);
+
+    // RadarChart 데이터: 0-100 점수를 lo=50, hi=80 기준으로 표시
     return [
-      { label: '팔 동작',       sub: 'MER · 팔속도 · Arm slot',         dlMapping: 'Driveline: Arm Action',
-        value: armMechanics, lo: 50, hi: 80, display: disp(armMechanics), isOurOwn: false },
-      { label: '하체 블록',     sub: '앞다리 · 스트라이드 · CoG 속도/감속', dlMapping: 'Driveline: Block + CoG',
-        value: lowerBlock, lo: 50, hi: 80, display: disp(lowerBlock), isOurOwn: false },
-      { label: '로딩 능력',     sub: 'X-factor · Counter Rotation',     dlMapping: 'Elastic loading',
-        value: loadingCapacity, lo: 50, hi: 80, display: disp(loadingCapacity), isOurOwn: false },
-      { label: '회전 파워',     sub: '몸통 회전 속도 (구속 핵심)',         dlMapping: 'Driveline: Trunk Rotation',
-        value: rotationPower, lo: 50, hi: 80, display: disp(rotationPower), isOurOwn: false },
-      { label: '키네틱 체인 효율', sub: '시퀀싱(lag) + ETI(증폭) + 누수율',  dlMapping: '⭐ 우리 시스템 고유',
-        value: kineticChainScore, lo: 50, hi: 80, display: disp(kineticChainScore), isOurOwn: true }
+      { label: '키네틱 체인',    sub: 'ETI · 누수 · 시퀀싱',          weight: 0.30,
+        dlMapping: '⭐ 우리 시스템 고유 + 사용자 강조',
+        value: kineticScore, lo: 50, hi: 80, display: disp(kineticScore), isOurOwn: true },
+      { label: 'Arm Action',     sub: 'Layback · Sh.Abd · Scap Load', weight: 0.18,
+        dlMapping: 'Driveline 모델 #2 (영향력 2위)',
+        value: armActionScore, lo: 50, hi: 80, display: disp(armActionScore), isOurOwn: false },
+      { label: 'Posture',        sub: 'Hip-Sh.Sep · Counter Rot · Trunk',  weight: 0.18,
+        dlMapping: 'Driveline 모델 #1 (영향력 1위)',
+        value: postureScore, lo: 50, hi: 80, display: disp(postureScore), isOurOwn: false },
+      { label: 'Rotation',       sub: 'Trunk Rotation Velo (단일)',    weight: 0.10,
+        dlMapping: 'Driveline 1.0 (기준 변인)',
+        value: rotationScore, lo: 50, hi: 80, display: disp(rotationScore), isOurOwn: false },
+      { label: 'Block',          sub: 'Lead Knee Ext · Stride',        weight: 0.09,
+        dlMapping: 'Driveline 모델 #5',
+        value: blockScore, lo: 50, hi: 80, display: disp(blockScore), isOurOwn: false },
+      { label: 'CoG',            sub: 'CoG Decel (단일)',              weight: 0.05,
+        dlMapping: 'Driveline 모델 #4 (0.70 high)',
+        value: cogScore, lo: 50, hi: 80, display: disp(cogScore), isOurOwn: false },
+      { label: '절대 KE/Power',  sub: 'Peak Power Arm · KE_arm',       weight: 0.10,
+        dlMapping: '⭐ 학술 + 4명 데이터 검증',
+        value: powerScore, lo: 50, hi: 80, display: disp(powerScore), isOurOwn: true }
     ];
   }
 
@@ -805,12 +1045,40 @@
     if (score >= 22) return 'D';
     return 'F';
   }
-  function calcVelocityScore(sm, energy) {
-    // ─── 한국 고교 우수 투수 기준 (band 평가와 점수 평가의 일관성 확보) ───
-    // band low/mid/high 경계가 점수 30/60/85에 매핑되도록 piecewise 함수 사용
-    // 평균 구속 130(고1평균)→60점, 145(우수)→80점, 155(엘리트)→95점
+  // ⭐ v24 — 드라이브라인 모델 + 학술 + 키네틱 체인 통합
+  //   드라이브라인 5개 모델 영향력 순위 (구속 예측):
+  //     1) Posture          — 가장 큰 영향
+  //     2) Arm Action       — 2번째
+  //     3) Rotation         — 4번째 (예상 초과 시 3번째)
+  //     4) CoG              — 4번째 (예상 초과 시 5번째)
+  //     5) Block            — 5번째 (예상 초과 시 4번째)
+  //
+  //   드라이브라인 상대 중요도 (Trunk Rot Velo = 1.0 기준):
+  //     Trunk Rotation Velo  1.00  high
+  //     Layback (MER)        0.86  high  ⭐
+  //     CoG Decel            0.70  high
+  //     Lead Knee Extension  0.58  high
+  //     Stride Length        0.58  high
+  //     Elbow Ext Velo       0.56  med
+  //     Shoulder Abd FP      0.51  med
+  //     Hip-Shoulder Sep FP  0.44  med
+  //     Peak Torso Counter   0.38  med
+  //     Scap Load at FP      0.37  med
+  //     Shoulder IR Velo     0.36  med
+  //     Torso Fwd Tilt FP    0.36  med
+  //     Torso Rot at FP      0.35  med
+  //
+  //   v24 가중치 그룹 (총 1.00):
+  //     [A] 키네틱 체인 (사용자 강조)   0.28
+  //     [B] Posture (드라이브라인 #1) 0.16
+  //     [C] Arm Action (드라이브라인 #2) 0.16
+  //     [D] Rotation                  0.09
+  //     [E] Block                     0.09
+  //     [F] CoG                       0.06
+  //     [G] 절대 KE/Power             0.16
+  //   합계 = 1.00
+  function calcVelocityScore(sm, energy, kineticChain, precision) {
     function pwLinear(val, anchors) {
-      // anchors: [[x0,y0],[x1,y1],...] 정렬된 배열
       if (val == null || isNaN(val)) return null;
       if (val <= anchors[0][0]) return Math.max(0, anchors[0][1] * (val / anchors[0][0]));
       for (let i = 1; i < anchors.length; i++) {
@@ -823,100 +1091,446 @@
       return Math.min(100, last[1] + (val - last[0]) * 0.05);
     }
     const parts = [];
-    const sources = [];  // 점수 산출 근거
-    function push(name, w, val, anchors, unit) {
+    const sources = [];
+    function push(group, name, w, val, anchors, unit) {
       const score = pwLinear(val, anchors);
       if (Number.isFinite(score)) {
         parts.push({ w, v: score });
-        sources.push({ name, weight: w, value: val, unit, score: Math.round(score) });
+        sources.push({ group, name, weight: w, value: val, unit, score: Math.round(score) });
       }
     }
-    // 평균 구속 (35%)
-    if (sm.velocity?.mean != null) {
-      push('평균 구속', 0.35, sm.velocity.mean, [[100,0],[130,60],[145,80],[155,95]], 'km/h');
+    // 점선 score (목표값 가까울수록 좋음 - 양방향)
+    function targetScore(val, target, fwhm, max) {
+      // val가 target 정확히 = max점, target±fwhm 거리 시 max/2
+      if (val == null) return null;
+      const dist = Math.abs(val - target);
+      const score = max * Math.exp(-Math.LN2 * (dist / fwhm) * (dist / fwhm));
+      return Math.max(20, score);
     }
-    // 몸통 각속도 (20%) — band 평가와 일관: 750=mid 시작=60점, 900=mid 끝=85점
-    if (sm.peakTrunkVel?.mean != null) {
-      push('몸통 각속도', 0.20, sm.peakTrunkVel.mean, [[600,30],[750,60],[900,85],[1050,100]], '°/s');
+
+    // ════════════════════════════════════════════════════════
+    // [A] 키네틱 체인 (사용자 강조 + 우리 고유 강점) — 0.28 ⭐
+    // ════════════════════════════════════════════════════════
+    // ETI P→T (골반 → 몸통 KE 효율) — 0.07
+    if (sm.etiPT?.mean != null) {
+      push('kinetic', 'ETI P→T (골반→몸통 효율)', 0.07, sm.etiPT.mean,
+        [[0.5,10],[0.8,30],[1.2,55],[1.5,75],[1.8,90],[2.2,98]], '×');
     }
-    // MER (13%) — 130=low, 165-180=mid, 180+=high
+    // ETI T→A (몸통 → 상완 KE 효율) — 0.07
+    if (sm.etiTA?.mean != null) {
+      push('kinetic', 'ETI T→A (몸통→상완 효율)', 0.07, sm.etiTA.mean,
+        [[0.5,10],[0.8,30],[1.2,55],[1.5,75],[1.8,90],[2.2,98]], '×');
+    }
+    // 에너지 누수 % — 0.10 (사용자 강조)
+    if (energy?.leakPct != null) {
+      const leakScore = Math.max(0, Math.min(100, 95 - energy.leakPct * 1.7));
+      parts.push({ w: 0.10, v: leakScore });
+      sources.push({ group: 'kinetic', name: '에너지 누수 % (낮을수록 좋음)',
+        weight: 0.10, value: energy.leakPct, unit: '%', score: Math.round(leakScore) });
+    }
+    // 시퀀싱 P→T→A 타이밍 — 0.04
+    //   Howenstein 2019 elite range: P→T 25-65ms, T→A 15-45ms
+    if (sm.ptLagMs?.mean != null && sm.taLagMs?.mean != null) {
+      function rangeScore(v, lo, hi) {
+        if (v == null) return null;
+        if (v >= lo && v <= hi) return 90;
+        const mid = (lo + hi) / 2;
+        const range = (hi - lo) / 2;
+        const off = Math.abs(v - mid);
+        if (off <= range * 1.5) return 70 - (off - range) / (range * 0.5) * 10;
+        if (off <= range * 2.5) return 60 - (off - range * 1.5) / range * 15;
+        return Math.max(20, 45 - (off - range * 2.5) / range * 10);
+      }
+      const ptScore = rangeScore(sm.ptLagMs.mean, 25, 65);
+      const taScore = rangeScore(sm.taLagMs.mean, 15, 45);
+      const valid = [ptScore, taScore].filter(x => x != null);
+      if (valid.length > 0) {
+        const score = valid.reduce((a, b) => a + b, 0) / valid.length;
+        parts.push({ w: 0.04, v: score });
+        sources.push({ group: 'kinetic', name: '시퀀싱 타이밍 (P→T→A lag)',
+          weight: 0.04,
+          value: `${sm.ptLagMs.mean.toFixed(0)}/${sm.taLagMs.mean.toFixed(0)}`,
+          unit: 'ms', score: Math.round(score) });
+      }
+    }
+
+    // ════════════════════════════════════════════════════════
+    // [B] Posture — 드라이브라인 #1 영향력 (0.16)
+    // ════════════════════════════════════════════════════════
+    // Hip-shoulder separation at FP — 0.05 (드라이브라인 0.44, "high")
+    const hssVal = sm.hipShoulderSep?.mean ?? sm.hipShoulderSepFP?.mean ?? sm.hipShoulderSeparation?.mean;
+    if (hssVal != null) {
+      push('posture', 'Hip-Shoulder 분리각 at FP', 0.05, hssVal,
+        [[10,20],[20,45],[30,75],[40,90],[50,95]], '°');
+    }
+    // Torso forward tilt — 0.04 (드라이브라인 0.36)
+    const tftFP = sm.torsoFwdTiltFP?.mean ?? sm.trunkFwdTiltFP?.mean;
+    const tftBR = sm.trunkForwardTilt?.mean;
+    if (tftFP != null) {
+      push('posture', 'Torso forward tilt at FP', 0.04, tftFP,
+        [[-10,30],[0,55],[5,75],[15,90]], '°');
+    } else if (tftBR != null) {
+      push('posture', 'Torso forward tilt at BR (mean)', 0.04, tftBR,
+        [[10,20],[25,55],[35,78],[45,92]], '°');
+    }
+    // Peak Torso Counter Rotation — 0.04 (드라이브라인 0.38)
+    const ptcr = sm.torsoCounterRot?.mean ?? sm.peakTorsoCounterRot?.mean;
+    if (ptcr != null) {
+      const absVal = Math.abs(ptcr);
+      push('posture', 'Peak Torso Counter Rotation', 0.04, absVal,
+        [[5,20],[20,45],[37,75],[50,90]], '°');
+    }
+    // Torso rotation at FP — 0.03 (드라이브라인 0.35)
+    const trFP = sm.torsoRotFP?.mean ?? sm.trunkRotFP?.mean;
+    if (trFP != null) {
+      const score = targetScore(trFP, 2, 10, 90);
+      if (Number.isFinite(score)) {
+        parts.push({ w: 0.03, v: score });
+        sources.push({ group: 'posture', name: 'Torso rotation at FP (덜 열림)',
+          weight: 0.03, value: trFP, unit: '°', score: Math.round(score) });
+      }
+    }
+
+    // ════════════════════════════════════════════════════════
+    // [C] Arm Action — 드라이브라인 #2 영향력 (0.16)
+    // ════════════════════════════════════════════════════════
+    // Layback (MER) — 0.09 ⭐ (드라이브라인 0.86, 매우 높음)
     if (sm.maxER?.mean != null) {
-      push('MER (어깨 외회전)', 0.13, sm.maxER.mean, [[130,30],[165,65],[180,85],[195,98]], '°');
+      push('armaction', 'Layback (MER)', 0.09, sm.maxER.mean,
+        [[140,20],[170,55],[185,75],[200,92]], '°');
     }
-    // CoG 감속 (10%) — 1.0=mid 시작, 1.6=elite
-    if (sm.cogDecel?.mean != null) {
-      push('CoG 감속능력', 0.10, sm.cogDecel.mean, [[0.5,20],[1.0,55],[1.4,75],[1.8,95]], 'm/s');
+    // Shoulder Abduction at FP — 0.04 (드라이브라인 0.51)
+    const shAbdFP = sm.shoulderAbdFP?.mean ?? sm.shoulderAbductionFP?.mean;
+    if (shAbdFP != null) {
+      push('armaction', 'Shoulder Abduction at FP', 0.04, shAbdFP,
+        [[60,30],[80,65],[90,85],[100,90]], '°');
     }
-    // Lead knee BR (8%)
+    // Scap Load at FP — 0.03 (드라이브라인 0.37)
+    const scapLoad = sm.scapLoadFP?.mean ?? sm.scapulaLoadFP?.mean ?? sm.scapLoad?.mean;
+    if (scapLoad != null) {
+      push('armaction', 'Scap Load at FP', 0.03, scapLoad,
+        [[20,30],[40,55],[55,80],[75,93]], '°');
+    }
+
+    // ════════════════════════════════════════════════════════
+    // [D] Rotation — 드라이브라인 #3 영향력 (0.09)
+    // ════════════════════════════════════════════════════════
+    // Torso Rotation Velo — 0.09 (드라이브라인 1.0, 기준 변인)
+    if (sm.peakTrunkVel?.mean != null) {
+      push('rotation', 'Torso Rotation Velo', 0.09, sm.peakTrunkVel.mean,
+        [[600,30],[750,55],[900,78],[1050,92]], '°/s');
+    }
+
+    // ════════════════════════════════════════════════════════
+    // [E] Block — 드라이브라인 #4 영향력 (0.09)
+    // ════════════════════════════════════════════════════════
+    // Lead Knee Extension at BR — 0.05 (드라이브라인 0.58)
     if (sm.leadKneeExtAtBR?.mean != null) {
-      push('앞다리 신전 (BR)', 0.08, sm.leadKneeExtAtBR.mean, [[-15,15],[0,50],[10,75],[20,95]], '°');
+      push('block', 'Lead Knee Extension at BR', 0.05, sm.leadKneeExtAtBR.mean,
+        [[-30,15],[-15,35],[0,55],[10,78],[20,92]], '°');
     }
-    // Stride ratio (5%)
+    // Stride ratio (Stride Length % body height) — 0.04 (드라이브라인 0.58)
     if (sm.strideRatio?.mean != null && Number.isFinite(sm.strideRatio.mean)) {
-      push('스트라이드 비율', 0.05, sm.strideRatio.mean, [[0.5,15],[0.8,55],[1.0,80],[1.2,95]], '×height');
+      push('block', 'Stride ratio (% body height)', 0.04, sm.strideRatio.mean,
+        [[0.5,15],[0.7,40],[0.8,65],[0.85,80],[0.92,90],[1.0,85]], '×height');
     }
-    // 팔 각속도 (5%) — 한국 고1 우수 1350-1550 mid 범위
-    if (sm.peakArmVel?.mean != null) {
-      push('팔 각속도', 0.05, sm.peakArmVel.mean, [[1100,30],[1350,60],[1550,85],[1800,100]], '°/s');
+
+    // ════════════════════════════════════════════════════════
+    // [F] CoG — 드라이브라인 #5 영향력 (0.06)
+    //   ⭐ v23에서 잘못 제거한 것을 드라이브라인 검증으로 다시 추가
+    // ════════════════════════════════════════════════════════
+    // CoG Decel — 0.06 (드라이브라인 0.70)
+    if (sm.cogDecel?.mean != null) {
+      push('cog', 'CoG Decel', 0.06, sm.cogDecel.mean,
+        [[0.5,20],[1.0,45],[1.4,70],[1.6,82],[2.0,95]], 'm/s');
     }
-    // ETI 합산 (4%)
-    if (sm.etiPT?.mean != null && sm.etiTA?.mean != null) {
-      const e = (Math.min(100, (sm.etiPT.mean - 0.7) * 80) + Math.min(100, (sm.etiTA.mean - 0.8) * 75)) / 2;
-      const score = Math.max(0, e);
-      parts.push({ w: 0.04, v: score });
-      sources.push({ name: 'ETI 평균 (P→T·T→A)', weight: 0.04, value: ((sm.etiPT.mean + sm.etiTA.mean)/2).toFixed(2), unit: '×', score: Math.round(score) });
+
+    // ════════════════════════════════════════════════════════
+    // [G] 절대 KE/Power — 학술 + 4명 데이터 검증 (0.16)
+    //   드라이브라인엔 직접 대응 변인 없지만 매우 강한 판별 신호
+    //   - Sakurai 2024: CMJ Peak Power 절대값 r=0.68
+    //   - Naito 2014: cocking phase arm power
+    //   - 4명 데이터: 권준서 1513W vs 강한 선수 3300-4300W (절반 이하)
+    // ════════════════════════════════════════════════════════
+    // peakPowerArm (W) — 0.10 ⭐ (가장 강한 판별 신호)
+    //   한국 고교 baseline (4명 데이터 기반): 1500=낮음, 2700=평균, 3500+=우수
+    if (kineticChain?.peakPowerArm != null) {
+      push('power', 'Peak Power Arm (W, 절대값)', 0.10, kineticChain.peakPowerArm,
+        [[1000,12],[1500,25],[2200,45],[3000,68],[3800,85],[4500,93]], 'W');
     }
+    // KE_arm 절대값 (J) — 0.04
+    if (kineticChain?.KE_arm?.val != null) {
+      push('power', 'KE_arm (J, 절대 운동에너지)', 0.04, kineticChain.KE_arm.val,
+        [[80,25],[120,50],[160,75],[200,90]], 'J');
+    }
+    // cockPowerWPerKg — 0.02 (Naito 2014, 보조)
+    if (precision?.cockPowerWPerKg != null) {
+      push('power', 'Cocking Power (W/kg)', 0.02, precision.cockPowerWPerKg,
+        [[10,15],[20,40],[30,65],[45,88],[55,98]], 'W/kg');
+    }
+
+    // ════════════════════════════════════════════════════════
+    // 합산 (일부 변인이 BBLAnalysis 출력에 없으면 자동 정규화)
+    // ════════════════════════════════════════════════════════
     if (parts.length === 0) return { score: null, sources: [] };
     const totalW = parts.reduce((s, p) => s + p.w, 0);
     if (totalW === 0) return { score: null, sources: [] };
     const score = parts.reduce((s, p) => s + p.v * p.w, 0) / totalW;
     return Number.isFinite(score) ? { score, sources } : { score: null, sources };
   }
+  // ⭐ v26 — 제구 점수 4그룹 카테고리화 (사용자 요청 + 학술 근거)
+  //   사용자 가설:
+  //     · 근본 원인 = 앞발 착지 안정성 + 회전 타이밍
+  //     · 결과 변인 = 릴리즈 포인트, 암 슬롯, 머리 (downstream)
+  //   학술 근거:
+  //     · Manzi 2019 (PMC8387831, n=47) — 5변인 회귀 ball location 분산 58% 설명
+  //                                       3변인 at FC + 2변인 at MER
+  //     · Manzi 2021 (n=322) — Trunk tilt at FC = 6.6% MSE (#1)
+  //                            Lead hip flexion at FC = 4.2% MSE (#2)
+  //                            Shoulder abduction at FC = 4.2% MSE (#3)
+  //     · Fleisig/Driveline — 청소년 vs 엘리트 차이: front foot placement + flexion at foot plant
+  //     · Wang 2025 — pelvic rotation variability r=0.78 (transverse plane)
+  //     · Howenstein 2021 (n=88) — KS 패턴 11개, 시퀀싱 일관성이 핵심
+  //     · Yamada 2024 (PMC11608975, n=344 MLB) — release point variability ↓ → BB/9·xFIP 개선
+  //
+  //   가중치 분배:
+  //     [A] 앞발 착지 안정성 (사용자 강조 + 학술 핵심)  0.40
+  //     [B] 회전 타이밍 (사용자 강조 + Wang 2025)        0.30
+  //     [C] 자세 일관성 (Manzi 2021 #1)                  0.18
+  //     [D] 릴리즈 결과 (downstream)                     0.12
+  //     합계 = 1.00
   function calcCommandScore(sm) {
     const parts = [];
     const sources = [];
-    function pushCV(name, w, cvVal, multiplier, unit) {
-      if (cvVal == null) return;
-      const score = Math.max(0, Math.min(100, 100 - cvVal * multiplier));
-      parts.push({ w, v: score });
-      sources.push({ name, weight: w, value: cvVal.toFixed(1), unit, score: Math.round(score) });
+
+    // anchor 기반 점수 변환 (낮을수록 좋음 변인용)
+    function lowerBetterScore(val, anchors) {
+      // anchors: [[elite_threshold, 95], [good, 75], [ok, 50], [poor, 25]]
+      if (val == null || isNaN(val)) return null;
+      if (val <= anchors[0][0]) return Math.min(100, anchors[0][1] + 5);
+      if (val <= anchors[1][0]) {
+        const r = (val - anchors[0][0]) / (anchors[1][0] - anchors[0][0]);
+        return anchors[0][1] - r * (anchors[0][1] - anchors[1][1]);
+      }
+      if (val <= anchors[2][0]) {
+        const r = (val - anchors[1][0]) / (anchors[2][0] - anchors[1][0]);
+        return anchors[1][1] - r * (anchors[1][1] - anchors[2][1]);
+      }
+      if (val <= anchors[3][0]) {
+        const r = (val - anchors[2][0]) / (anchors[3][0] - anchors[2][0]);
+        return anchors[2][1] - r * (anchors[2][1] - anchors[3][1]);
+      }
+      return Math.max(5, anchors[3][1] - (val - anchors[3][0]) * 2);
     }
-    function pushSD(name, w, sdVal, multiplier, unit) {
-      if (sdVal == null) return;
-      const score = Math.max(0, Math.min(100, 100 - sdVal * multiplier));
-      parts.push({ w, v: score });
-      sources.push({ name, weight: w, value: sdVal.toFixed(2), unit, score: Math.round(score) });
+
+    function push(group, name, weight, val, anchors, unit) {
+      const score = lowerBetterScore(val, anchors);
+      if (Number.isFinite(score)) {
+        parts.push({ w: weight, v: score });
+        sources.push({
+          group, name, weight,
+          value: typeof val === 'number' ? val.toFixed(2) : val,
+          unit, score: Math.round(score)
+        });
+      }
     }
-    pushCV('FC→릴리스 시간 일관성', 0.30, sm.fcBrMs?.cv, 10, 'CV%');
-    pushCV('스트라이드 길이 일관성', 0.20, sm.strideLength?.cv, 12, 'CV%');
-    pushCV('Max ER 일관성',         0.20, sm.maxER?.cv, 6, 'CV%');
-    pushSD('몸통 전방기울기 SD',    0.15, sm.trunkForwardTilt?.sd, 12, '°');
-    pushSD('Arm slot 각도 SD',      0.15, sm.armSlotAngle?.sd, 15, '°');
+
+    // ════════════════════════════════════════════════════════
+    // [A] 앞발 착지 안정성 (사용자 강조 — 가장 큰 가중치) — 0.40
+    // ════════════════════════════════════════════════════════
+    // 1. 스트라이드 길이 변동성 (CV) — 0.10
+    //    Drives/Fleisig 청소년 vs 엘리트 차이의 핵심
+    push('landing', '스트라이드 길이 일관성', 0.10, sm.strideLength?.cv,
+      [[3,95],[5,75],[8,50],[15,25]], 'CV%');
+
+    // 2. FC 시점 무릎 굴곡각 변동성 (SD) — 0.10
+    //    Manzi 2021: lead hip flexion at FC = 4.2% MSE (#2)
+    //    BBLAnalysis: kneeFlexionAtFC 또는 frontKneeFlex (FC 기준)
+    const kneeFcSd = sm.kneeFlexionAtFC?.sd ?? sm.frontKneeFlex?.sd;
+    push('landing', 'FC 무릎 굴곡각 변동성', 0.10, kneeFcSd,
+      [[3,95],[5,75],[8,50],[12,25]], '° SD');
+
+    // 3. FC→BR 무릎 굴곡-신장 일관성 (사용자 핵심 강조) — 0.10
+    //    "착지 직후 무릎 짧은 굴곡 후 폭발적 신장" 패턴 안정성
+    //    leadKneeExtAtBR의 SD가 작을수록 brace 효과 일관됨
+    push('landing', 'FC→BR 무릎 신전 일관성', 0.10, sm.leadKneeExtAtBR?.sd,
+      [[3,95],[5,75],[8,50],[12,25]], '° SD');
+
+    // 4. FC 시점 lead hip 자세 변동성 (CV 또는 SD)
+    //    Manzi 2021: lead hip flexion at FC = 4.2% MSE
+    //    BR 시점 무릎 굴곡 (kneeFlexionAtBR) 변동성으로 대용
+    const hipBrSd = sm.kneeFlexionAtBR?.sd;
+    push('landing', 'BR 무릎 굴곡 일관성 (block 안정성)', 0.10, hipBrSd,
+      [[3,95],[5,75],[8,50],[12,25]], '° SD');
+
+    // ════════════════════════════════════════════════════════
+    // [B] 회전 타이밍 (사용자 강조 + Wang 2025) — 0.30
+    // ════════════════════════════════════════════════════════
+    // 5. P→T lag 일관성 (CV) — 0.08
+    //    Howenstein 2021: 시퀀싱 일관성이 핵심
+    push('rotation', 'P→T lag 일관성', 0.08, sm.ptLagMs?.cv,
+      [[15,95],[25,75],[40,50],[60,25]], 'CV%');
+
+    // 6. T→A lag 일관성 (CV) — 0.08
+    push('rotation', 'T→A lag 일관성', 0.08, sm.taLagMs?.cv,
+      [[15,95],[25,75],[40,50],[60,25]], 'CV%');
+
+    // 7. 골반 peak velocity 변동성 (CV) — 0.07
+    //    Wang 2025: pelvic rotation variability r=0.78 (가장 강한 단일 변동성 변인!)
+    push('rotation', '골반 회전속도 변동성', 0.07, sm.peakPelvisVel?.cv,
+      [[5,95],[10,75],[15,50],[22,25]], 'CV%');
+
+    // 8. 몸통 peak velocity 변동성 (CV) — 0.07
+    push('rotation', '몸통 회전속도 변동성', 0.07, sm.peakTrunkVel?.cv,
+      [[5,95],[10,75],[15,50],[22,25]], 'CV%');
+
+    // ════════════════════════════════════════════════════════
+    // [C] 자세 일관성 (Manzi 2021 6.6% MSE) — 0.18
+    // ════════════════════════════════════════════════════════
+    // 9. FC 시점 몸통 전방 기울기 변동성 (SD) — 0.10
+    //    Manzi 2021: Trunk tilt at FC = 가장 강한 정확도 예측 (6.6% MSE) ⭐
+    //    BBLAnalysis: trunkForwardTiltAtFC가 FC 시점 변인 (BR 시점 trunkForwardTilt와 다름!)
+    const trunkFcSd = sm.trunkForwardTiltAtFC?.sd ?? sm.trunkFlexAtFC?.sd;
+    push('posture', 'FC 몸통 전방 기울기 변동성', 0.10, trunkFcSd,
+      [[2,95],[4,75],[6,50],[10,25]], '° SD');
+
+    // 10. FC 시점 몸통 회전각 변동성 (SD) — 0.08
+    //     Manzi 2019: shoulder horizontal abduction at FC (몸통 정렬 변동의 대용)
+    push('posture', 'FC 몸통 회전각 변동성', 0.08, sm.trunkRotAtFP?.sd,
+      [[4,95],[7,75],[11,50],[16,25]], '° SD');
+
+    // ════════════════════════════════════════════════════════
+    // [D] 릴리즈 결과 (downstream — 사용자: 결과 지표) — 0.12
+    // ════════════════════════════════════════════════════════
+    // 11. Arm slot 각도 변동성 (SD) — 0.06
+    //     사용자 언급 결과 변인 + Yamada 2024 release variability
+    push('release', 'Arm slot 변동성', 0.06, sm.armSlotAngle?.sd,
+      [[3,95],[5,75],[8,50],[12,25]], '° SD');
+
+    // 12. 손목 높이 변동성 (SD, cm 단위) — 0.04
+    //     Yamada 2024: release point vertical (RPZ) variability
+    const wristSdCm = sm.wristHeight?.sd != null ? sm.wristHeight.sd * 100 : null;
+    push('release', '손목 높이 변동성', 0.04, wristSdCm,
+      [[2,95],[4,75],[6,50],[10,25]], 'cm SD');
+
+    // 13. FC→BR 시간 일관성 (CV) — 0.02
+    //     총체 timing의 결과
+    push('release', 'FC→릴리스 시간 일관성', 0.02, sm.fcBrMs?.cv,
+      [[2,95],[5,75],[10,50],[15,25]], 'CV%');
+
     if (parts.length === 0) return { score: null, sources: [] };
     const totalW = parts.reduce((s, p) => s + p.w, 0);
     const score = parts.reduce((s, p) => s + p.v * p.w, 0) / totalW;
     return { score, sources };
   }
-  // 체력 점수 — BBL 메타 CSV 기반 (band → 점수 변환)
+  // 체력 점수 — ⭐ v23 학술 근거 기반 전면 재설계
+  //   원칙:
+  //   1. 절대값 강조 (Sakurai 2024: CMJ Concentric Impulse r=0.71, Peak Power(W) r=0.68)
+  //   2. 단위파워(W/kg)는 보조 가중치 (분모 함정 방지)
+  //   3. 악력 ↑ (PMC8929570 youth r=0.91)
+  //   4. IMTP 절대값 추가 (절대 근력)
+  //   가중치: 절대 파워/근력 0.45 + 단위 0.15 + 반응성 0.20 + 분절 근력 0.20 = 1.00
   function calcFitnessScore(physical) {
     if (!physical) return { score: null, sources: [] };
     const bandToScore = { high: 95, mid: 70, low: 40, na: null };
     const bandLabel = { high: '상위', mid: '범위', low: '미만', na: '—' };
+
+    // 절대 파워(W) 점수표
+    //   한국 고교 baseline: 2000W=30, 3000W=55, 3700W=78, 4500W=92, 5500W=98
+    function absPowerScore(absW) {
+      if (absW == null) return null;
+      if (absW <= 2000) return Math.max(0, absW / 2000 * 30);
+      if (absW <= 3000) return 30 + (absW - 2000) / 1000 * 25;
+      if (absW <= 3700) return 55 + (absW - 3000) / 700 * 23;
+      if (absW <= 4500) return 78 + (absW - 3700) / 800 * 14;
+      return Math.min(100, 92 + (absW - 4500) / 1000 * 6);
+    }
+
+    // IMTP 절대값(N) 점수표
+    //   한국 고교 baseline: 1500N=30, 2000N=55, 2500N=80, 3000N=95
+    function imtpAbsScore(absN) {
+      if (absN == null) return null;
+      if (absN <= 1500) return Math.max(0, absN / 1500 * 30);
+      if (absN <= 2000) return 30 + (absN - 1500) / 500 * 25;
+      if (absN <= 2500) return 55 + (absN - 2000) / 500 * 25;
+      return Math.min(100, 80 + (absN - 2500) / 500 * 15);
+    }
+
+    // 악력(kg) 점수표 — youth r=0.91, 강한 분절 근력 신호
+    function gripScore(kg) {
+      if (kg == null) return null;
+      if (kg <= 30) return Math.max(0, kg / 30 * 20);
+      if (kg <= 50) return 20 + (kg - 30) / 20 * 35;
+      if (kg <= 65) return 55 + (kg - 50) / 15 * 25;
+      return Math.min(100, 80 + (kg - 65) / 15 * 15);
+    }
+
+    // RSI-mod 점수표
+    function rsiScore(v) {
+      if (v == null) return null;
+      if (v <= 0.2) return Math.max(0, v / 0.2 * 20);
+      if (v <= 0.4) return 20 + (v - 0.2) / 0.2 * 35;
+      if (v <= 0.55) return 55 + (v - 0.4) / 0.15 * 25;
+      return Math.min(100, 80 + (v - 0.55) / 0.15 * 15);
+    }
+
+    // EUR 점수표
+    function eurScore(v) {
+      if (v == null) return null;
+      if (v <= 0.7) return Math.max(0, v / 0.7 * 20);
+      if (v <= 1.0) return 20 + (v - 0.7) / 0.3 * 35;
+      if (v <= 1.25) return 55 + (v - 1.0) / 0.25 * 25;
+      return Math.min(100, 80 + (v - 1.25) / 0.3 * 15);
+    }
+
     const components = [
-      { w: 0.25, v: bandToScore[physical.cmjPower?.band] ?? null,    name: '폭발력 (CMJ 단위파워)',
+      // ════════════════════════════════════════════════════════
+      // 그룹 1: 절대 파워/근력 — 총 0.45 ⭐ (Sakurai 2024 핵심)
+      // ════════════════════════════════════════════════════════
+      // CMJ peak power 절대값(W) — 0.20 (r=0.68)
+      { w: 0.20, v: absPowerScore(physical.cmjPower?.cmjAbs),
+        name: 'CMJ peak power (절대)',
+        rawValue: physical.cmjPower?.cmjAbs, rawBand: null, unit: 'W' },
+      // IMTP 절대값(N) — 0.15 (절대 근력)
+      { w: 0.15, v: imtpAbsScore(physical.maxStrength?.abs),
+        name: 'IMTP peak force (절대)',
+        rawValue: physical.maxStrength?.abs, rawBand: null, unit: 'N' },
+      // SJ 절대값(W) — 0.10 (concentric 폭발력)
+      { w: 0.10, v: absPowerScore(physical.cmjPower?.sjAbs),
+        name: 'SJ peak power (절대)',
+        rawValue: physical.cmjPower?.sjAbs, rawBand: null, unit: 'W' },
+
+      // ════════════════════════════════════════════════════════
+      // 그룹 2: 단위 정규화 (보조) — 총 0.15
+      // ════════════════════════════════════════════════════════
+      // CMJ 단위파워(W/kg) — 0.08 (분모 함정 방지를 위해 보조 가중치)
+      { w: 0.08, v: bandToScore[physical.cmjPower?.band] ?? null,
+        name: 'CMJ 단위파워 (W/kg)',
         rawValue: physical.cmjPower?.cmj, rawBand: physical.cmjPower?.band, unit: 'W/kg' },
-      { w: 0.20, v: bandToScore[physical.maxStrength?.band] ?? null, name: '최대근력 (IMTP 단위근력)',
+      // IMTP 단위근력(N/kg) — 0.07
+      { w: 0.07, v: bandToScore[physical.maxStrength?.band] ?? null,
+        name: 'IMTP 단위근력 (N/kg)',
         rawValue: physical.maxStrength?.perKg, rawBand: physical.maxStrength?.band, unit: 'N/kg' },
-      { w: 0.20, v: bandToScore[physical.reactive?.band] ?? null,    name: '반응성 (RSI-mod)',
+
+      // ════════════════════════════════════════════════════════
+      // 그룹 3: 반응성/탄성 — 총 0.20
+      // ════════════════════════════════════════════════════════
+      // RSI-mod — 0.12
+      { w: 0.12, v: rsiScore(physical.reactive?.cmj),
+        name: '반응성 (RSI-mod)',
         rawValue: physical.reactive?.cmj, rawBand: physical.reactive?.band, unit: 'm/s' },
-      { w: 0.15, v: bandToScore[physical.ssc?.band] ?? null,         name: '탄성 활용 (EUR)',
+      // EUR (탄성 활용) — 0.08
+      { w: 0.08, v: eurScore(physical.ssc?.value),
+        name: '탄성 활용 (EUR)',
         rawValue: physical.ssc?.value, rawBand: physical.ssc?.band, unit: '' },
-      { w: 0.10, v: bandToScore[physical.release?.band] ?? null,     name: '악력 (Release Power)',
-        rawValue: physical.release?.value, rawBand: physical.release?.band, unit: '' },
-      { w: 0.10,
-        v: physical.cmjPower?.sj != null ? Math.max(0, Math.min(100, (physical.cmjPower.sj - 25) * 3.8)) : null,
-        name: '정지폭발 (SJ 단위파워)',
-        rawValue: physical.cmjPower?.sj, rawBand: null, unit: 'W/kg' }
+
+      // ════════════════════════════════════════════════════════
+      // 그룹 4: 분절 근력 — 총 0.20 ⭐ (PMC8929570 youth r=0.91)
+      // ════════════════════════════════════════════════════════
+      // 악력(kg) — 0.20 (전완·손목 절대 근력, 분절 신호)
+      { w: 0.20, v: gripScore(physical.release?.value),
+        name: '악력 (절대)',
+        rawValue: physical.release?.value, rawBand: physical.release?.band, unit: 'kg' }
     ];
     const valid = components.filter(c => c.v != null);
     if (valid.length === 0) return { score: null, sources: [] };
@@ -934,71 +1548,152 @@
     return { score, sources };
   }
   // 우선순위 개선점 (체력 + 메카닉 + 일관성 통합)
-  // ※ 임계값은 한국 고교 우수 baseline 기준으로 조정 — band 평가와 일관성 확보
-  function generatePriorities(scores, sm, energy, physical) {
+  // ⭐ v23 — 학술 근거 기반 + 키네틱 체인 강조
+  function generatePriorities(scores, sm, energy, physical, kineticChain, precision) {
     const candidates = [];
     const { velocity, command, fitness } = scores;
-    // 체력 약점 (low band만 — 진짜 약점만 표시)
-    if (physical) {
-      if (physical.cmjPower?.band === 'low') {
-        candidates.push({ kind: 'fitness',
-          weight: 90,
-          title: '하체 폭발력 보강',
-          detail: `CMJ 단위파워 ${physical.cmjPower.cmj ?? '—'} W/kg · 한국 고교 우수 기준 미만`,
-          action: '스쿼트 점프, 반동 점프, 박스 점프, 데드리프트 → 발달자극'
-        });
-      }
-      if (physical.maxStrength?.band === 'low') {
-        candidates.push({ kind: 'fitness',
-          weight: 85,
-          title: '최대근력 보강',
-          detail: `IMTP 단위근력 ${physical.maxStrength.perKg ?? '—'} N/kg · 한국 고교 우수 기준 미만`,
-          action: '스쿼트, 데드리프트, 벤치프레스 4주 maximal strength block (3RM, 2-3세트)'
-        });
-      }
-      if (physical.reactive?.band === 'low') {
-        candidates.push({ kind: 'fitness',
-          weight: 80,
-          title: '반응성·SSC 보강',
-          detail: `RSI-mod ${physical.reactive.cmj ?? '—'} m/s · 빠른 반동 부족`,
-          action: '드롭 점프, 알트 점프, 짧은 접지시간 plyometric (CT < 200ms)'
-        });
-      }
+
+    // ━━ 키네틱 체인 누수 (사용자 강조 — 가장 우선) ━━
+    if (energy?.etiPT != null && energy.etiPT < 1.0) {
+      candidates.push({ kind: 'kinetic',
+        weight: 110,
+        title: '골반→몸통 에너지 명확 누수',
+        detail: `ETI P→T ${energy.etiPT.toFixed(2)}× (Aguinaldo 2019: efficient ≥ 1.5)`,
+        action: '메디신볼 회전 스로우, 골반-몸통 분리 드릴 (X-band, hip turn), 코어 회전 강화'
+      });
+    } else if (energy?.etiPT != null && energy.etiPT < 1.3) {
+      candidates.push({ kind: 'kinetic',
+        weight: 90,
+        title: '골반→몸통 에너지 부분 누수',
+        detail: `ETI P→T ${energy.etiPT.toFixed(2)}× (목표 1.5+)`,
+        action: '회전 시퀀싱 드릴, 코어 anti-rotation 훈련 병행'
+      });
     }
-    // 구속 메카닉 약점 — 한국 고교 기준 미만일 때만 약점으로 인식
-    if (velocity != null && velocity < 60) {
-      if (energy?.leakRate > 20) {
-        candidates.push({ kind: 'velocity',
-          weight: 100 - velocity + (energy.leakRate - 20),
-          title: '에너지 누수 줄이기',
-          detail: `종합 누수율 ${energy.leakRate.toFixed(1)}% · 골반→몸통 전이 효율 점검`,
-          action: '메디신볼 회전 던지기, 몸통 분리 드릴, 골반-몸통 분리각도 강화'
-        });
-      }
-      // 한국 고교 우수 baseline은 1350-1550 (band low/mid 경계). low일 때만 약점 표시
-      if (sm.peakArmVel?.mean != null && sm.peakArmVel.mean < 1350) {
-        candidates.push({ kind: 'velocity',
-          weight: 100 - velocity + (1350 - sm.peakArmVel.mean) / 30,
-          title: '팔 회전 속도 향상',
-          detail: `팔 peak 각속도 ${sm.peakArmVel.mean.toFixed(0)}°/s · 한국 고교 우수 1350+°/s`,
-          action: '플라이오 볼 던지기 (200g·100g), 어깨 외회전 강화, J-band 루틴'
-        });
-      }
-      // MER < 165 = 외회전 가동성 부족
-      if (sm.maxER?.mean != null && sm.maxER.mean < 160) {
-        candidates.push({ kind: 'velocity',
-          weight: 100 - velocity + (160 - sm.maxER.mean),
-          title: 'MER (어깨 외회전) 부족',
-          detail: `${sm.maxER.mean.toFixed(0)}° (엘리트 170-185°)`,
-          action: '슬리퍼 스트레치, 어깨 외회전 가동성 향상, sleeper stretch'
-        });
-      }
+    if (energy?.etiTA != null && energy.etiTA < 1.0) {
+      candidates.push({ kind: 'kinetic',
+        weight: 108,
+        title: '몸통→상완 에너지 명확 누수',
+        detail: `ETI T→A ${energy.etiTA.toFixed(2)}× (Aguinaldo 2019: efficient ≥ 1.5)`,
+        action: '플라이오볼 (200g·100g) 회전 스로우, 어깨-가슴 외회전 가동성 강화'
+      });
+    } else if (energy?.etiTA != null && energy.etiTA < 1.3) {
+      candidates.push({ kind: 'kinetic',
+        weight: 88,
+        title: '몸통→상완 에너지 부분 누수',
+        detail: `ETI T→A ${energy.etiTA.toFixed(2)}× (목표 1.5+)`,
+        action: '몸통 회전 → 팔 가속 시퀀싱 점검, scap 안정성 훈련'
+      });
     }
-    // 제구 일관성 약점 — files 임계값 그대로
+    if (energy?.leakPct != null && energy.leakPct > 25) {
+      candidates.push({ kind: 'kinetic',
+        weight: 95,
+        title: `종합 에너지 누수 ${energy.leakPct.toFixed(0)}%`,
+        detail: `단계간 KE 손실 과다 (목표 < 15%)`,
+        action: '키네틱 체인 통합 드릴 — 메디신볼 회전 + 플라이오볼 + 영상 분석'
+      });
+    }
+
+    // ━━ 절대 KE/Power 부족 ━━
+    if (kineticChain?.peakPowerArm != null && kineticChain.peakPowerArm < 2200) {
+      candidates.push({ kind: 'power',
+        weight: 100,
+        title: 'Peak Power Arm 절대값 부족',
+        detail: `${kineticChain.peakPowerArm.toFixed(0)}W (한국 고교 우수 3000+W)`,
+        action: '체격·근육량 발달 + 회전 파워 훈련 (메디신볼·플라이오볼 + 스쿼트/데드리프트)'
+      });
+    }
+    if (precision?.cockPowerWPerKg != null && precision.cockPowerWPerKg < 25) {
+      candidates.push({ kind: 'power',
+        weight: 92,
+        title: 'Cocking phase 팔 파워 부족',
+        detail: `${precision.cockPowerWPerKg.toFixed(1)} W/kg (Naito 2014 기준 30+)`,
+        action: '어깨 외회전 강화, 코킹 가속 드릴, J-band 루틴'
+      });
+    }
+
+    // ━━ 체력 약점 (절대값 + 단위값 조합) ━━
+    if (physical?.cmjPower?.cmjAbs != null && physical.cmjPower.cmjAbs < 3000) {
+      candidates.push({ kind: 'fitness',
+        weight: 88,
+        title: 'CMJ 절대 폭발력 부족',
+        detail: `${physical.cmjPower.cmjAbs}W (Sakurai 2024 기준 r=0.68)`,
+        action: '하체 근비대 + plyometric 훈련 + 점프 스쿼트'
+      });
+    }
+    if (physical?.maxStrength?.abs != null && physical.maxStrength.abs < 2000) {
+      candidates.push({ kind: 'fitness',
+        weight: 85,
+        title: 'IMTP 절대 근력 부족',
+        detail: `${physical.maxStrength.abs}N (한국 고교 우수 2300+N)`,
+        action: '4주 maximal strength block — 스쿼트/데드리프트/벤치 3RM 2-3세트'
+      });
+    }
+    if (physical?.release?.value != null && physical.release.value < 50) {
+      candidates.push({ kind: 'fitness',
+        weight: 80,
+        title: '악력 (분절 근력) 부족',
+        detail: `${physical.release.value}kg (PMC8929570 youth r=0.91)`,
+        action: 'farmer carry, dead hang, 그립 강화 훈련'
+      });
+    }
+    if (physical?.reactive?.band === 'low') {
+      candidates.push({ kind: 'fitness',
+        weight: 78,
+        title: '반응성·SSC 보강',
+        detail: `RSI-mod ${physical.reactive.cmj ?? '—'} m/s · 빠른 반동 부족`,
+        action: '드롭 점프, 알트 점프, 짧은 접지시간 plyometric (CT < 200ms)'
+      });
+    }
+
+    // ━━ 핵심 메카닉 ━━
+    if (sm.peakTrunkVel?.mean != null && sm.peakTrunkVel.mean < 700) {
+      candidates.push({ kind: 'mechanic',
+        weight: 75,
+        title: '몸통 회전 속도 부족',
+        detail: `${sm.peakTrunkVel.mean.toFixed(0)}°/s (Orishimo 2023 / Driveline 평균 969°/s)`,
+        action: '몸통 회전 가속 드릴, 코어 power 훈련, 회전 throw 변형'
+      });
+    }
+    // Layback (MER) 부족 — 드라이브라인 0.86 (매우 높음)
+    if (sm.maxER?.mean != null && sm.maxER.mean < 165) {
+      candidates.push({ kind: 'mechanic',
+        weight: 73,
+        title: 'Layback (어깨 외회전) 부족',
+        detail: `${sm.maxER.mean.toFixed(0)}° (Driveline 엘리트 190° · Per 1mph 5°)`,
+        action: 'sleeper stretch, 어깨 외회전 가동성, J-band, 코킹 가속 드릴'
+      });
+    }
+    // CoG Decel 부족 — 드라이브라인 0.70 (4번째 영향력)
+    if (sm.cogDecel?.mean != null && sm.cogDecel.mean < 1.2) {
+      candidates.push({ kind: 'mechanic',
+        weight: 71,
+        title: '무게중심 감속 부족 (Block)',
+        detail: `${sm.cogDecel.mean.toFixed(2)}m/s (Driveline 엘리트 1.61m/s · Per 1mph 0.15)`,
+        action: '앞다리 brace 강화, 점프 stop 드릴, 단일다리 RDL'
+      });
+    }
+    if (sm.leadKneeExtAtBR?.mean != null && sm.leadKneeExtAtBR.mean < 0) {
+      candidates.push({ kind: 'mechanic',
+        weight: 72,
+        title: '앞다리 신전 부족',
+        detail: `${sm.leadKneeExtAtBR.mean.toFixed(0)}° (Driveline 엘리트 11° · 신전 부족 → velocity 감소)`,
+        action: '앞다리 brace 드릴, 단일다리 RDL, 점프 착지 → quad 신전 훈련'
+      });
+    }
+    if (sm.trunkForwardTilt?.mean != null && sm.trunkForwardTilt.mean < 25) {
+      candidates.push({ kind: 'mechanic',
+        weight: 68,
+        title: '몸통 전방 기울기 부족 (BR)',
+        detail: `${sm.trunkForwardTilt.mean.toFixed(0)}° (Stodden 2005, Matsuo 2001 강한 양의 상관)`,
+        action: '몸통 전방 회전 드릴, hip hinge → trunk forward 훈련'
+      });
+    }
+
+    // ━━ 제구 일관성 (기존 유지) ━━
     if (command != null && command < 65) {
       if (sm.fcBrMs?.cv != null && sm.fcBrMs.cv > 8) {
         candidates.push({ kind: 'command',
-          weight: 90 - command + sm.fcBrMs.cv,
+          weight: 65 - command + sm.fcBrMs.cv,
           title: '릴리스 타이밍 일관성',
           detail: `FC→릴리스 CV ${sm.fcBrMs.cv.toFixed(1)}% (엘리트 <2%)`,
           action: '메트로놈 투구 드릴, 동일 카운트로 릴리스 반복 훈련'
@@ -1006,18 +1701,57 @@
       }
       if (sm.strideLength?.cv != null && sm.strideLength.cv > 5) {
         candidates.push({ kind: 'command',
-          weight: 85 - command + sm.strideLength.cv,
+          weight: 62 - command + sm.strideLength.cv,
           title: '디딤발 위치 일관성',
-          detail: `스트라이드 CV ${sm.strideLength.cv.toFixed(1)}% (엘리트 <3%)`,
+          detail: `스트라이드 CV ${sm.strideLength.cv.toFixed(1)}% (Drives/Fleisig 청소년 핵심 차이)`,
           action: '바닥 마커 배치 후 스트라이드 정확성 훈련, 체인 드릴'
         });
       }
       if (sm.armSlotAngle?.sd != null && sm.armSlotAngle.sd > 4) {
         candidates.push({ kind: 'command',
-          weight: 80 - command + sm.armSlotAngle.sd * 2,
-          title: '팔 슬롯 일관성',
-          detail: `Arm slot SD ±${sm.armSlotAngle.sd.toFixed(2)}° (엘리트 <2°)`,
+          weight: 60 - command + sm.armSlotAngle.sd * 2,
+          title: '팔 슬롯 일관성 (downstream)',
+          detail: `Arm slot SD ±${sm.armSlotAngle.sd.toFixed(2)}° (Yamada 2024)`,
           action: '거울 보고 동일 슬롯 반복, T-드릴, 와인드업 일관성'
+        });
+      }
+      // ⭐ v26 — 제구 4그룹 핵심 변인 (학술 강력 예측) priority 추가
+      // [A] FC 무릎 굴곡 변동성 — Manzi 2021 #2
+      const kneeFcSd = sm.kneeFlexionAtFC?.sd ?? sm.frontKneeFlex?.sd;
+      if (kneeFcSd != null && kneeFcSd > 5) {
+        candidates.push({ kind: 'command',
+          weight: 75 - command + kneeFcSd * 2,
+          title: 'FC 무릎 굴곡 변동성 ⭐',
+          detail: `±${kneeFcSd.toFixed(1)}° SD (Manzi 2021 정확도 #2 예측 4.2% MSE)`,
+          action: '단일다리 박스 점프 착지, 와이드 스트라이드 멈춤 드릴, 동영상 셀프 피드백'
+        });
+      }
+      // [A] FC→BR 무릎 신전 일관성 — 사용자 핵심 가설
+      if (sm.leadKneeExtAtBR?.sd != null && sm.leadKneeExtAtBR.sd > 5) {
+        candidates.push({ kind: 'command',
+          weight: 73 - command + sm.leadKneeExtAtBR.sd * 2,
+          title: 'FC→BR 무릎 신전 일관성 ⭐ (사용자 핵심 가설)',
+          detail: `±${sm.leadKneeExtAtBR.sd.toFixed(1)}° SD · "굴곡→폭발적 신장" 패턴 안정성`,
+          action: 'depth jump → 즉시 단일다리 brace, 메디볼 슬램 후 quad 신전 강화'
+        });
+      }
+      // [B] 골반 회전속도 변동성 — Wang 2025 r=0.78
+      if (sm.peakPelvisVel?.cv != null && sm.peakPelvisVel.cv > 10) {
+        candidates.push({ kind: 'command',
+          weight: 71 - command + sm.peakPelvisVel.cv,
+          title: '골반 회전 일관성 ⭐ (Wang 2025)',
+          detail: `${sm.peakPelvisVel.cv.toFixed(1)}% CV · pelvic var. r=0.78 (가장 강한 변동성 예측)`,
+          action: 'pelvis dissociation 드릴, 회전 throw 변형, 케이블 Pallof press'
+        });
+      }
+      // [C] FC 몸통 전방 기울기 변동성 — Manzi 2021 #1 (6.6% MSE)
+      const trunkFcSd = sm.trunkForwardTiltAtFC?.sd ?? sm.trunkFlexAtFC?.sd;
+      if (trunkFcSd != null && trunkFcSd > 4) {
+        candidates.push({ kind: 'command',
+          weight: 78 - command + trunkFcSd * 3,
+          title: 'FC 몸통 자세 변동성 ⭐ (Manzi 2021 #1)',
+          detail: `±${trunkFcSd.toFixed(1)}° SD · 정확도 1위 예측 (6.6% MSE)`,
+          action: '거울 셀프 체크 + 영상 분석, FC 시점 자세 정지 드릴, 코어 stiff 강화'
         });
       }
     }
@@ -1041,8 +1775,8 @@
       velocityScore: r0(velocityScore)
     };
   }
-  function buildSummaryScores(sm, energy, physical) {
-    const velObj = calcVelocityScore(sm, energy);
+  function buildSummaryScores(sm, energy, physical, kineticChain, precision) {
+    const velObj = calcVelocityScore(sm, energy, kineticChain, precision);
     const cmdObj = calcCommandScore(sm);
     const fitObj = calcFitnessScore(physical);
     const velocity = velObj.score;
@@ -1059,7 +1793,7 @@
       overall = validParts.reduce((s, p) => s + p.v * p.w, 0) / tw;
     }
     const ceiling = calcMechanicalCeiling(sm, velocity);
-    const priorities = generatePriorities({ velocity, command, fitness }, sm, energy, physical);
+    const priorities = generatePriorities({ velocity, command, fitness }, sm, energy, physical, kineticChain, precision);
     return {
       velocity:    { score: r0(velocity), grade: scoreToGrade(velocity), sources: velObj.sources },
       command:     { score: r0(command),  grade: scoreToGrade(command),  sources: cmdObj.sources },
@@ -1472,11 +2206,7 @@
       heightCm: profile.heightCm ? parseFloat(profile.heightCm) : null
     };
 
-    // Archetype/CoreIssue/Severity
-    const archetypeInfo = classifyArchetype(phys, sm, bio.energy);
-    const coreInfo = classifyCoreIssue(phys, sm, bio.energy, bio.command);
-    const tags = buildTags(phys);
-
+    // ⭐ v23 — 의존성 순서: 컴포넌트 먼저 빌드 → archetype/coreInfo 판정 → summaryScores
     // 5개 컴포넌트 구성
     const radar = buildRadar(phys);
     const sequence = buildSequence(sm, bio.sequencing);
@@ -1489,9 +2219,108 @@
 
     // 신규 — Section 05/06/D/E 데이터
     const kineticChain  = buildKineticChain(sm);
-    const velocityRadar = buildVelocityRadar(sm, bio.energy);
+    const velocityRadar = buildVelocityRadar(sm, bio.energy, kineticChain, precision);
     const consistency   = buildConsistency(sm, bio.command);
-    const summaryScores = buildSummaryScores(sm, bio.energy, phys);
+
+    // Archetype/CoreIssue/Severity (kineticChain·precision 활용)
+    const archetypeInfo = classifyArchetype(phys, sm, bio.energy, kineticChain, precision);
+    const coreInfo = classifyCoreIssue(phys, sm, bio.energy, bio.command, kineticChain, precision);
+    const tags = buildTags(phys);
+
+    const summaryScores = buildSummaryScores(sm, bio.energy, phys, kineticChain, precision);
+
+    // ⭐ v25 — 리포트 구조 재구성용 v24 7그룹 변인 객체
+    //   각 그룹의 변인을 dashboard에서 sub-panel로 표시
+    //   값이 null인 변인은 BBLAnalysis가 산출하지 못한 것 (sm.* 미존재)
+    const mechanics = {
+      // [A] 키네틱 체인 (가중치 0.30) — 사용자 강조
+      kinetic: {
+        etiPT: sm.etiPT?.mean ?? null,
+        etiTA: sm.etiTA?.mean ?? null,
+        leakPct: bio.energy?.leakPct ?? null,
+        ptLagMs: sm.ptLagMs?.mean ?? null,
+        taLagMs: sm.taLagMs?.mean ?? null,
+        // v23 호환: pelvisMs, trunkMs, armMs도 함께 (시퀀싱 차트용)
+        sequence: { pelvisMs: 0, trunkMs: sm.ptLagMs?.mean ?? null,
+                    armMs: (sm.ptLagMs?.mean ?? 0) + (sm.taLagMs?.mean ?? 0) }
+      },
+      // [B] Arm Action (가중치 0.18) — 드라이브라인 #2
+      armAction: {
+        layback: sm.maxER?.mean ?? null,
+        shoulderAbdFP: sm.shoulderAbdFP?.mean ?? sm.shoulderAbductionFP?.mean ?? null,
+        scapLoadFP: sm.scapLoadFP?.mean ?? sm.scapulaLoadFP?.mean ?? sm.scapLoad?.mean ?? null
+      },
+      // [C] Posture (가중치 0.18) — 드라이브라인 #1 (영향력 1위)
+      posture: {
+        hipShoulderSep: sm.hipShoulderSep?.mean ?? sm.hipShoulderSepFP?.mean ?? sm.maxXFactor?.mean ?? null,
+        trunkFwdTiltFP: sm.torsoFwdTiltFP?.mean ?? sm.trunkFwdTiltFP?.mean ?? sm.trunkForwardTiltAtFC?.mean ?? null,
+        counterRot: sm.peakTorsoCounterRot?.mean ?? sm.torsoCounterRot?.mean ?? null,
+        trunkRotFP: sm.torsoRotFP?.mean ?? sm.trunkRotFP?.mean ?? sm.trunkRotAtFP?.mean ?? null
+      },
+      // [D] Rotation (가중치 0.10) — 드라이브라인 #3
+      rotation: {
+        trunkRotVel: sm.peakTrunkVel?.mean ?? null
+      },
+      // [E] Block (가중치 0.09) — 드라이브라인 #5
+      block: {
+        leadKneeExtBR: sm.leadKneeExtAtBR?.mean ?? null,
+        strideRatio: sm.strideRatio?.mean ?? null
+      },
+      // [F] CoG (가중치 0.05) — 드라이브라인 #4 (영향력 4위)
+      cog: {
+        cogDecel: sm.cogDecel?.mean ?? null
+      },
+      // [G] 절대 KE/Power (가중치 0.10) — 학술 + 4명 검증
+      power: {
+        peakPowerArm: kineticChain?.peakPowerArm ?? null,
+        keArm: kineticChain?.KE_arm?.val ?? null,
+        cockPowerWPerKg: precision?.cockPowerWPerKg ?? null
+      }
+    };
+
+    // ⭐ v26 — 제구 점수 4그룹 변인 객체 (Section 03 카테고리화 시각화)
+    //   사용자 가설: 근본 원인 (착지 + 회전 타이밍) + 결과 (릴리즈)
+    //   학술 근거: Manzi 2019/2021, Wang 2025, Howenstein 2021, Yamada 2024
+    const commandV26 = {
+      // [A] 앞발 착지 안정성 (사용자 강조 — 근본 원인) — 0.40
+      landing: {
+        strideLengthCv:  sm.strideLength?.cv ?? null,
+        kneeFcSd:        sm.kneeFlexionAtFC?.sd ?? sm.frontKneeFlex?.sd ?? null,
+        kneeBrSd:        sm.kneeFlexionAtBR?.sd ?? null,
+        leadKneeExtSd:   sm.leadKneeExtAtBR?.sd ?? null,
+        strideLengthMean:sm.strideLength?.mean ?? null,
+        kneeFcMean:      sm.kneeFlexionAtFC?.mean ?? sm.frontKneeFlex?.mean ?? null,
+        kneeBrMean:      sm.kneeFlexionAtBR?.mean ?? null,
+        leadKneeExtMean: sm.leadKneeExtAtBR?.mean ?? null
+      },
+      // [B] 회전 타이밍 (사용자 강조 + Wang 2025 r=0.78) — 0.30
+      rotation: {
+        ptLagCv:        sm.ptLagMs?.cv ?? null,
+        taLagCv:        sm.taLagMs?.cv ?? null,
+        pelvisVelCv:    sm.peakPelvisVel?.cv ?? null,
+        trunkVelCv:     sm.peakTrunkVel?.cv ?? null,
+        ptLagMean:      sm.ptLagMs?.mean ?? null,
+        taLagMean:      sm.taLagMs?.mean ?? null,
+        pelvisVelMean:  sm.peakPelvisVel?.mean ?? null,
+        trunkVelMean:   sm.peakTrunkVel?.mean ?? null
+      },
+      // [C] 자세 일관성 (Manzi 2021 6.6% MSE) — 0.18
+      posture: {
+        trunkFcSd:      sm.trunkForwardTiltAtFC?.sd ?? sm.trunkFlexAtFC?.sd ?? null,
+        trunkRotFcSd:   sm.trunkRotAtFP?.sd ?? null,
+        trunkFcMean:    sm.trunkForwardTiltAtFC?.mean ?? sm.trunkFlexAtFC?.mean ?? null,
+        trunkRotFcMean: sm.trunkRotAtFP?.mean ?? null
+      },
+      // [D] 릴리즈 결과 (downstream — 사용자: 결과 지표) — 0.12
+      release: {
+        armSlotSd:      sm.armSlotAngle?.sd ?? null,
+        wristSdCm:      sm.wristHeight?.sd != null ? sm.wristHeight.sd * 100 : null,
+        fcBrCv:         sm.fcBrMs?.cv ?? null,
+        armSlotMean:    sm.armSlotAngle?.mean ?? null,
+        wristMean:      sm.wristHeight?.mean ?? null,
+        fcBrMean:       sm.fcBrMs?.mean ?? null
+      }
+    };
 
     // 강점/약점/플래그 (트레이닝/드릴은 비활성화 — 빈 배열)
     const strengths  = buildStrengths(phys, sm, bio.energy, bio.command);
@@ -1517,7 +2346,9 @@
       factors,
       precision,
       kineticChain,    // Section 05 — KE/Power/Transfer/Elbow
-      velocityRadar,   // Section 06 — 5축 구속 종합 레이더
+      mechanics,       // ⭐ v25 — Section 02 v24 7그룹 변인 정리
+      commandV26,      // ⭐ v26 — Section 03 제구 4그룹 변인 정리
+      velocityRadar,   // Section 06 — 7축 구속 종합 레이더
       consistency,     // Section D  — 5영역 일관성 카드
       summaryScores,   // Section E  — 종합 점수 + 우선순위
       strengths,

@@ -1573,10 +1573,685 @@ function LaybackMeter({ deg }) {
   );
 }
 
+// ═════════════════════════════════════════════════════════════════
+// MechanicsV24Panel — v24 7그룹 변인 카테고리화 표시 (사용자 요청)
+//   각 그룹의 가중치, 변인, 측정값, 점수, 학술 근거 표시
+// ═════════════════════════════════════════════════════════════════
+
+// ⭐ 변인 사전 (Variable Dictionary)
+// 선수가 이해하기 쉬운 개조식 설명 — 정의 · 산출 · 해석 + 학술 근거
+const VAR_INFO = {
+  // ═════ 구속 메카닉스 (v24 7그룹 — 17 변인) ═════
+  etiPT: {
+    title: 'ETI P→T (골반→몸통 에너지 효율)',
+    definition: [
+      '· 골반의 빠른 회전이 몸통으로 얼마나 잘 옮겨지는지를 보는 비율',
+      '· 1.0 = 같은 속도 / 1.5 = 몸통이 1.5배 더 빠르게 회전 (에너지 증폭됨)'
+    ],
+    calculation: [
+      '· 몸통 최고 회전속도 ÷ 골반 최고 회전속도',
+      '· 매 투구마다 BBLAnalysis가 자동 계산 (10구 평균)'
+    ],
+    interpretation: [
+      '✅ 1.5 이상 — 우수 (몸통이 골반 회전을 잘 받아 가속)',
+      '⚠️ 1.0 ~ 1.5 — 보통',
+      '❌ 1.0 미만 — 에너지 누수 (코어 약하거나 타이밍 어긋남)'
+    ],
+    source: 'Aguinaldo & Escamilla 2019'
+  },
+  etiTA: {
+    title: 'ETI T→A (몸통→상완 에너지 효율)',
+    definition: [
+      '· 몸통의 회전이 팔(상완)로 얼마나 잘 옮겨지는지의 비율',
+      '· 던지기에서 가장 중요한 마지막 가속 단계'
+    ],
+    calculation: [
+      '· 상완 최고 회전속도 ÷ 몸통 최고 회전속도',
+      '· 10구 평균값'
+    ],
+    interpretation: [
+      '✅ 1.5 이상 — 우수한 채찍 효과',
+      '⚠️ 1.0 ~ 1.5 — 보통',
+      '❌ 1.0 미만 — 어깨/팔 가속 부족 (어깨 외회전 부족 가능)'
+    ],
+    source: 'Aguinaldo & Escamilla 2019'
+  },
+  leakPct: {
+    title: '에너지 누수율 (%)',
+    definition: [
+      '· 몸 전체의 에너지 중 단계별로 손실되는 비율',
+      '· 낮을수록 효율적인 키네틱 체인'
+    ],
+    calculation: [
+      '· 골반→몸통→상완 단계별 효율 손실 합산',
+      '· 누수가 적을수록 같은 힘으로 더 빠른 공'
+    ],
+    interpretation: [
+      '✅ 15% 미만 — 매우 효율적',
+      '⚠️ 15 ~ 30% — 보통',
+      '❌ 30% 초과 — 누수 큼, 코어 안정성·타이밍 점검'
+    ],
+    source: '키네틱 체인 효율 분석 (자체 산출)'
+  },
+  sequencing: {
+    title: '시퀀싱 타이밍 (P→T·T→A)',
+    definition: [
+      '· 골반 → 몸통 → 팔 순서로 정확한 시간 간격으로 회전하는지',
+      '· 너무 빠르면 분리 부족, 너무 느리면 에너지 손실'
+    ],
+    calculation: [
+      '· P→T = 몸통 피크 시점 − 골반 피크 시점',
+      '· T→A = 상완 피크 시점 − 몸통 피크 시점'
+    ],
+    interpretation: [
+      '✅ P→T 25~65ms · T→A 15~45ms — 엘리트 범위',
+      '⚠️ 범위 벗어남 — 분리 부족 또는 늦은 가속',
+      '❌ 순서 어긋남 (역방향) — 메카닉 큰 문제'
+    ],
+    source: 'Howenstein 2019'
+  },
+  layback: {
+    title: 'Layback (어깨 외회전 / MER)',
+    definition: [
+      '· 공을 던지기 직전 팔이 뒤로 젖혀지는 최대 각도',
+      '· 클수록 공 가속 거리(채찍의 길이)가 길어짐'
+    ],
+    calculation: [
+      '· 풋컨택트 후 어깨가 가장 많이 외회전된 시점의 각도',
+      '· 어깨 가동성 + 코어 안정성으로 결정됨'
+    ],
+    interpretation: [
+      '✅ 185° 이상 — 우수 (드라이브라인 엘리트 평균 190°)',
+      '⚠️ 165 ~ 185° — 보통',
+      '❌ 165° 미만 — 어깨 가동성 부족',
+      '※ 200°+ 과도한 경우 부상 위험 ↑'
+    ],
+    source: 'Driveline 0.86 (가장 강한 단일 변인) · Per 1mph 5°'
+  },
+  shoulderAbdFP: {
+    title: 'Shoulder Abduction at FP (풋컨택트 시 어깨 외전)',
+    definition: [
+      '· 앞발이 땅에 닿는 순간 던지는 팔이 들어올려진 각도',
+      '· 90°에 가까울수록 어깨 부담 적고 효율적'
+    ],
+    calculation: [
+      '· 풋컨택트 시점 어깨와 몸통 사이 각도',
+      '· 너무 낮으면 사이드암 / 너무 높으면 부상 위험'
+    ],
+    interpretation: [
+      '✅ 약 84° (드라이브라인 엘리트 평균)',
+      '⚠️ 60~80° 또는 100°+',
+      '❌ 60° 미만 — 사이드암 (구속 손실)'
+    ],
+    source: 'Driveline 0.51 · Per 1mph 10°'
+  },
+  scapLoadFP: {
+    title: 'Scap Load at FP (풋컨택트 시 견갑 장전)',
+    definition: [
+      '· 던지기 직전 견갑골(어깨뼈)이 뒤로 모이는 정도',
+      '· 어깨 가속 거리를 추가로 늘려주는 변인'
+    ],
+    calculation: [
+      '· 풋컨택트 시점 견갑골 후방 각도',
+      '· 어깨 자세 + 가슴 가동성으로 결정'
+    ],
+    interpretation: [
+      '✅ 51° 이상 — 우수',
+      '⚠️ 30 ~ 50° — 보통',
+      '❌ 30° 미만 — 어깨 장전 부족'
+    ],
+    source: 'Driveline 0.37 · Per 1mph 16°'
+  },
+  hipShoulderSep: {
+    title: 'Hip-Shoulder Separation at FP (고관절-어깨 분리각)',
+    definition: [
+      '· 풋컨택트 시점 골반과 어깨 사이 비틀림 각도',
+      '· 클수록 코어에 저장되는 회전 에너지가 큼'
+    ],
+    calculation: [
+      '· 풋컨택트 시 골반 회전각 − 어깨 회전각',
+      '· 30~40°가 일반적'
+    ],
+    interpretation: [
+      '✅ 약 31° (드라이브라인 엘리트 평균)',
+      '⚠️ 20 ~ 30°',
+      '❌ 20° 미만 — 분리 부족 (조기 회전)'
+    ],
+    source: 'Driveline 0.44 · Per 1mph 3°'
+  },
+  trunkFwdTiltFP: {
+    title: 'Trunk Forward Tilt at FP (풋컨택트 시 몸통 전방 기울기)',
+    definition: [
+      '· 풋컨택트 순간 몸통이 앞으로 기울어진 정도',
+      '· 4° 정도 약간 기운 자세가 이상적'
+    ],
+    calculation: [
+      '· 풋컨택트 시점 몸통-수직선 각도',
+      '· 양수 = 앞으로 기움 / 음수 = 뒤로 젖혀짐'
+    ],
+    interpretation: [
+      '✅ 약 4° (엘리트 평균)',
+      '⚠️ -5 ~ 15° — 허용 범위',
+      '❌ 너무 직립(-10°+) 또는 과도하게 기울음(20°+)'
+    ],
+    source: 'Driveline 0.36 · Per 1mph 6°'
+  },
+  counterRot: {
+    title: 'Peak Torso Counter Rotation (몸통 반대 꼬임)',
+    definition: [
+      '· 와인드업 단계에서 몸통이 던지는 방향과 반대로 가장 많이 꼬이는 각도',
+      '· 더 많이 꼬일수록 풀어내는 에너지가 큼 (음수가 클수록 좋음)'
+    ],
+    calculation: [
+      '· 와인드업~풋컨택트 사이 몸통 회전각의 최저점',
+      '· 부호: 음수 = 반대 방향 꼬임'
+    ],
+    interpretation: [
+      '✅ -37° 이상 (절댓값) — 우수',
+      '⚠️ -20 ~ -37°',
+      '❌ -20° 미만 — 와인드업 부족'
+    ],
+    source: 'Driveline 0.38 · Per 1mph 13°'
+  },
+  trunkRotFP: {
+    title: 'Trunk Rotation at FP (풋컨택트 시 몸통 회전)',
+    definition: [
+      '· 앞발 착지 순간 몸통이 타자 방향으로 얼마나 회전되었는지',
+      '· 작을수록 늦은 회전 = 좋음 (가속 거리 확보)'
+    ],
+    calculation: [
+      '· 풋컨택트 시점 몸통의 좌우 회전각',
+      '· 0° = 정면 향함 / 양수 = 타자 방향 회전'
+    ],
+    interpretation: [
+      '✅ 약 2° (엘리트) — 늦은 회전, 분리 우수',
+      '⚠️ 5 ~ 15°',
+      '❌ 15° 초과 — 조기 회전 (분리 부족)'
+    ],
+    source: 'Driveline 0.35 · Per 1mph 10°'
+  },
+  trunkRotVel: {
+    title: 'Torso Rotation Velocity (몸통 회전 속도)',
+    definition: [
+      '· 던지기 동작 중 몸통이 가장 빠르게 회전하는 속도',
+      '· 모든 메카닉 변인 중 가장 강한 단일 구속 예측 변인'
+    ],
+    calculation: [
+      '· 몸통 분절 회전 각속도의 최댓값 (°/초)',
+      '· 코어 파워 + 시퀀싱 타이밍의 결과물'
+    ],
+    interpretation: [
+      '✅ 969°/초 이상 (드라이브라인 엘리트 중간값)',
+      '⚠️ 750 ~ 900°/초',
+      '❌ 750°/초 미만 — 회전 파워 부족'
+    ],
+    source: 'Driveline 1.00 (기준 변인) · Per 1mph 40°/s'
+  },
+  leadKneeExtBR: {
+    title: 'Lead Knee Extension at BR (릴리즈 시 앞다리 신전)',
+    definition: [
+      '· 공을 놓는 순간 앞다리 무릎이 펴진 정도',
+      '· 클수록(곧을수록) 앞다리가 강한 brake 역할'
+    ],
+    calculation: [
+      '· 풋컨택트→릴리즈 사이 무릎 각도 변화',
+      '· 양수 = 신전(폄) / 음수 = 굴곡(꺾임)'
+    ],
+    interpretation: [
+      '✅ 11° 이상 (드라이브라인 엘리트)',
+      '⚠️ 0 ~ 10°',
+      '❌ 음수 (무릎 더 꺾임) — 앞다리 약함'
+    ],
+    source: 'Driveline 0.58 · Per 1mph 5°'
+  },
+  strideRatio: {
+    title: 'Stride Ratio (스트라이드 비율)',
+    definition: [
+      '· 스트라이드 길이를 키로 나눈 값',
+      '· 키 대비 얼마나 멀리 디뎠는지'
+    ],
+    calculation: [
+      '· 스트라이드 길이 ÷ 키',
+      '· 일반적으로 0.8~0.9가 이상적'
+    ],
+    interpretation: [
+      '✅ 0.83 ~ 0.87 (드라이브라인 엘리트, 키 ~178cm 기준)',
+      '⚠️ 0.7 ~ 0.85',
+      '❌ 0.7 미만 — 짧은 스트라이드 (가속 거리 부족)'
+    ],
+    source: 'Driveline 0.58 · markerless 정확도 가장 높음 (CCC > 0.85)'
+  },
+  cogDecel: {
+    title: 'CoG Decel (무게중심 감속)',
+    definition: [
+      '· 풋컨택트 후 몸 전체 무게중심이 얼마나 빨리 감속되는지',
+      '· 빠른 감속 = 강한 앞다리 brace = 더 많은 에너지 팔로 전달'
+    ],
+    calculation: [
+      '· 풋컨택트~릴리즈 구간 무게중심 속도 감소량 (m/s)',
+      '· 앞다리 근력의 직접 지표'
+    ],
+    interpretation: [
+      '✅ 1.61 m/s 이상 (드라이브라인 엘리트 중간값)',
+      '⚠️ 1.0 ~ 1.5 m/s',
+      '❌ 1.0 m/s 미만 — 앞다리 brace 약함'
+    ],
+    source: 'Driveline 0.70 (4번째 영향력) · Per 1mph 0.15 m/s'
+  },
+  peakPowerArm: {
+    title: 'Peak Power Arm (상완 최고 파워)',
+    definition: [
+      '· 던지기 중 상완이 발생시키는 최대 파워 (와트)',
+      '· 메카닉 효율 + 절대 근력의 결과물'
+    ],
+    calculation: [
+      '· 회전 운동량 × 각속도의 최댓값 (W)',
+      '· 마커리스 추정 (체중 + 신체분절 모델)'
+    ],
+    interpretation: [
+      '✅ 3500W 이상 — 엘리트',
+      '⚠️ 1500 ~ 3500W',
+      '❌ 1500W 미만 — 절대 파워 부족 (체격·근력 발달 필요)'
+    ],
+    source: 'Naito 2014 + 4명 데이터 검증 (한국 고교 baseline)'
+  },
+  keArm: {
+    title: 'KE_arm (상완 절대 운동에너지)',
+    definition: [
+      '· 상완에 저장된 최대 운동 에너지 (J)',
+      '· 공으로 전달되는 에너지의 직전 단계'
+    ],
+    calculation: [
+      '· 1/2 × I × ω² (관성모멘트 × 각속도²)',
+      '· 신체분절 모델로 추정'
+    ],
+    interpretation: [
+      '✅ 160J 이상 — 엘리트',
+      '⚠️ 80 ~ 160J',
+      '❌ 80J 미만 — 가속 부족'
+    ],
+    source: 'Aguinaldo 2019 · 가장 distal 운동에너지'
+  },
+
+  // ═════ 제구 변인 (v26 4그룹 — 13 변인) ═════
+  strideLengthCv: {
+    title: '스트라이드 길이 일관성 (CV%)',
+    definition: [
+      '· 10구 동안 앞발이 닿는 거리가 얼마나 일정한지',
+      '· CV% = 변동 폭을 평균으로 나눈 비율 (낮을수록 일관됨)'
+    ],
+    calculation: [
+      '· 10구 스트라이드 길이의 표준편차 ÷ 평균 × 100',
+      '· 마커리스 추적의 정확도가 가장 높은 변인 중 하나'
+    ],
+    interpretation: [
+      '✅ 3% 미만 — 엘리트 수준',
+      '⚠️ 3 ~ 8%',
+      '❌ 8% 초과 — 일관성 부족 (Drives/Fleisig 청소년 vs 엘리트 핵심 차이)'
+    ],
+    source: 'Drives/Fleisig 2009 · 청소년 변동성 가장 큰 변인'
+  },
+  kneeFcSd: {
+    title: 'FC 무릎 굴곡각 변동성 (° SD)',
+    definition: [
+      '· 풋컨택트 순간 앞다리 무릎이 굽혀진 각도가 매번 얼마나 다른지',
+      '· SD(표준편차) — 평균에서 얼마나 벗어나는지'
+    ],
+    calculation: [
+      '· 10구 풋컨택트 시점 무릎 굴곡각의 표준편차',
+      '· 동일한 자세로 착지하는지의 직접 지표'
+    ],
+    interpretation: [
+      '✅ 3° 미만 — 엘리트',
+      '⚠️ 3 ~ 8°',
+      '❌ 8° 초과 — 착지 자세 불안정 (Manzi 2021 정확도 #2 예측 인자)'
+    ],
+    source: 'Manzi 2021 (n=322 프로) · 정확도 #2 예측 (4.2% MSE)'
+  },
+  leadKneeExtSd: {
+    title: 'FC→BR 무릎 신전 일관성 (° SD)',
+    definition: [
+      '· 풋컨택트~릴리즈 구간 무릎이 펴지는 각도가 매번 얼마나 일정한지',
+      '· "굴곡 후 폭발적 신전" 패턴의 재현성'
+    ],
+    calculation: [
+      '· 10구 모두에서 (BR 무릎 각도 − FC 무릎 각도)의 표준편차',
+      '· lead leg block 효과의 일관성 지표'
+    ],
+    interpretation: [
+      '✅ 3° 미만 — 매번 동일한 brace 패턴',
+      '⚠️ 3 ~ 8°',
+      '❌ 8° 초과 — block 일관성 부족 → 회전축 흔들림'
+    ],
+    source: '⭐ 사용자 핵심 가설 (lead leg block + Solomito 2022 종합)'
+  },
+  kneeBrSd: {
+    title: 'BR 무릎 굴곡 일관성 (° SD)',
+    definition: [
+      '· 공을 놓는 순간 앞다리 무릎의 각도가 매번 얼마나 일정한지',
+      '· 회전축의 안정성 = 모든 후속 동작의 기준'
+    ],
+    calculation: [
+      '· 10구 릴리즈 시점 무릎 굴곡각의 표준편차',
+      '· brace 마무리의 일관성 지표'
+    ],
+    interpretation: [
+      '✅ 3° 미만 — 엘리트',
+      '⚠️ 3 ~ 8°',
+      '❌ 8° 초과 — 회전축 흔들림 → 릴리즈 포인트 불안정'
+    ],
+    source: 'Lead leg block 안정성 — 회전축 흔들림 방지'
+  },
+  ptLagCv: {
+    title: 'P→T lag 일관성 (CV%)',
+    definition: [
+      '· 골반→몸통 회전 시간차가 매번 얼마나 일정한지',
+      '· 회전 타이밍의 재현성 — 시퀀싱 일관성의 핵심'
+    ],
+    calculation: [
+      '· 10구 P→T lag (ms)의 변동계수 (SD/평균 × 100)',
+      '· lag 자체보다 "일관성"이 제구의 핵심'
+    ],
+    interpretation: [
+      '✅ 15% 미만 — 엘리트',
+      '⚠️ 15 ~ 25%',
+      '❌ 25% 초과 — 시퀀싱 매번 다름'
+    ],
+    source: 'Howenstein 2021 · 11개 KS 패턴 중 PDS 일관성'
+  },
+  taLagCv: {
+    title: 'T→A lag 일관성 (CV%)',
+    definition: [
+      '· 몸통→상완 회전 시간차가 매번 얼마나 일정한지',
+      '· 상완 가속 타이밍의 재현성'
+    ],
+    calculation: [
+      '· 10구 T→A lag (ms)의 변동계수',
+      '· 상완 catch-up 타이밍 안정성'
+    ],
+    interpretation: [
+      '✅ 15% 미만 — 엘리트',
+      '⚠️ 15 ~ 25%',
+      '❌ 25% 초과 — 상완 가속 시점 매번 다름'
+    ],
+    source: 'Howenstein 2019/2021'
+  },
+  pelvisVelCv: {
+    title: '골반 회전속도 변동성 (CV%)',
+    definition: [
+      '· 10구 동안 골반의 최고 회전속도가 매번 얼마나 일정한지',
+      '· ⭐ 모든 변인 중 가장 강한 변동성 예측 (Wang 2025 r=0.78)'
+    ],
+    calculation: [
+      '· 10구 peak pelvis angular velocity의 변동계수',
+      '· 골반 회전 자체의 안정성'
+    ],
+    interpretation: [
+      '✅ 5% 미만 — 엘리트 수준',
+      '⚠️ 5 ~ 15%',
+      '❌ 15% 초과 — 코어 안정성 부족'
+    ],
+    source: '⭐ Wang 2025 (r=0.78 · 가장 강한 변동성 예측)'
+  },
+  trunkVelCv: {
+    title: '몸통 회전속도 변동성 (CV%)',
+    definition: [
+      '· 10구 동안 몸통의 최고 회전속도가 매번 얼마나 일정한지',
+      '· 몸통 가속의 시기간 안정성'
+    ],
+    calculation: [
+      '· 10구 peak trunk angular velocity의 변동계수',
+      '· 몸통-팔 가속 패턴 일관성의 1차 지표'
+    ],
+    interpretation: [
+      '✅ 5% 미만 — 엘리트',
+      '⚠️ 5 ~ 15%',
+      '❌ 15% 초과 — 몸통 가속 일관성 부족'
+    ],
+    source: '시퀀싱 안정성 학술 일치'
+  },
+  trunkFcSd: {
+    title: 'FC 몸통 전방 기울기 변동성 (° SD)',
+    definition: [
+      '· ⭐ Manzi 2021 정확도 #1 예측 변인 (6.6% MSE)',
+      '· 풋컨택트 시 몸통 자세가 매번 얼마나 일정한지'
+    ],
+    calculation: [
+      '· 10구 풋컨택트 시점 몸통 전방 기울기의 표준편차',
+      '· FC 시점 = MER 시점이나 BR 시점보다 정확도 예측력 큼'
+    ],
+    interpretation: [
+      '✅ 2° 미만 — 엘리트 (정확도 1위 예측 인자)',
+      '⚠️ 2 ~ 6°',
+      '❌ 6° 초과 — 자세 불안정 → 모든 후속 동작 흔들림'
+    ],
+    source: '⭐ Manzi 2021 (n=322 프로) · 정확도 #1 예측 (6.6% MSE)'
+  },
+  trunkRotFcSd: {
+    title: 'FC 몸통 회전각 변동성 (° SD)',
+    definition: [
+      '· 풋컨택트 시 몸통 회전 자세가 매번 얼마나 일정한지',
+      '· 분리 자세의 안정성'
+    ],
+    calculation: [
+      '· 10구 풋컨택트 시점 몸통 회전각의 표준편차',
+      '· 자세 + 시퀀싱 결합 지표'
+    ],
+    interpretation: [
+      '✅ 4° 미만 — 엘리트',
+      '⚠️ 4 ~ 11°',
+      '❌ 11° 초과 — 분리 자세 매번 다름'
+    ],
+    source: 'Manzi 2019 5변인 모델 (shoulder horizontal abduction at FC)'
+  },
+  armSlotSd: {
+    title: 'Arm slot 변동성 (° SD)',
+    definition: [
+      '· 코칭 현장 직관 핵심 지표 — 눈으로 보이는 결과',
+      '· 매 투구마다 팔의 각도(슬롯)가 일정한지'
+    ],
+    calculation: [
+      '· 10구 릴리즈 시점 팔 각도의 표준편차',
+      '· 어깨 + 팔꿈치 자세 결합'
+    ],
+    interpretation: [
+      '✅ 3° 미만 — 엘리트',
+      '⚠️ 3 ~ 8°',
+      '❌ 8° 초과 — 슬롯 매번 다름 (근본 원인 = 착지 또는 자세 불안정)'
+    ],
+    source: 'Yamada 2024 · 사용자 언급 결과 변인'
+  },
+  wristSdCm: {
+    title: '손목 높이 변동성 (cm SD)',
+    definition: [
+      '· 릴리즈 포인트의 수직 위치가 매번 얼마나 일정한지',
+      '· Yamada 2024: 이 변동성이 BB/9 · xFIP 개선에 직결'
+    ],
+    calculation: [
+      '· 10구 릴리즈 시점 손목 y좌표의 표준편차 (cm)',
+      '· 95% 신뢰 타원의 vertical 폭'
+    ],
+    interpretation: [
+      '✅ 2cm 미만 — MLB 평균 수준',
+      '⚠️ 2 ~ 6cm',
+      '❌ 6cm 초과 — 릴리즈 포인트 불안정'
+    ],
+    source: 'Yamada 2024 (n=344 MLB starters)'
+  },
+  fcBrCv: {
+    title: 'FC→릴리스 시간 일관성 (CV%)',
+    definition: [
+      '· 풋컨택트~릴리즈 사이 소요 시간의 변동',
+      '· 총체 timing의 결과 지표 (개별 단계 합산)'
+    ],
+    calculation: [
+      '· 10구 풋컨택트→릴리즈 시간 (ms)의 변동계수',
+      '· FC와 BR 시점 정확 검출 필요'
+    ],
+    interpretation: [
+      '✅ 2% 미만 — 엘리트',
+      '⚠️ 2 ~ 10%',
+      '❌ 10% 초과 — 동작 시간 매번 다름'
+    ],
+    source: '총체 timing의 결과'
+  }
+};
+
+// ⭐ FolderInfo — 폴더형 변인 설명 (펼치기/접기)
+//   변인 옆 ⓘ 버튼 클릭 시 정의 / 산출방법 / 해석 표시
+function FolderInfo({ varKey, accent }) {
+  const [open, setOpen] = React.useState(false);
+  const info = VAR_INFO[varKey];
+  if (!info) return null;
+  const accentColor = accent || '#60a5fa';
+  return (
+    <div style={{ marginTop: 4 }}>
+      <button onClick={() => setOpen(!open)} style={{
+        background: 'transparent',
+        border: `1px solid ${accentColor}40`,
+        borderRadius: 4,
+        padding: '2px 8px',
+        fontSize: 10,
+        color: accentColor,
+        cursor: 'pointer',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4
+      }}>
+        {open ? '▼' : '▶'} {open ? '설명 닫기' : '자세히 (정의·산출·해석)'}
+      </button>
+      {open && (
+        <div style={{
+          marginTop: 6,
+          padding: '10px 12px',
+          background: 'rgba(0,0,0,0.35)',
+          border: `1px solid ${accentColor}30`,
+          borderRadius: 5,
+          fontSize: 11,
+          lineHeight: 1.7
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: accentColor, letterSpacing: '0.5px', marginBottom: 4 }}>
+            📖 정의
+          </div>
+          {info.definition.map((d, i) => (
+            <div key={i} style={{ color: 'var(--d-fg2)', marginLeft: 4 }}>{d}</div>
+          ))}
+
+          <div style={{ fontSize: 10, fontWeight: 700, color: accentColor, letterSpacing: '0.5px', marginTop: 8, marginBottom: 4 }}>
+            🔬 산출 방법
+          </div>
+          {info.calculation.map((d, i) => (
+            <div key={i} style={{ color: 'var(--d-fg2)', marginLeft: 4 }}>{d}</div>
+          ))}
+
+          <div style={{ fontSize: 10, fontWeight: 700, color: accentColor, letterSpacing: '0.5px', marginTop: 8, marginBottom: 4 }}>
+            💡 해석 방법
+          </div>
+          {info.interpretation.map((d, i) => (
+            <div key={i} style={{ color: 'var(--d-fg2)', marginLeft: 4 }}>{d}</div>
+          ))}
+
+          {info.source && (
+            <div style={{ fontSize: 10, color: 'var(--d-fg3)', marginTop: 8, paddingTop: 6, borderTop: '1px dashed var(--d-border)' }}>
+              📚 출처: {info.source}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ⭐ v26 — 무릎 굴곡-신장 패턴 다이어그램 (사용자 핵심 가설 시각화)
+//   FC 시점 무릎 굴곡 → 짧은 추가 굴곡(흡수) → 폭발적 신전 (block)
+function KneeFlexExtDiagram({ kneeFcMean, kneeBrMean, leadKneeExtMean }) {
+  const W = 480, H = 200;
+  const padX = 50, padY = 30;
+  const innerW = W - padX * 2, innerH = H - padY * 2;
+  const fcAngle  = kneeFcMean ?? 45;
+  const peakAngle = kneeFcMean != null ? kneeFcMean + 8 : 53;
+  const brAngle  = kneeBrMean != null ? kneeBrMean : (leadKneeExtMean != null ? -leadKneeExtMean + 45 : 30);
+  const yMax = Math.max(70, peakAngle + 5);
+  const yMin = Math.min(0, brAngle - 10);
+  const yScale = v => padY + innerH - ((v - yMin) / (yMax - yMin)) * innerH;
+  const xFC = padX + innerW * 0.15;
+  const xPeak = padX + innerW * 0.35;
+  const xBR = padX + innerW * 0.85;
+  const path = `M ${xFC} ${yScale(fcAngle)} Q ${(xFC+xPeak)/2} ${yScale(peakAngle - 2)} ${xPeak} ${yScale(peakAngle)} Q ${(xPeak+xBR)/2} ${yScale((peakAngle+brAngle)/2)} ${xBR} ${yScale(brAngle)}`;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: 480, display: 'block' }}>
+      {/* 배경 */}
+      <rect x="0" y="0" width={W} height={H} fill="rgba(0,0,0,0.15)" rx="6"/>
+      {/* y축 라벨 */}
+      <text x={padX-8} y={yScale(20)} fontSize="9" fill="#94a3b8" textAnchor="end">신전</text>
+      <text x={padX-8} y={yScale(50)} fontSize="9" fill="#94a3b8" textAnchor="end">중간</text>
+      <text x={padX-8} y={yScale(70)} fontSize="9" fill="#94a3b8" textAnchor="end">굴곡</text>
+      {/* 가이드 라인 */}
+      <line x1={padX} y1={yScale(0)} x2={W-padX} y2={yScale(0)} stroke="rgba(148,163,184,0.2)" strokeDasharray="3,3"/>
+      {/* x축 시점 */}
+      <line x1={xFC} y1={padY} x2={xFC} y2={padY+innerH} stroke="rgba(96,165,250,0.4)" strokeDasharray="2,3"/>
+      <line x1={xPeak} y1={padY} x2={xPeak} y2={padY+innerH} stroke="rgba(251,191,36,0.4)" strokeDasharray="2,3"/>
+      <line x1={xBR} y1={padY} x2={xBR} y2={padY+innerH} stroke="rgba(167,139,250,0.4)" strokeDasharray="2,3"/>
+      {/* 곡선 */}
+      <path d={path} stroke="#fbbf24" strokeWidth="3" fill="none" strokeLinecap="round"/>
+      {/* 시점 마커 */}
+      <circle cx={xFC} cy={yScale(fcAngle)} r="6" fill="#60a5fa"/>
+      <circle cx={xPeak} cy={yScale(peakAngle)} r="6" fill="#fbbf24"/>
+      <circle cx={xBR} cy={yScale(brAngle)} r="6" fill="#a78bfa"/>
+      {/* 시점 라벨 */}
+      <text x={xFC} y={H-8} fontSize="11" fontWeight="700" fill="#60a5fa" textAnchor="middle">FC (착지)</text>
+      <text x={xPeak} y={H-8} fontSize="11" fontWeight="700" fill="#fbbf24" textAnchor="middle">Peak (흡수)</text>
+      <text x={xBR} y={H-8} fontSize="11" fontWeight="700" fill="#a78bfa" textAnchor="middle">BR (릴리스)</text>
+      {/* 값 라벨 */}
+      <text x={xFC} y={yScale(fcAngle)-10} fontSize="11" fill="#cbd5e1" textAnchor="middle">{Number(fcAngle).toFixed(0)}°</text>
+      <text x={xPeak} y={yScale(peakAngle)-10} fontSize="11" fill="#cbd5e1" textAnchor="middle">{Number(peakAngle).toFixed(0)}°</text>
+      <text x={xBR} y={yScale(brAngle)-10} fontSize="11" fill="#cbd5e1" textAnchor="middle">{Number(brAngle).toFixed(0)}°</text>
+      {/* 단계 캡션 */}
+      <text x={(xFC+xPeak)/2} y={padY-10} fontSize="9.5" fill="#fb923c" textAnchor="middle" fontStyle="italic">짧은 추가 굴곡 (흡수)</text>
+      <text x={(xPeak+xBR)/2} y={padY-10} fontSize="9.5" fill="#34d399" textAnchor="middle" fontStyle="italic">폭발적 신전 (block)</text>
+    </svg>
+  );
+}
+
+// ⭐ v26 — 릴리즈 포인트 분산도 (Yamada 2024 95% confidence ellipse 형식)
+function ReleasePointScatter({ wristSdCm, armSlotSd }) {
+  const W = 280, H = 220;
+  const cx = W/2, cy = H/2 + 10;
+  const wristCm = wristSdCm ?? 4;
+  const armSd = armSlotSd ?? 5;
+  // 시각화: 손목 SD를 vertical, arm slot SD를 horizontal로 (스케일 변환)
+  const ellipseRy = Math.min(60, wristCm * 5);
+  const ellipseRx = Math.min(50, armSd * 5);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: 280, display: 'block' }}>
+      <rect x="0" y="0" width={W} height={H} fill="rgba(0,0,0,0.15)" rx="6"/>
+      <text x={W/2} y="18" fontSize="11" fontWeight="700" fill="#cbd5e1" textAnchor="middle">95% 릴리즈 포인트 신뢰 타원</text>
+      <text x={W/2} y="32" fontSize="9" fill="#94a3b8" textAnchor="middle">· 작은 타원 = 일관된 릴리즈 (Yamada 2024)</text>
+      {/* 십자가 — 평균 점 */}
+      <line x1={cx-70} y1={cy} x2={cx+70} y2={cy} stroke="rgba(148,163,184,0.3)" strokeDasharray="3,3"/>
+      <line x1={cx} y1={cy-70} x2={cx} y2={cy+70} stroke="rgba(148,163,184,0.3)" strokeDasharray="3,3"/>
+      {/* 엘리트 기준 타원 (작음) */}
+      <ellipse cx={cx} cy={cy} rx="18" ry="12" fill="none" stroke="rgba(52,211,153,0.4)" strokeWidth="1.5" strokeDasharray="3,2"/>
+      <text x={cx+22} y={cy-13} fontSize="9" fill="#34d399">엘리트</text>
+      {/* 선수 타원 */}
+      <ellipse cx={cx} cy={cy} rx={ellipseRx} ry={ellipseRy} fill="rgba(251,191,36,0.15)" stroke="#fbbf24" strokeWidth="2"/>
+      {/* 평균점 */}
+      <circle cx={cx} cy={cy} r="4" fill="#fff"/>
+      {/* 축 라벨 */}
+      <text x={cx} y={H-6} fontSize="10" fill="#94a3b8" textAnchor="middle">← Arm slot SD ({Number(armSd).toFixed(1)}°) →</text>
+      <text x="14" y={cy} fontSize="10" fill="#94a3b8" transform={`rotate(-90 14 ${cy})`} textAnchor="middle">손목 SD ({Number(wristCm).toFixed(1)} cm)</text>
+    </svg>
+  );
+}
+
 window.RadarChart = RadarChart;
 window.SequenceChart = SequenceChart;
 window.AngularChart = AngularChart;
 window.EnergyFlow = EnergyFlow;
 window.LaybackMeter = LaybackMeter;
 window.IntegratedKineticDiagram = IntegratedKineticDiagram;
+window.VAR_INFO = VAR_INFO;
+window.FolderInfo = FolderInfo;
+window.KneeFlexExtDiagram = KneeFlexExtDiagram;
+window.ReleasePointScatter = ReleasePointScatter;
 })();

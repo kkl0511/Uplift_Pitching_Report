@@ -3,7 +3,7 @@
   'use strict';
   const { useState, useEffect, useRef, useMemo } = React;
   // charts.jsx에서 등록한 컴포넌트들을 가져옴
-  const { RadarChart, SequenceChart, AngularChart, EnergyFlow, LaybackMeter, IntegratedKineticDiagram } = window;
+  const { RadarChart, SequenceChart, AngularChart, EnergyFlow, LaybackMeter, IntegratedKineticDiagram, FolderInfo, VAR_INFO, KneeFlexExtDiagram, ReleasePointScatter } = window;
 
 /* ---------------- THEME ---------------- */
 function useTheme() {
@@ -1200,6 +1200,645 @@ function InfoBox({ items }) {
 }
 
 
+// ⭐ v25 — Section 02 새 구조: v24 7그룹별 sub-panel 표시
+//   각 그룹의 변인을 학술/드라이브라인 근거 + 가중치와 함께 보여줌
+function MechanicsBy7GroupsPanel({ p }) {
+  const m = p.mechanics;
+  const seq = p.sequence;
+  if (!m) return null;
+
+  // 변인 카드 — 값 + 엘리트 baseline + 학술 근거 + 폴더식 변인 설명
+  function VarCard({ name, value, unit, elite, source, accent, varKey, easy }) {
+    const hasVal = value != null && !isNaN(value);
+    const valStr = hasVal ? (typeof value === 'number' ? value.toFixed(value % 1 === 0 ? 0 : (Math.abs(value) >= 100 ? 0 : 2)) : value) : '—';
+    return (
+      <div style={{
+        background: 'var(--d-bg2)',
+        border: `1px solid ${hasVal ? 'var(--d-border)' : 'rgba(148,163,184,0.15)'}`,
+        borderLeft: `3px solid ${accent || '#60a5fa'}`,
+        borderRadius: 6, padding: '10px 12px', minWidth: 160, flex: '1 1 200px', maxWidth: 280
+      }}>
+        <div style={{ fontSize: 11, color: 'var(--d-fg3)', marginBottom: 4 }}>{name}</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+          <span style={{ fontSize: 19, fontWeight: 700, color: hasVal ? 'var(--d-fg1)' : 'var(--d-fg3)' }}>{valStr}</span>
+          {unit && <span style={{ fontSize: 11, color: 'var(--d-fg3)' }}>{unit}</span>}
+        </div>
+        {easy && <div style={{ fontSize: 10.5, color: 'var(--d-fg2)', marginTop: 4, lineHeight: 1.5 }}>{easy}</div>}
+        {elite && <div style={{ fontSize: 10, color: 'var(--d-fg3)', marginTop: 4 }}>· 엘리트 기준 {elite}</div>}
+        {source && <div style={{ fontSize: 9.5, color: '#60a5fa', marginTop: 2 }}>· {source}</div>}
+        {varKey && window.FolderInfo && <window.FolderInfo varKey={varKey} accent={accent}/>}
+      </div>
+    );
+  }
+
+  // 그룹 헤더 — 가중치 + 모델 매핑
+  function GroupHead({ id, title, sub, weight, mapping, isStarred }) {
+    return (
+      <div className="panel-head" style={{ marginBottom: 12 }}>
+        <div>
+          <div className="kicker" style={{ color: isStarred ? '#fbbf24' : '#60a5fa' }}>
+            [{id}] 가중치 {weight.toFixed(2)} · {mapping}{isStarred ? ' ⭐' : ''}
+          </div>
+          <h3 style={{ marginTop: 4 }}>{title}</h3>
+          <div className="sub">{sub}</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* ============ [A] 키네틱 체인 (0.30) ⭐ ============ */}
+      <div className="panel" style={{ borderTop: '3px solid #fbbf24' }}>
+        <GroupHead id="A" title="키네틱 체인 — 에너지가 발끝에서 손끝까지 흐르는 효율"
+          sub="ETI P→T (0.08) · ETI T→A (0.08) · 누수율 (0.10) · 시퀀싱 (0.04) — Aguinaldo 2019"
+          weight={0.30} mapping="우리 시스템 고유 + 사용자 강조" isStarred />
+        <div style={{ fontSize: 11, color: 'var(--d-fg2)', marginBottom: 10, lineHeight: 1.6, padding: '8px 10px', background: 'rgba(251,191,36,0.06)', borderRadius: 5 }}>
+          <b style={{ color: '#fbbf24' }}>· 핵심 원리</b><br/>
+          · 던지기는 <b>골반 → 몸통 → 팔</b>로 가속이 이어지는 채찍 동작<br/>
+          · 다음 단계로 갈수록 더 빠르게 도는 게 정상 (1.5배 이상이면 우수)<br/>
+          · 도중에 속도가 떨어지면 = 에너지가 새고 있다는 뜻 (효율 저하)
+        </div>
+        {/* 통합 키네틱 다이어그램 */}
+        {window.IntegratedKineticDiagram
+          ? <window.IntegratedKineticDiagram energy={p.energy} precision={p.precision}/>
+          : <window.EnergyFlow energy={p.energy}/>
+        }
+        {/* ETI + 누수 카드 */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+          <VarCard name="ETI P→T (골반→몸통)" value={m.kinetic.etiPT} unit="×"
+            easy="· 골반 회전 → 몸통 회전 증폭 비율"
+            elite="≥ 1.5" source="Aguinaldo 2019" accent="#fbbf24" varKey="etiPT"/>
+          <VarCard name="ETI T→A (몸통→상완)" value={m.kinetic.etiTA} unit="×"
+            easy="· 몸통 회전 → 팔 회전 증폭 비율 (채찍 마지막 가속)"
+            elite="≥ 1.5" source="Aguinaldo 2019" accent="#fbbf24" varKey="etiTA"/>
+          <VarCard name="에너지 누수율" value={m.kinetic.leakPct} unit="%"
+            easy="· 단계 사이에서 손실되는 에너지 비율 (낮을수록 좋음)"
+            elite="< 15%" source="키네틱 체인 효율" accent="#fbbf24" varKey="leakPct"/>
+        </div>
+        {/* 시퀀싱 차트 */}
+        <div style={{ marginTop: 14 }}>
+          <div className="kicker" style={{ marginBottom: 6 }}>분절 피크 회전 시점 순서 — 골반·몸통·팔이 차례로 가속</div>
+          <div style={{ fontSize: 10.5, color: 'var(--d-fg2)', marginBottom: 8 }}>
+            · 이상적: 골반 먼저 → 몸통 → 팔 순서로 30~60ms 간격<br/>
+            · 너무 빠르면 = 시퀀스 어긋남 / 너무 느리면 = 에너지 새는 중
+          </div>
+          {window.SequenceChart && <window.SequenceChart sequence={seq}/>}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
+            <VarCard name="P→T lag (골반→몸통 시간차)" value={m.kinetic.ptLagMs} unit="ms"
+              easy="· 골반 최고속도 후 몸통 최고속도까지 걸린 시간"
+              elite="25-65 ms" source="Howenstein 2019" accent="#fbbf24" varKey="sequencing"/>
+            <VarCard name="T→A lag (몸통→팔 시간차)" value={m.kinetic.taLagMs} unit="ms"
+              easy="· 몸통 최고속도 후 팔 최고속도까지 걸린 시간"
+              elite="15-45 ms" source="Howenstein 2019" accent="#fbbf24"/>
+          </div>
+        </div>
+      </div>
+
+      {/* ============ [B] Arm Action (0.18) — Driveline #2 ============ */}
+      <div className="panel" style={{ borderTop: '3px solid #60a5fa' }}>
+        <GroupHead id="B" title="Arm Action — 팔 동작 (Layback이 핵심)"
+          sub="Layback (0.10 ⭐) · Shoulder Abd FP (0.04) · Scap Load FP (0.04) — Driveline 영향력 #2"
+          weight={0.18} mapping="Driveline Arm Action" />
+        <div style={{ fontSize: 11, color: 'var(--d-fg2)', marginBottom: 10, lineHeight: 1.6, padding: '8px 10px', background: 'rgba(96,165,250,0.06)', borderRadius: 5 }}>
+          <b style={{ color: '#60a5fa' }}>· 핵심 원리</b><br/>
+          · 팔을 멀리 뒤로 젖힐수록 가속할 거리가 길어짐 (= 더 빠른 공)<br/>
+          · 풋플랜트 시 어깨 외전 90° + 견갑골 충분히 잡아당김(load) 필요<br/>
+          · Layback은 단일 변인 중 두 번째로 강한 구속 예측인자 (Driveline 0.86)
+        </div>
+        {/* Layback 상세 — 사진 + 미터 */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'center', marginTop: 8 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+              <div className="layback-value">{p.layback?.deg?.toFixed(1) ?? '—'}<span className="deg">°</span></div>
+              {p.layback?.band && <div className={`band band-${p.layback.band}`} style={{ fontSize: 11 }}>
+                {p.layback.band === 'high' ? '상위' : p.layback.band === 'mid' ? '범위' : p.layback.band === 'low' ? '미만' : '—'}
+              </div>}
+            </div>
+            <div style={{ color: 'var(--d-fg2)', marginTop: 8, fontSize: 12, lineHeight: 1.6 }}>
+              · 어깨 최대 외회전 각도 (MER)<br/>
+              · 엘리트 평균 190° · 1mph 향상에 5° 필요<br/>
+              · 어깨 가속 거리를 결정하는 핵심 변인
+            </div>
+            <div className="layback-photo" style={{ maxWidth: 220, marginTop: 12 }}>
+              <img src="assets/max-layback.png" alt="Max Layback reference"/>
+            </div>
+            <div className="layback-photo-caption" style={{ marginTop: 4, fontSize: 10 }}>· 참고 자세: Max Layback</div>
+            {window.FolderInfo && <window.FolderInfo varKey="layback" accent="#60a5fa"/>}
+          </div>
+          {window.LaybackMeter && <window.LaybackMeter deg={p.layback?.deg ?? 0}/>}
+        </div>
+        {/* Shoulder Abd FP, Scap Load FP */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+          <VarCard name="Shoulder Abduction at FP" value={m.armAction.shoulderAbdFP} unit="°"
+            easy="· 풋플랜트 시 어깨를 옆으로 든 각도 (90°가 이상적)"
+            elite="84°" source="Driveline Per 1mph 10°" accent="#60a5fa" varKey="shoulderAbdFP"/>
+          <VarCard name="Scap Load at FP" value={m.armAction.scapLoadFP} unit="°"
+            easy="· 풋플랜트 시 견갑골을 등쪽으로 잡아당긴 정도"
+            elite="51°" source="Driveline Per 1mph 16°" accent="#60a5fa" varKey="scapLoadFP"/>
+        </div>
+      </div>
+
+      {/* ============ [C] Posture (0.18) — Driveline #1 ============ */}
+      <div className="panel" style={{ borderTop: '3px solid #a78bfa' }}>
+        <GroupHead id="C" title="Posture — 자세 안정성 (드라이브라인 영향력 1위)"
+          sub="Hip-Shoulder Sep FP (0.06) · Trunk Fwd Tilt FP (0.05) · Counter Rot (0.04) · Trunk Rot FP (0.03)"
+          weight={0.18} mapping="Driveline Posture" />
+        <div style={{ fontSize: 11, color: 'var(--d-fg2)', marginBottom: 10, lineHeight: 1.6, padding: '8px 10px', background: 'rgba(167,139,250,0.06)', borderRadius: 5 }}>
+          <b style={{ color: '#a78bfa' }}>· 핵심 원리</b><br/>
+          · 풋플랜트 순간(Foot Plant)의 자세가 모든 후속 동작의 기준이 됨<br/>
+          · 골반과 어깨가 충분히 분리(separation) → 회전 토크 생성<br/>
+          · 몸통이 너무 일찍 열리면(rotation 큼) → 에너지 누수 + 팔 부담 ↑
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <VarCard name="Hip-Shoulder Sep at FP" value={m.posture.hipShoulderSep} unit="°"
+            easy="· 풋플랜트 시 골반과 어깨 회전 각도 차이 (X-factor)"
+            elite="31°" source="Driveline 0.44 · 학술 r=0.74" accent="#a78bfa" varKey="hipShoulderSep"/>
+          <VarCard name="Trunk Forward Tilt at FP" value={m.posture.trunkFwdTiltFP} unit="°"
+            easy="· 풋플랜트 시 몸통이 앞으로 기울어진 각도 (4° 부근이 이상적)"
+            elite="4°" source="Stodden 2005 · Driveline 0.36" accent="#a78bfa" varKey="trunkFwdTiltFP"/>
+          <VarCard name="Peak Counter Rotation" value={m.posture.counterRot} unit="°"
+            easy="· 와인드업 시 몸통이 타깃 반대로 꼬인 최대 각도"
+            elite="-37°" source="Driveline 0.38 (high)" accent="#a78bfa" varKey="counterRot"/>
+          <VarCard name="Trunk Rotation at FP" value={m.posture.trunkRotFP} unit="°"
+            easy="· 풋플랜트 시 몸통이 타깃 쪽으로 열린 각도 (작을수록 늦은 회전 = 좋음)"
+            elite="2° (덜 열림)" source="Driveline 0.35" accent="#a78bfa" varKey="trunkRotFP"/>
+        </div>
+      </div>
+
+      {/* ============ [D] Rotation (0.10) — Driveline 1.0 (기준 변인) ============ */}
+      <div className="panel" style={{ borderTop: '3px solid #34d399' }}>
+        <GroupHead id="D" title="Rotation — 몸통 회전 속도 (단일 변인 1위)"
+          sub="Trunk Rotation Velo (0.10) — Driveline 상대 중요도 1.0 (기준 변인) · Orishimo 2023 r²=0.25"
+          weight={0.10} mapping="Driveline Rotation" />
+        <div style={{ fontSize: 11, color: 'var(--d-fg2)', marginBottom: 10, lineHeight: 1.6, padding: '8px 10px', background: 'rgba(52,211,153,0.06)', borderRadius: 5 }}>
+          <b style={{ color: '#34d399' }}>· 핵심 원리</b><br/>
+          · 몸통이 얼마나 빠르게 도는지 = 구속의 가장 강한 단일 예측인자<br/>
+          · 1mph 향상에 약 40°/s 증가 필요 (Driveline)<br/>
+          · 코어 파워 + 시퀀싱 정확도가 함께 좌우
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <VarCard name="Trunk Rotation Velo" value={m.rotation.trunkRotVel} unit="°/s"
+            easy="· 몸통의 최고 회전 각속도"
+            elite="969 °/s" source="Driveline 1.0 · Orishimo 2023" accent="#34d399" varKey="trunkRotVel"/>
+        </div>
+        {p.angular && (
+          <div style={{ marginTop: 12 }}>
+            <div className="kicker" style={{ marginBottom: 6 }}>참고 — 분절별 피크 회전 속도 (몸통만 점수에 직접 사용)</div>
+            <div style={{ fontSize: 10, color: 'var(--d-fg3)', marginBottom: 6 }}>
+              · 골반 · 몸통 · 팔 순서로 점점 빨라지는 게 정상 (시퀀싱 + 채찍 효과)
+            </div>
+            {window.AngularChart && <window.AngularChart angular={p.angular}/>}
+          </div>
+        )}
+      </div>
+
+      {/* ============ [E] Block (0.09) — Driveline #5 ============ */}
+      <div className="panel" style={{ borderTop: '3px solid #f87171' }}>
+        <GroupHead id="E" title="Block — 앞다리 brace (멈추는 힘)"
+          sub="Lead Knee Extension at BR (0.05) · Stride ratio (0.04) — Driveline 모델 #5"
+          weight={0.09} mapping="Driveline Block" />
+        <div style={{ fontSize: 11, color: 'var(--d-fg2)', marginBottom: 10, lineHeight: 1.6, padding: '8px 10px', background: 'rgba(248,113,113,0.06)', borderRadius: 5 }}>
+          <b style={{ color: '#f87171' }}>· 핵심 원리</b><br/>
+          · 앞다리는 "브레이크" 역할 — 전진 운동량을 강하게 멈춰야 회전이 가속됨<br/>
+          · 무릎이 신전(펴짐) → 몸통이 앞다리를 축으로 회전<br/>
+          · 무릎이 굴곡 깊어지면 = 운동량 손실 + 회전축 흔들림
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <VarCard name="Lead Knee Extension at BR" value={m.block.leadKneeExtBR} unit="°"
+            easy="· 릴리스 시 앞 무릎이 펴진 정도 (양수 = 신전, 음수 = 굴곡)"
+            elite="11°" source="Driveline Per 1mph 5°" accent="#f87171" varKey="leadKneeExtBR"/>
+          <VarCard name="Stride ratio" value={m.block.strideRatio} unit="× 키"
+            easy="· 발걸음 길이 ÷ 신장 비율 (0.83 부근이 엘리트 평균)"
+            elite="0.83 (≈ 58 in @ 70 in body)" source="Werner 2008" accent="#f87171" varKey="strideRatio"/>
+        </div>
+      </div>
+
+      {/* ============ [F] CoG (0.05) — Driveline #4 ============ */}
+      <div className="panel" style={{ borderTop: '3px solid #fb923c' }}>
+        <GroupHead id="F" title="CoG — 무게중심 감속 (몸 전체 운동량 → 팔 전달)"
+          sub="CoG Decel (0.05) — Driveline 0.70 (high) · 영향력 4위 모델"
+          weight={0.05} mapping="Driveline CoG" />
+        <div style={{ fontSize: 11, color: 'var(--d-fg2)', marginBottom: 10, lineHeight: 1.6, padding: '8px 10px', background: 'rgba(251,146,60,0.06)', borderRadius: 5 }}>
+          <b style={{ color: '#fb923c' }}>· 핵심 원리</b><br/>
+          · 풋플랜트 후 몸 전체(무게중심)가 빠르게 감속할수록 회전이 살아남<br/>
+          · 자동차 브레이크 효과 — 전진 운동량이 회전 운동량으로 전환<br/>
+          · 1mph 향상에 0.15 m/s 감속 증가 필요 (Driveline)
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <VarCard name="CoG Decel" value={m.cog.cogDecel} unit="m/s"
+            easy="· 풋플랜트 후 무게중심이 멈추는 속도 (클수록 강한 brace)"
+            elite="1.61 m/s" source="Driveline 0.70 (high)" accent="#fb923c" varKey="cogDecel"/>
+        </div>
+      </div>
+
+      {/* ============ [G] 절대 KE/Power (0.10) — 학술 + 4명 검증 ============ */}
+      <div className="panel" style={{ borderTop: '3px solid #fbbf24' }}>
+        <GroupHead id="G" title="절대 KE/Power — 운동에너지의 절대값"
+          sub="Peak Power Arm (0.05) · KE_arm (0.05) — Naito 2014 · Sakurai 2024"
+          weight={0.10} mapping="학술 + 4명 검증" isStarred />
+        <div style={{ fontSize: 11, color: 'var(--d-fg2)', marginBottom: 10, lineHeight: 1.6, padding: '8px 10px', background: 'rgba(251,191,36,0.06)', borderRadius: 5 }}>
+          <b style={{ color: '#fbbf24' }}>· 핵심 원리</b><br/>
+          · 효율(ETI)이 같아도 절대 파워가 약하면 구속 안 나옴<br/>
+          · 체격이 작거나 근력이 부족한 선수의 약점을 잡아내는 신호<br/>
+          · 메카닉 효율(체급 무관)과 상보적 — 둘 다 충족해야 진짜 강한 공
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <VarCard name="Peak Power Arm" value={m.power.peakPowerArm} unit="W"
+            easy="· 팔의 최고 파워 출력 (절대값 — 체급에 비례)"
+            elite="3500+ W" source="Naito 2014 · 4명 검증" accent="#fbbf24" varKey="peakPowerArm"/>
+          <VarCard name="KE_arm (절대 운동에너지)" value={m.power.keArm} unit="J"
+            easy="· 팔이 가진 운동에너지의 절대값 (체급에 비례)"
+            elite="160+ J" source="Aguinaldo 2019" accent="#fbbf24" varKey="keArm"/>
+          <VarCard name="Cocking Power" value={m.power.cockPowerWPerKg} unit="W/kg"
+            easy="· 코킹 단계 어깨 파워 (체중당) — 보조 신호"
+            elite="30+ W/kg" source="Naito 2014" accent="#fbbf24"/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ⭐ v26 — 제구 4그룹 카테고리화 패널 (사용자 요청)
+//   사용자 가설: 근본 원인 (착지 + 회전 타이밍) + 결과 (릴리즈)
+//   학술 근거: Manzi 2019/2021, Wang 2025, Howenstein 2021, Yamada 2024
+function CommandBy4GroupsPanel({ p }) {
+  const c = p.commandV26;
+  if (!c) return null;
+
+  // anchor 기반 점수 변환 (낮을수록 좋음)
+  function lowerBetterScore(val, anchors) {
+    if (val == null || isNaN(val)) return null;
+    if (val <= anchors[0][0]) return Math.min(100, anchors[0][1] + 5);
+    if (val <= anchors[1][0]) {
+      const r = (val - anchors[0][0]) / (anchors[1][0] - anchors[0][0]);
+      return anchors[0][1] - r * (anchors[0][1] - anchors[1][1]);
+    }
+    if (val <= anchors[2][0]) {
+      const r = (val - anchors[1][0]) / (anchors[2][0] - anchors[1][0]);
+      return anchors[1][1] - r * (anchors[1][1] - anchors[2][1]);
+    }
+    if (val <= anchors[3][0]) {
+      const r = (val - anchors[2][0]) / (anchors[3][0] - anchors[2][0]);
+      return anchors[2][1] - r * (anchors[2][1] - anchors[3][1]);
+    }
+    return Math.max(5, anchors[3][1] - (val - anchors[3][0]) * 2);
+  }
+
+  function fmtVal(v, unit, decimals = 2) {
+    if (v == null || isNaN(v)) return '—';
+    if (typeof v === 'number') {
+      const formatted = Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(decimals);
+      return `${formatted} ${unit}`;
+    }
+    return `${v} ${unit}`;
+  }
+
+  function scoreColor(s) {
+    if (s == null) return '#666';
+    if (s >= 80) return '#34d399';
+    if (s >= 60) return '#fbbf24';
+    if (s >= 40) return '#fb923c';
+    return '#ef4444';
+  }
+
+  const groups = [
+    {
+      id: 'A',
+      title: '앞발 착지 안정성',
+      titleEn: 'Front Foot Landing Stability',
+      weight: 0.40,
+      color: '#fbbf24',
+      isStarred: true,
+      note: '⭐ 사용자 강조 + 학술 강력 지지 (Manzi 2021 #2, Drives/Fleisig)',
+      desc: '근본 원인 — 착지 시 안정성이 모든 후속 동작의 기반',
+      principle: [
+        '· 앞발이 매번 같은 자리에 같은 자세로 착지해야 그 위에서의 회전·릴리스가 일관됨',
+        '· 청소년 vs 엘리트 핵심 차이 = 앞발 위치 + 무릎 굴곡 변동성 (Drives/Fleisig)',
+        '· 사용자 핵심 가설: 착지 직후 짧은 굴곡 → 폭발적 신전 패턴이 일관돼야 함',
+        '· Manzi 2021: 정확도 #2 예측 변인 = lead hip flexion at FC (4.2% MSE)'
+      ],
+      vis: 'kneeFlexExt',
+      vars: [
+        {
+          name: '스트라이드 길이 일관성', val: c.landing.strideLengthCv, unit: 'CV%', weight: 0.10,
+          mean: c.landing.strideLengthMean, meanUnit: 'm',
+          elite: '<3%', desc: 'Drives/Fleisig: 청소년 vs 엘리트 핵심 차이',
+          score: lowerBetterScore(c.landing.strideLengthCv, [[3,95],[5,75],[8,50],[15,25]]),
+          varKey: 'strideLengthCv'
+        },
+        {
+          name: 'FC 무릎 굴곡각 변동성', val: c.landing.kneeFcSd, unit: '° SD', weight: 0.10,
+          mean: c.landing.kneeFcMean, meanUnit: '°',
+          elite: '<3°', desc: 'Manzi 2021 #2 정확도 예측 (4.2% MSE)',
+          score: lowerBetterScore(c.landing.kneeFcSd, [[3,95],[5,75],[8,50],[12,25]]),
+          varKey: 'kneeFcSd'
+        },
+        {
+          name: 'FC→BR 무릎 신전 일관성', val: c.landing.leadKneeExtSd, unit: '° SD', weight: 0.10,
+          mean: c.landing.leadKneeExtMean, meanUnit: '°',
+          elite: '<3°', desc: '⭐ 사용자 핵심 가설: "굴곡 → 폭발적 신장" 안정성',
+          score: lowerBetterScore(c.landing.leadKneeExtSd, [[3,95],[5,75],[8,50],[12,25]]),
+          varKey: 'leadKneeExtSd'
+        },
+        {
+          name: 'BR 무릎 굴곡 일관성 (block)', val: c.landing.kneeBrSd, unit: '° SD', weight: 0.10,
+          mean: c.landing.kneeBrMean, meanUnit: '°',
+          elite: '<3°', desc: 'Lead leg block 안정성 — 회전 축 흔들림 방지',
+          score: lowerBetterScore(c.landing.kneeBrSd, [[3,95],[5,75],[8,50],[12,25]]),
+          varKey: 'kneeBrSd'
+        }
+      ]
+    },
+    {
+      id: 'B',
+      title: '회전 타이밍',
+      titleEn: 'Rotation Timing',
+      weight: 0.30,
+      color: '#a78bfa',
+      isStarred: true,
+      note: '⭐ 사용자 강조 + Wang 2025 r=0.78 (가장 강한 변동성 예측)',
+      desc: '근본 원인 — 분절간 시간 일관성이 시퀀싱 안정',
+      principle: [
+        '· 골반 → 몸통 → 팔 순서로 가속될 때, 매번 같은 시간 간격이어야 함',
+        '· 시간 간격이 매번 달라지면 = 시퀀스 어긋남 → 릴리즈 위치 흔들림',
+        '· Wang 2025: pelvic rotation 변동성이 가장 강한 변동성 예측인자 (r=0.78)',
+        '· Howenstein 2021: 11개 KS 패턴 발견 — 일관성이 핵심'
+      ],
+      vis: 'sequenceChart',
+      vars: [
+        {
+          name: 'P→T lag 일관성', val: c.rotation.ptLagCv, unit: 'CV%', weight: 0.08,
+          mean: c.rotation.ptLagMean, meanUnit: 'ms',
+          elite: '<15%', desc: 'Howenstein 2021: KS 일관성',
+          score: lowerBetterScore(c.rotation.ptLagCv, [[15,95],[25,75],[40,50],[60,25]]),
+          varKey: 'ptLagCv'
+        },
+        {
+          name: 'T→A lag 일관성', val: c.rotation.taLagCv, unit: 'CV%', weight: 0.08,
+          mean: c.rotation.taLagMean, meanUnit: 'ms',
+          elite: '<15%', desc: 'Howenstein 2021: 11개 KS 패턴 중 PDS 일관성',
+          score: lowerBetterScore(c.rotation.taLagCv, [[15,95],[25,75],[40,50],[60,25]]),
+          varKey: 'taLagCv'
+        },
+        {
+          name: '골반 회전속도 변동성', val: c.rotation.pelvisVelCv, unit: 'CV%', weight: 0.07,
+          mean: c.rotation.pelvisVelMean, meanUnit: '°/s',
+          elite: '<5%', desc: '⭐ Wang 2025 r=0.78 (가장 강한 단일 변동성 예측)',
+          score: lowerBetterScore(c.rotation.pelvisVelCv, [[5,95],[10,75],[15,50],[22,25]]),
+          varKey: 'pelvisVelCv'
+        },
+        {
+          name: '몸통 회전속도 변동성', val: c.rotation.trunkVelCv, unit: 'CV%', weight: 0.07,
+          mean: c.rotation.trunkVelMean, meanUnit: '°/s',
+          elite: '<5%', desc: '몸통 가속의 시기간 안정성',
+          score: lowerBetterScore(c.rotation.trunkVelCv, [[5,95],[10,75],[15,50],[22,25]]),
+          varKey: 'trunkVelCv'
+        }
+      ]
+    },
+    {
+      id: 'C',
+      title: '자세 일관성',
+      titleEn: 'Posture Consistency',
+      weight: 0.18,
+      color: '#60a5fa',
+      isStarred: false,
+      note: 'Manzi 2021 #1 (Trunk tilt at FC = 6.6% MSE 정확도 1위 예측)',
+      desc: 'FC 시점 몸통 정렬 — 모든 후속 동작의 자세 기준',
+      principle: [
+        '· 풋플랜트 순간(FC)의 몸통 자세가 매번 동일해야 릴리즈 위치도 일관됨',
+        '· Manzi 2019/2021 — 정확도 예측 5변인 중 3개가 FC 시점 변동성',
+        '· 몸통이 너무 일찍 열리거나 너무 기울어지면 → 시각 cue 불안정',
+        '· FC 시점 자세를 "정지 자세"처럼 매번 같게 만드는 게 목표'
+      ],
+      vis: null,
+      vars: [
+        {
+          name: 'FC 몸통 전방 기울기 변동성', val: c.posture.trunkFcSd, unit: '° SD', weight: 0.10,
+          mean: c.posture.trunkFcMean, meanUnit: '°',
+          elite: '<2°', desc: '⭐ Manzi 2021: 정확도 예측 1위 (6.6% MSE)',
+          score: lowerBetterScore(c.posture.trunkFcSd, [[2,95],[4,75],[6,50],[10,25]]),
+          varKey: 'trunkFcSd'
+        },
+        {
+          name: 'FC 몸통 회전각 변동성', val: c.posture.trunkRotFcSd, unit: '° SD', weight: 0.08,
+          mean: c.posture.trunkRotFcMean, meanUnit: '°',
+          elite: '<4°', desc: 'Manzi 2019: shoulder horizontal abduction at FC',
+          score: lowerBetterScore(c.posture.trunkRotFcSd, [[4,95],[7,75],[11,50],[16,25]]),
+          varKey: 'trunkRotFcSd'
+        }
+      ]
+    },
+    {
+      id: 'D',
+      title: '릴리즈 결과 (downstream)',
+      titleEn: 'Release Output',
+      weight: 0.12,
+      color: '#94a3b8',
+      isStarred: false,
+      note: '결과 변인 — 사용자: 코칭 현장 직관 지표 (눈/비디오 판단)',
+      desc: '근본 원인의 결과 — 진단 도구가 아니라 표시 지표',
+      principle: [
+        '· 릴리즈 포인트·암슬롯·머리는 코칭 현장에서 눈으로 보는 지표',
+        '· 그러나 이는 결과(downstream) — 흔들리는 진짜 원인은 [A]·[B]에 있음',
+        '· Yamada 2024 (n=344 MLB): release point variability ↓ → BB/9·xFIP 개선',
+        '· 가중치 12%로 작게 — 진단보다는 코칭 시각 cue로 활용'
+      ],
+      vis: 'releaseScatter',
+      vars: [
+        {
+          name: 'Arm slot 변동성', val: c.release.armSlotSd, unit: '° SD', weight: 0.06,
+          mean: c.release.armSlotMean, meanUnit: '°',
+          elite: '<3°', desc: '코칭 현장 핵심 시각 지표 (Yamada 2024)',
+          score: lowerBetterScore(c.release.armSlotSd, [[3,95],[5,75],[8,50],[12,25]]),
+          varKey: 'armSlotSd'
+        },
+        {
+          name: '손목 높이 변동성 (RPZ)', val: c.release.wristSdCm, unit: 'cm SD', weight: 0.04,
+          mean: c.release.wristMean != null ? c.release.wristMean * 100 : null, meanUnit: 'cm',
+          elite: '<2cm', desc: 'Yamada 2024 (n=344 MLB): RPZ ↓ → BB/9·xFIP 개선',
+          score: lowerBetterScore(c.release.wristSdCm, [[2,95],[4,75],[6,50],[10,25]]),
+          varKey: 'wristSdCm'
+        },
+        {
+          name: 'FC→릴리스 시간 일관성', val: c.release.fcBrCv, unit: 'CV%', weight: 0.02,
+          mean: c.release.fcBrMean, meanUnit: 'ms',
+          elite: '<2%', desc: '총체 timing의 결과',
+          score: lowerBetterScore(c.release.fcBrCv, [[2,95],[5,75],[10,50],[15,25]]),
+          varKey: 'fcBrCv'
+        }
+      ]
+    }
+  ];
+
+  function groupScore(g) {
+    const vs = g.vars.filter(v => Number.isFinite(v.score));
+    if (vs.length === 0) return null;
+    const tw = vs.reduce((s,v) => s + v.weight, 0);
+    return vs.reduce((s,v) => s + v.score * v.weight, 0) / tw;
+  }
+
+  // 그룹별 시각화 렌더 함수
+  function renderGroupVis(g) {
+    if (g.vis === 'kneeFlexExt' && KneeFlexExtDiagram) {
+      return (
+        <div style={{ marginBottom: 12 }}>
+          <div className="kicker" style={{ marginBottom: 6 }}>무릎 굴곡-신전 패턴 (사용자 핵심 가설 시각화)</div>
+          <div style={{ fontSize: 10.5, color: 'var(--d-fg2)', marginBottom: 6, lineHeight: 1.6 }}>
+            · 이상적 패턴: FC 착지 → 짧은 추가 굴곡(흡수) → 폭발적 신전(block)<br/>
+            · 매번 같은 패턴이 반복돼야 제구 일관성이 확보됨
+          </div>
+          <KneeFlexExtDiagram
+            kneeFcMean={c.landing.kneeFcMean}
+            kneeBrMean={c.landing.kneeBrMean}
+            leadKneeExtMean={c.landing.leadKneeExtMean}
+          />
+        </div>
+      );
+    }
+    if (g.vis === 'sequenceChart' && SequenceChart && p.sequence) {
+      return (
+        <div style={{ marginBottom: 12 }}>
+          <div className="kicker" style={{ marginBottom: 6 }}>시퀀스 타이밍 — 골반·몸통·팔의 가속 순서</div>
+          <div style={{ fontSize: 10.5, color: 'var(--d-fg2)', marginBottom: 6, lineHeight: 1.6 }}>
+            · 매 투구마다 같은 시간 간격으로 가속이 일어나야 시퀀스가 안정<br/>
+            · CV%가 낮을수록 시기 간 변동이 작음 (일관성 우수)
+          </div>
+          <SequenceChart sequence={p.sequence}/>
+        </div>
+      );
+    }
+    if (g.vis === 'releaseScatter' && ReleasePointScatter) {
+      return (
+        <div style={{ marginBottom: 12 }}>
+          <div className="kicker" style={{ marginBottom: 6 }}>릴리즈 포인트 95% 신뢰 타원</div>
+          <div style={{ fontSize: 10.5, color: 'var(--d-fg2)', marginBottom: 6, lineHeight: 1.6 }}>
+            · Yamada 2024 (n=344 MLB): 작은 타원 = 일관된 릴리즈 → BB/9·xFIP 개선
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <ReleasePointScatter
+              wristSdCm={c.release.wristSdCm}
+              armSlotSd={c.release.armSlotSd}
+            />
+          </div>
+        </div>
+      );
+    }
+    return null;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* 가중치 분배 한눈에 보기 */}
+      <div className="panel" style={{ padding: '14px 16px' }}>
+        <div className="kicker" style={{ marginBottom: 8 }}>v26 제구 변인 가중치 분배 (사용자 가설 + 학술 근거)</div>
+        <div style={{ fontSize: 11, color: 'var(--d-fg2)', marginBottom: 12, lineHeight: 1.55 }}>
+          <b>사용자 가설:</b> 근본 원인 = 앞발 착지 안정성(0.40) + 회전 타이밍(0.30) · 결과 = 릴리즈/암슬롯/머리(0.12)<br/>
+          <b>학술 근거:</b> Manzi 2019 (5변인 ball location 58% 설명) · Manzi 2021 (Trunk tilt at FC 6.6% MSE) · Wang 2025 (pelvis var. r=0.78) · Howenstein 2021 (KS 일관성) · Yamada 2024 (release var. → BB/9·xFIP)
+        </div>
+        <div style={{ display: 'flex', height: 28, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--d-border)' }}>
+          {groups.map(g => (
+            <div key={g.id} style={{
+              flex: g.weight,
+              background: g.color,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 11, fontWeight: 700, color: '#000'
+            }} title={`${g.title} ${(g.weight*100).toFixed(0)}%`}>
+              {g.id} {(g.weight*100).toFixed(0)}%
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 4개 그룹 카드 */}
+      {groups.map(g => {
+        const gs = groupScore(g);
+        const validCount = g.vars.filter(v => Number.isFinite(v.score)).length;
+        return (
+          <div key={g.id} className="panel" style={{ padding: '14px 16px', borderLeft: `3px solid ${g.color}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: g.color, fontWeight: 700, letterSpacing: '1px' }}>
+                  [{g.id}] · 가중치 {(g.weight*100).toFixed(0)}% {g.isStarred && '⭐'}
+                </div>
+                <h3 style={{ margin: '4px 0 4px', fontSize: 17 }}>{g.title}</h3>
+                <div style={{ fontSize: 11, color: 'var(--d-fg3)', marginBottom: 4 }}>{g.note}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--d-fg2)', fontStyle: 'italic' }}>{g.desc}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: scoreColor(gs) }}>
+                  {gs != null ? Math.round(gs) : '—'}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--d-fg3)' }}>그룹 점수 ({validCount}/{g.vars.length})</div>
+              </div>
+            </div>
+
+            {/* 핵심 원리 박스 */}
+            {g.principle && (
+              <div style={{ fontSize: 11, color: 'var(--d-fg2)', marginBottom: 12, lineHeight: 1.65, padding: '8px 10px', background: 'rgba(0,0,0,0.18)', borderRadius: 5, border: `1px solid ${g.color}30` }}>
+                <b style={{ color: g.color }}>· 핵심 원리</b>
+                {g.principle.map((line, i) => <div key={i}>{line}</div>)}
+              </div>
+            )}
+
+            {/* 시각화 (있는 그룹만) */}
+            {renderGroupVis(g)}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {g.vars.map((v, i) => (
+                <div key={i} style={{
+                  background: 'rgba(0,0,0,0.2)',
+                  border: '1px solid var(--d-border)',
+                  borderRadius: 5,
+                  padding: '8px 10px'
+                }}>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 130px 80px 56px',
+                    gap: 12,
+                    alignItems: 'center',
+                    fontSize: 12
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 600, color: 'var(--d-fg1)' }}>{v.name}</div>
+                      <div style={{ fontSize: 10, color: 'var(--d-fg3)', marginTop: 2 }}>{v.desc}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: 600, color: 'var(--d-fg1)' }}>{fmtVal(v.val, v.unit)}</div>
+                      <div style={{ fontSize: 10, color: 'var(--d-fg3)' }}>
+                        {v.mean != null ? `평균 ${fmtVal(v.mean, v.meanUnit, 1)}` : '—'}
+                      </div>
+                      <div style={{ fontSize: 9.5, color: '#60a5fa', marginTop: 1 }}>엘리트 {v.elite}</div>
+                    </div>
+                    <div style={{ textAlign: 'center', fontSize: 10, color: 'var(--d-fg3)' }}>
+                      가중치<br/><b style={{ color: 'var(--d-fg2)' }}>{(v.weight*100).toFixed(0)}%</b>
+                    </div>
+                    <div style={{
+                      textAlign: 'center', fontSize: 16, fontWeight: 700,
+                      color: scoreColor(v.score),
+                      background: 'rgba(0,0,0,0.4)',
+                      padding: '4px 0',
+                      borderRadius: 4
+                    }}>
+                      {Number.isFinite(v.score) ? Math.round(v.score) : '—'}
+                    </div>
+                  </div>
+                  {v.varKey && FolderInfo && (
+                    <div style={{ marginTop: 6 }}>
+                      <FolderInfo varKey={v.varKey} accent={g.color}/>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Section 05 — 키네틱 체인 KE/Power/Transfer/Elbow 카드
 function KineticChainPanel({ kc }) {
   if (!kc) return null;
@@ -2365,141 +3004,37 @@ function SinglePitcherView({ p }) {
         </div>
       </SectionBlock>
 
-      {/* Section: Mechanics */}
-      <SectionBlock num="02" title="Velocity Mechanics · 구속 관련 메카닉스"
-        sub="· 에너지 전달 · 키네매틱 시퀀스 · 분절 회전 속도">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="panel">
-            <div className="panel-head">
-              <div>
-                <div className="kicker">Energy Transfer · 5편 논문 정밀 지표</div>
-                <h3>에너지 전달과 누수</h3>
-                <div className="sub">· 통합 마네킹: 키네틱 체인 에너지 흐름 + 정밀 지표 (elbow load, cocking power, transfer KE T→A, leg asymmetry)</div>
-              </div>
-            </div>
-            {IntegratedKineticDiagram
-              ? <IntegratedKineticDiagram energy={p.energy} precision={p.precision}/>
-              : <EnergyFlow energy={p.energy}/>
-            }
-            <div className="chart-caption">{p.energy.comment}</div>
-          </div>
-          <div className="panel">
-            <div className="panel-head">
-              <div>
-                <div className="kicker">Sequence Timing</div>
-                <h3>키네매틱 시퀀스 — 분절 피크 회전 속도의 순서</h3>
-                <div className="sub">· 이상적: 골반 → 몸통 → 상완 (proximal-to-distal) · 인접 분절 피크 시점 간격 30–60 ms</div>
-              </div>
-            </div>
-            <SequenceChart sequence={p.sequence}/>
-            <div className="chart-caption">{p.sequence.comment}</div>
-          </div>
-          <div className="panel">
-            <div className="panel-head">
-              <div>
-                <div className="kicker">Peak Angular Velocity</div>
-                <h3>분절별 최대 회전 속도</h3>
-                <div className="sub">· 한국 우수 고1 기준: 골반 500–600 · 몸통 750–900 · 상완 1350–1550 °/s</div>
-              </div>
-            </div>
-            <AngularChart angular={p.angular}/>
-            <div className="chart-caption">{p.angular.comment}</div>
-            <div className="chip-row">
-              <div className="gain-chip">골반→몸통 <b>×{p.angular.gainPT.toFixed(2)}</b></div>
-              <div className="gain-chip">몸통→상완 <b>×{p.angular.gainTA.toFixed(2)}</b></div>
-            </div>
-          </div>
-          <div className="panel">
-            <div className="panel-head">
-              <div>
-                <div className="kicker">Max Layback</div>
-                <h3>팔 뒤로 젖힘 — 가속 거리</h3>
-                <div className="sub">· 프로 범위 160°–180°</div>
-              </div>
-            </div>
-            <div className="layback-card" style={{ padding: 0, background: 'transparent', border: 'none', display: 'grid', gridTemplateColumns: '1fr auto', gap: 32, alignItems: 'center' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 16 }}>
-                  <div className="layback-value">{p.layback.deg.toFixed(1)}<span className="deg">°</span></div>
-                  <div className={`band band-${p.layback.band}`} style={{ fontSize: 11 }}>
-                    {bandLabel[p.layback.band]}
-                  </div>
-                </div>
-                <div style={{ color: 'var(--d-fg2)', marginTop: 12, fontSize: 13 }}>{p.layback.note}</div>
-                <div className="layback-photo" style={{ maxWidth: 220, marginTop: 16 }}>
-                  <img src="assets/max-layback.png" alt="Max Layback reference"/>
-                </div>
-                <div className="layback-photo-caption" style={{ marginTop: 6 }}>Reference</div>
-              </div>
-              <div style={{ flexShrink: 0 }}>
-                <LaybackMeter deg={p.layback.deg}/>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* ⭐ v25 — Section 02 전면 재구성 (v24 7그룹 카테고리화)
+          이전 v24까지의 Section 02 (Energy Transfer + Sequence + Angular + Layback) +
+          Section 04 (5-Model) + Section 05 (Kinetic Chain) — 모두 새 v25 Section 02에 통합
+          각 sub-panel은 v24 가중치 그룹과 1:1 매핑 */}
+      <SectionBlock num="02" title="Velocity Mechanics · 구속 메카닉스 (v24 7그룹)"
+        sub="· 키네틱 체인(우리 시스템) + 드라이브라인 5모델 + 절대 KE/Power — 7그룹 가중치 0.30 · 0.18 · 0.18 · 0.10 · 0.09 · 0.05 · 0.10 = 1.00">
+        <MechanicsBy7GroupsPanel p={p}/>
       </SectionBlock>
 
-      {/* Section 04 — 구속 변인 5모델 분석 (사용자 요청 v14: v7 구조 복원)
-          5개 영역(드라이브라인 4모델 + 우리 시스템 키네틱 체인 효율)별 변인 묶음 분석
-          06 종합과 차별화: 04는 모델별 상세 카드, 06은 RadarChart + 평균 종합 점수 */}
-      {p.velocityRadar && p.velocityRadar.length > 0 && (
-        <SectionBlock num="04" title="Velocity Drivers · 5-Model Analysis · 구속 변인 5모델 분석"
-          sub="· 5개 분석 모델별 영역 점수 — 드라이브라인 4모델(팔동작 · 하체블록 · 로딩능력 · 회전파워) + ⭐ 키네틱 체인 효율">
-          <VelocityRadarPanel data={p.velocityRadar} mode="cards"/>
-        </SectionBlock>
-      )}
+      {/* Section 03 (옛 Velocity Synthesis 5축 RadarChart) 제거 — v24 7그룹과 매핑 안 됨
+          Section 02의 가중치 분배 막대 + 7개 그룹 카드로 충분히 시각화 */}
 
-      {/* Section 05 — 키네틱 체인 & 정밀 지표 통합 분석 (v7 제목 복원)
-          분절 KE · Transfer · Peak Power · Elbow Moment 4개 그룹 카드 + 각 변인 정의·의미·해석·판단 InfoBox */}
-      {p.kineticChain && (
-        <SectionBlock num="05" title="Kinetic Chain & Precision · 키네틱 체인 & 정밀 지표 통합 분석"
-          sub={`· 분절 운동에너지 (KE) · Transfer 비율 · Peak Power · Elbow Inverse Dynamics${p.energy?.leakPct ? ` · 종합 누수율 ${p.energy.leakPct}%` : ''} · 각 변인 정의·의미·해석·판단 기준 포함`}>
-          <KineticChainPanel kc={p.kineticChain}/>
-        </SectionBlock>
-      )}
-
-      {/* Section 06 — 구속 요인 종합 (5축 RadarChart + 평균 점수 + 미니 점수 표) */}
-      {p.velocityRadar && p.velocityRadar.length > 0 && (
-        <SectionBlock num="06" title="Velocity Synthesis · 구속 요인 종합"
-          sub="· 5모델 점수의 다이어그램 종합 — 한눈에 보는 메카닉 균형 + 평균 점수">
-          <VelocityRadarPanel data={p.velocityRadar} mode="radar"/>
-        </SectionBlock>
-      )}
-
-      {/* Section: Command Profile (7대 요인) */}
-      <SectionBlock num="03" title="Command Mechanics · 제구 관련 메카닉스"
-        sub="· 10구 메카닉 일관성 + 제구력 7대 요인 평가 · Uplift Labs 실측">
-        {/* 5 Domain Radar — 풋컨택트·시퀀싱·파워·릴리즈 포지션·릴리즈 타이밍 일관성 */}
-        {p.command?.radarData && p.command.radarData.length > 0 && (
-          <div className="panel" style={{ marginBottom: 16 }}>
-            <div className="panel-head">
-              <div>
-                <div className="kicker">5 Domain Consistency</div>
-                <h3>제구력 5대 영역 일관성 레이더</h3>
-                <div className="sub">· 풋 컨택트 · 시퀀싱 · 파워 아웃풋 · 릴리즈 포지션 · 릴리즈 타이밍 — 외곽으로 갈수록 우수 (50점 미만 = 보강 필요)</div>
-              </div>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
-              <RadarChart data={p.command.radarData}/>
-            </div>
-            <div className="chart-caption">{p.command.note}</div>
-          </div>
-        )}
-        <CommandProfilePanel cmd={p.command} energy={p.energy} layback={p.layback} factors={p.factors}/>
+      {/* Section 03 — 제구 관련 메카닉스 (정리 예정 — 사용자 요청에 따라 동일 방식으로 카테고리화 예정) */}
+      {/* ⭐ v26 — Section 03 전면 재구성 (제구 4그룹 카테고리화)
+          사용자 요청: 학술 리서치 기반으로 변인 정리 + 카테고리화
+          기존 5축 RadarChart + CommandProfilePanel은 옛 변인 사용해서 제거 */}
+      <SectionBlock num="03" title="Command Mechanics · 제구 메카닉스 (v26 4그룹)"
+        sub="· 사용자 가설 + 학술 근거 통합 — 앞발 착지 0.40 + 회전 타이밍 0.30 + 자세 일관성 0.18 + 릴리즈 결과 0.12 = 1.00">
+        <CommandBy4GroupsPanel p={p}/>
       </SectionBlock>
 
-      {/* Section D 삭제됨 — 사용자 요청에 따라 제거 (Section 03 제구 메카닉스 + Section E 종합 평가로 정리) */}
-
-      {/* Section E — 종합 평가 (구속·제구·체력 점수 + 우선순위 개선점) */}
+      {/* Section 04 — 종합 평가 (구속·제구·체력 점수 + 우선순위 개선점) */}
       {p.summaryScores && (
-        <SectionBlock num="E" title="Comprehensive Evaluation · 종합 평가"
+        <SectionBlock num="04" title="Comprehensive Evaluation · 종합 평가"
           sub="· 구속 · 제구 · 체력 3축 종합 점수 + Mechanical Ceiling + 우선순위 개선점">
           <SummaryScoresPanel ss={p.summaryScores}/>
         </SectionBlock>
       )}
 
       {/* Section: SW */}
-      <SectionBlock num="04B" title="Strengths & Weaknesses · 강점·약점"
+      <SectionBlock num="05" title="Strengths & Weaknesses · 강점·약점"
         sub="· 통합 판정 기반">
         <div className="sw-grid">
           <div>
@@ -2534,7 +3069,7 @@ function SinglePitcherView({ p }) {
       </SectionBlock>
 
       {/* Section: Flags — 항상 표시 (빈 경우 '특이사항 없음' 메시지) */}
-      <SectionBlock num="05B" title="Check Points · 체크 포인트"
+      <SectionBlock num="06" title="Check Points · 체크 포인트"
         sub="· 자동 규칙 엔진이 감지한 확인 필요 항목">
         {p.flags.length > 0 ? p.flags.map((f,i) => (
           <div className={`flag-item ${f.severity}`} key={i}>
@@ -3091,6 +3626,20 @@ function CompareSummaryTable({ pitchers }) {
     { label: '골반 각속도',                          get: p => p.angular?.pelvis, unit: '°/s', fmt: v => v?.toFixed?.(0), higherBetter: true },
     { label: '몸통 각속도',                          get: p => p.angular?.trunk, unit: '°/s', fmt: v => v?.toFixed?.(0), higherBetter: true },
     { label: '상완 각속도',                          get: p => p.angular?.arm, unit: '°/s', fmt: v => v?.toFixed?.(0), higherBetter: true },
+    // ⭐ v21 — Sanity check: 상완 각속도(°/s) ÷ 평균 구속(km/h)
+    //   정상 범위 ~9-12 (예: 145km/h × 10 = 1450 °/s).
+    //   비정상 ↑ → 회전속도는 측정됐는데 구속이 안 나옴 = 키네틱 체인 효율 낮음
+    //   비정상 ↓ → 측정 노이즈 의심
+    { label: '효율 (상완°/s ÷ km/h)',
+      get: p => {
+        const arm = p.angular?.arm;
+        const vel = p.velocityAvg || p.velocity;
+        return (arm != null && vel != null && vel > 0) ? (arm / vel) : null;
+      },
+      fmt: v => v?.toFixed?.(1),
+      higherBetter: false,  // 낮을수록 좋음 (회전 효율 ↑, 같은 회전속도로 더 빠른 구속)
+      sanity: true  // 비교 시 주의 표시
+    },
 
     { group: '제구', label: '제구 등급', get: p => p.command?.grade, fmt: v => v || '—', higherBetter: null, isGrade: true },
     { label: '스트라이크 %',              get: p => p.command?.strikePct, unit: '%', fmt: v => v?.toFixed?.(0), higherBetter: true },
@@ -3098,7 +3647,20 @@ function CompareSummaryTable({ pitchers }) {
 
   // 각 행에서 최고/최저 찾기 (셀 강조용)
   function bestWorst(row) {
-    if (row.isGrade) return { best: null, worst: null };
+    // ⭐ v21 — 등급 행(A/B/C/D) 비교
+    if (row.isGrade) {
+      const gradeRank = { A: 4, 'A-': 3.7, B: 3, 'B+': 3.3, 'B-': 2.7, C: 2, 'C+': 2.3, 'C-': 1.7, D: 1 };
+      const vals = pitchers.map((p, i) => {
+        const v = row.get(p);
+        const r = gradeRank[v];
+        return r != null ? { i, v: r } : null;
+      }).filter(Boolean);
+      if (vals.length < 2) return { best: null, worst: null };
+      const best = vals.reduce((m, x) => x.v > m.v ? x : m);
+      const worst = vals.reduce((m, x) => x.v < m.v ? x : m);
+      if (best.v === worst.v) return { best: null, worst: null };
+      return { best: best.i, worst: worst.i };
+    }
     if (row.higherBetter == null) return { best: null, worst: null };
     const vals = pitchers.map((p, i) => {
       const v = row.get(p);
@@ -3192,7 +3754,9 @@ function CompareSummaryTable({ pitchers }) {
                       const display = row.fmt ? row.fmt(raw) : raw;
                       const isBest = best === i;
                       const isWorst = worst === i;
-                      const isMissing = raw == null || display == null || display === '—' || display === 'NaN' || isNaN(Number(raw));
+                      // ⭐ v21 — isGrade 행(등급 문자열 'A'/'B' 등)은 isNaN 검사에서 제외
+                      const isMissing = raw == null || display == null || display === '—'
+                        || (!row.isGrade && (display === 'NaN' || isNaN(Number(raw))));
                       const cellStyle = {
                         padding: '8px 12px', textAlign: 'center',
                         fontFamily: 'Inter', fontSize: 13, fontWeight: 700,
@@ -3928,16 +4492,14 @@ function App({ onBack }) {
   const active = pitchers.find(p => p.id === activeId) || pitchers[0];
 
   const navItems = [
-    { id: 'overview', label: 'Overview',          icon: Ic.home,     num: '00' },
-    { id: 'physical', label: '구속 관련 체력',    icon: Ic.body,     num: '01' },
-    { id: 'mech',     label: '구속 관련 메카닉스', icon: Ic.motion,   num: '02' },
-    { id: 'velSyn5',  label: '5모델 분석',         icon: Ic.star,     num: '04' },
-    { id: 'kinetic',  label: '키네틱 체인 정밀',   icon: Ic.motion,   num: '05' },
-    { id: 'velSyn',   label: '구속 요인 종합',     icon: Ic.star,     num: '06' },
-    { id: 'command',  label: '제구 관련 메카닉스', icon: Ic.flag,     num: '03' },
-    { id: 'summary',  label: '종합 평가',          icon: Ic.star,     num: 'E' },
-    { id: 'sw',       label: '강점·약점',          icon: Ic.star,     num: '04B' },
-    { id: 'flags',    label: '체크 포인트',        icon: Ic.flag,     num: '05B' },
+    { id: 'overview', label: 'Overview',           icon: Ic.home,     num: '00' },
+    { id: 'physical', label: '구속 관련 체력',     icon: Ic.body,     num: '01' },
+    { id: 'mech',     label: '구속 메카닉스 (v24)', icon: Ic.motion,   num: '02' },
+    { id: 'velSyn',   label: '구속 점수 종합',      icon: Ic.star,     num: '03' },
+    { id: 'command',  label: '제구 메카닉스',       icon: Ic.flag,     num: '04' },
+    { id: 'summary',  label: '종합 평가',           icon: Ic.star,     num: 'E' },
+    { id: 'sw',       label: '강점·약점',           icon: Ic.star,     num: '05' },
+    { id: 'flags',    label: '체크 포인트',         icon: Ic.flag,     num: '06' },
   ];
 
   // Smooth scroll to section
@@ -3947,7 +4509,7 @@ function App({ onBack }) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
-    const numMap = { physical: '01', mech: '02', command: '03', sw: '04B', flags: '05B', velSyn5: '04', kinetic: '05', velSyn: '06', summary: 'E' };
+    const numMap = { physical: '01', mech: '02', velSyn: '03', command: '04', summary: 'E', sw: '05', flags: '06' };
     const targetNum = numMap[id];
     setTimeout(() => {
       const block = document.querySelector(`.section-block[data-section-num="${targetNum}"]`);
