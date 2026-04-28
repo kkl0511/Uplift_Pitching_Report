@@ -846,8 +846,11 @@
         setProgress('② 종합 리포트 빌드 중...');
         await new Promise(r => setTimeout(r, 50));
 
+        // ⭐ v20 — id를 선수마다 고유하게 (이름+날짜+timestamp). 이전엔 'subject' 하드코딩 → 비교 모드 버그 원인
+        const safeName = (name || 'unknown').trim().replace(/\s+/g, '_');
+        const safeDate = (date || new Date().toISOString().slice(0,10)).replace(/-/g, '');
         const profile = {
-          id: 'subject',
+          id: `${safeName}_${safeDate}_${Date.now()}`,
           name: name.trim(),
           nameEn: nameEn.trim(),
           age: age ? parseInt(age) : null,
@@ -1442,6 +1445,13 @@
         // #compare=id1,id2,id3,id4 — 여러 선수 비교
         const pitchers = h.ids.map(id => loadPitcherFromDb(id)).filter(Boolean);
         if (pitchers.length >= 2) {
+          // v20 — 옛 데이터 ID 중복 보정
+          const seen = new Set();
+          pitchers.forEach((p, i) => {
+            const dbId = h.ids[i];
+            if (!p.id || seen.has(p.id)) p.id = dbId;
+            seen.add(p.id);
+          });
           return { route: 'report', id: null, pitchers };
         }
         // 폴백
@@ -1527,6 +1537,13 @@
         if (h.route === 'compare' && h.ids) {
           const pitchers = h.ids.map(id => loadPitcherFromDb(id)).filter(Boolean);
           if (pitchers.length >= 2) {
+            // v20 — 옛 데이터 ID 중복 보정
+            const seen = new Set();
+            pitchers.forEach((p, i) => {
+              const dbId = h.ids[i];
+              if (!p.id || seen.has(p.id)) p.id = dbId;
+              seen.add(p.id);
+            });
             window.BBL_PITCHERS = pitchers;
             window.BBL_REF = window.BBLDataBuilder?.REF;
             setRouteState('report');
@@ -1591,6 +1608,17 @@
         alert('선택한 선수의 분석 데이터를 찾을 수 없습니다.');
         return;
       }
+      // ⭐ v20 — 옛 데이터 보정: pitcher.id가 모두 같거나(예: 'subject') 비어있으면
+      // DB ID(이름__날짜)로 강제 부여해서 비교 화면의 pitchers.find(p => p.id === slotId)가
+      // 정상 작동하도록 함
+      const seen = new Set();
+      pitchers.forEach((p, i) => {
+        const dbId = ids[i];
+        if (!p.id || seen.has(p.id)) {
+          p.id = dbId;
+        }
+        seen.add(p.id);
+      });
       window.BBL_PITCHERS = pitchers;
       window.BBL_REF = window.BBLDataBuilder?.REF;
       setRouteState('report');
