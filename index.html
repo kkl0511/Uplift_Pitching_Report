@@ -3,45 +3,55 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>BBL · Dashboard</title>
-  <link rel="stylesheet" href="colors_and_type.css?v=52"/>
-  <link rel="stylesheet" href="dashboard.css?v=52"/>
+  <title>BBL · 투수 통합 분석 리포트</title>
+  <meta name="description" content="국민대학교 BioMotion Baseball Lab 투수 통합 분석 리포트 — Uplift CSV + ForceDecks + 구속 데이터 통합 자동 리포트"/>
+
+  <!-- Pretendard (Korean optimized font) -->
+  <link rel="stylesheet" as="style" crossorigin
+        href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css"/>
+
+  <!-- Stylesheets (입력 페이지 + Report 7 대시보드) -->
+  <link rel="stylesheet" href="input.css?v=18"/>
+  <link rel="stylesheet" href="colors_and_type.css?v=18"/>
+  <link rel="stylesheet" href="dashboard.css?v=18"/>
+  <link rel="stylesheet" href="report.css?v=18"/>
 </head>
 <body>
-  <template id="__bundler_thumbnail">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
-      <defs>
-        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#0a1628"/>
-          <stop offset="1" stop-color="#1a3a6e"/>
-        </linearGradient>
-        <linearGradient id="ac" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#2563EB"/>
-          <stop offset="1" stop-color="#60a5fa"/>
-        </linearGradient>
-      </defs>
-      <rect width="400" height="400" fill="url(#bg)"/>
-      <g transform="translate(200 200)">
-        <polygon points="0,-90 78,-45 78,45 0,90 -78,45 -78,-45" fill="none" stroke="url(#ac)" stroke-width="3" opacity="0.9"/>
-        <polygon points="0,-60 52,-30 52,30 0,60 -52,30 -52,-30" fill="none" stroke="url(#ac)" stroke-width="2" opacity="0.5"/>
-        <polygon points="0,-30 26,-15 26,15 0,30 -26,15 -26,-15" fill="none" stroke="url(#ac)" stroke-width="1.5" opacity="0.3"/>
-        <circle cx="0" cy="-90" r="4" fill="#60a5fa"/>
-        <circle cx="78" cy="-45" r="4" fill="#60a5fa"/>
-        <circle cx="78" cy="45" r="4" fill="#60a5fa"/>
-        <circle cx="0" cy="90" r="4" fill="#60a5fa"/>
-        <circle cx="-78" cy="45" r="4" fill="#60a5fa"/>
-        <circle cx="-78" cy="-45" r="4" fill="#60a5fa"/>
-      </g>
-      <text x="200" y="340" text-anchor="middle" font-family="Inter, sans-serif" font-size="22" font-weight="700" fill="#fff" letter-spacing="4">BBL</text>
-      <text x="200" y="364" text-anchor="middle" font-family="Inter, sans-serif" font-size="10" fill="#60a5fa" letter-spacing="2">PITCHER REPORT</text>
-    </svg>
-  </template>
+  <!-- React 마운트 포인트 -->
   <div id="root"></div>
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
-  <script src="data.js?v=52"></script>
-  <script type="text/babel" src="charts.jsx?v=52"></script>
-  <script type="text/babel" src="dashboard.jsx?v=52"></script>
+
+  <!-- ─── 외부 라이브러리 ─────────────────────────────────────── -->
+  <!-- React 18 (UMD) -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+
+  <!-- Babel standalone (JSX 변환) -->
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+
+  <!-- PapaParse (CSV 파서) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+  <!-- ─── BBL 전용 JS 모듈 ────────────────────────────────────── -->
+  <!-- 1) Biomechanics 분석 (BBLAnalysis) -->
+  <script src="analysis.js?v=18"></script>
+
+  <!-- 2) ForceDecks CSV 파서 (BBLFitness) — 수동 입력 fallback용 -->
+  <script src="fitness.js?v=18"></script>
+
+  <!-- 2b) 선수 메타 CSV 파서 (BBLPlayerMeta) — 메인 입력 경로 -->
+  <script src="player_meta.js?v=18"></script>
+
+  <!-- 3) 데이터 빌더 (BBLDataBuilder) -->
+  <script src="data_builder.js?v=18"></script>
+
+  <!-- ─── React 컴포넌트 (JSX, Babel 변환) ────────────────────── -->
+  <!-- 4) 차트 컴포넌트 (Radar / Energy / Sequence / Angular / etc.) -->
+  <script type="text/babel" data-presets="react" src="charts.jsx?v=18"></script>
+
+  <!-- 5) 대시보드 (Report 7 — window.BBLDashboardApp 으로 export) -->
+  <script type="text/babel" data-presets="react" src="dashboard.jsx?v=18"></script>
+
+  <!-- 6) 메인 앱 (입력 폼 + 라우터) -->
+  <script type="text/babel" data-presets="react" src="app.jsx?v=18"></script>
 </body>
 </html>

@@ -1,5 +1,9 @@
 /* global React, ReactDOM */
-const { useState, useEffect, useRef, useMemo } = React;
+(function () {
+  'use strict';
+  const { useState, useEffect, useRef, useMemo } = React;
+  // charts.jsx에서 등록한 컴포넌트들을 가져옴
+  const { RadarChart, SequenceChart, AngularChart, EnergyFlow, LaybackMeter, IntegratedKineticDiagram } = window;
 
 /* ---------------- THEME ---------------- */
 function useTheme() {
@@ -94,7 +98,8 @@ function PitcherSelect({ pitchers, activeId, onSelect }) {
 }
 
 /* ---------------- SIDEBAR ---------------- */
-function Sidebar({ pitchers, activeId, onSelect, mode, onMode, navItems, activeNav, onNavSelect, isOpen, onClose }) {
+function Sidebar({ pitchers, activeId, onSelect, mode, onMode, navItems, activeNav, onNavSelect, isOpen, onClose, onBack }) {
+  const isSingle = pitchers.length <= 1;
   return (
     <>
       {isOpen && <div className="sb-overlay show" onClick={onClose}/>}
@@ -112,8 +117,12 @@ function Sidebar({ pitchers, activeId, onSelect, mode, onMode, navItems, activeN
         </button>
       </div>
 
-      <div className="sb-section-title">Pitcher</div>
-      <PitcherSelect pitchers={pitchers} activeId={activeId} onSelect={(id) => { onSelect(id); onClose && onClose(); }}/>
+      {!isSingle && (
+        <>
+          <div className="sb-section-title">Pitcher</div>
+          <PitcherSelect pitchers={pitchers} activeId={activeId} onSelect={(id) => { onSelect(id); onClose && onClose(); }}/>
+        </>
+      )}
 
       <div className="sb-section-title">Sections</div>
       <div className="sb-nav">
@@ -128,19 +137,35 @@ function Sidebar({ pitchers, activeId, onSelect, mode, onMode, navItems, activeN
         ))}
       </div>
 
-      <div className="sb-section-title">View Mode</div>
-      <div className="sb-nav">
-        <button className={`sb-nav-item ${mode === 'single' ? 'active' : ''}`} onClick={() => onMode('single')}>
-          <span className="ic">{Ic.home}</span>
-          개별 분석
-        </button>
-        <button className={`sb-nav-item ${mode === 'compare' ? 'active' : ''}`} onClick={() => onMode('compare')}>
-          <span className="ic">{Ic.compare}</span>
-          선수 비교
-        </button>
-      </div>
+      {!isSingle && (
+        <>
+          <div className="sb-section-title">View Mode</div>
+          <div className="sb-nav">
+            <button className={`sb-nav-item ${mode === 'single' ? 'active' : ''}`} onClick={() => onMode('single')}>
+              <span className="ic">{Ic.home}</span>
+              개별 분석
+            </button>
+            <button className={`sb-nav-item ${mode === 'compare' ? 'active' : ''}`} onClick={() => onMode('compare')}>
+              <span className="ic">{Ic.compare}</span>
+              선수 비교
+            </button>
+          </div>
+        </>
+      )}
 
       <div className="sb-foot">
+        {onBack && (
+          <button className="sb-foot-btn" onClick={() => {
+            if (confirm('현재 분석 결과를 닫고 새 분석을 시작합니다. 계속하시겠어요?')) onBack();
+          }} style={{
+            marginBottom: 6, background: 'transparent', border: '1px solid var(--d-border)'
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="m15 18-6-6 6-6"/>
+            </svg>
+            <span>새 분석</span>
+          </button>
+        )}
         <button className="sb-foot-btn" onClick={() => window.print()}>
           {Ic.printer}
           <span>PDF</span>
@@ -152,7 +177,7 @@ function Sidebar({ pitchers, activeId, onSelect, mode, onMode, navItems, activeN
 }
 
 /* ---------------- TOP BAR ---------------- */
-function DashTopBar({ pitcher, mode, theme, onTheme, onMenu }) {
+function DashTopBar({ pitcher, mode, theme, onTheme, onMenu, onBack }) {
   return (
     <div className="topbar2">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -179,6 +204,56 @@ function DashTopBar({ pitcher, mode, theme, onTheme, onMenu }) {
             {Ic.moon}
           </button>
         </div>
+        {onBack && (
+          <button className="tb-btn" onClick={() => {
+            if (confirm('현재 분석 결과를 닫고 새 분석을 시작합니다. 계속하시겠어요?')) onBack();
+          }} title="새 분석" style={{
+            background: 'transparent', border: '1px solid var(--d-border)', color: 'var(--d-fg2)',
+            padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderRadius: 6,
+            display: 'flex', alignItems: 'center', gap: 6
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="m15 18-6-6 6-6"/>
+            </svg>
+            새 분석
+          </button>
+        )}
+        {/* ⭐ v16 — 분석 결과를 "선수명_YYYYMMDD.json"으로 다운로드 (사용자 요청) */}
+        {pitcher && (
+          <button className="tb-btn" onClick={() => {
+            if (typeof window.BBL_DOWNLOAD_PITCHER !== 'function') {
+              alert('저장 기능을 사용할 수 없습니다.');
+              return;
+            }
+            // 사이드바 pitcher (간소화 객체)에는 정보가 부족할 수 있으므로 BBL_PITCHERS[0]에서 전체 객체 가져오기
+            const fullPitcher = (window.BBL_PITCHERS && window.BBL_PITCHERS[0]) || pitcher;
+            const filename = window.BBL_DOWNLOAD_PITCHER(fullPitcher);
+            // 동시에 localStorage DB에도 저장 (이미 자동 저장된 상태일 것이지만 한 번 더 보장)
+            if (typeof window.BBL_SAVE_PITCHER_TO_DB === 'function') {
+              window.BBL_SAVE_PITCHER_TO_DB(fullPitcher);
+            }
+            if (filename) {
+              // 토스트 — 잠깐 보였다 사라지는 알림
+              const toast = document.createElement('div');
+              toast.textContent = `✅ 저장 완료 — ${filename}`;
+              toast.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#10b981;color:#fff;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,0.4);transition:opacity 0.3s';
+              document.body.appendChild(toast);
+              setTimeout(() => toast.style.opacity = '0', 2200);
+              setTimeout(() => toast.remove(), 2500);
+            }
+          }} title="현재 분석 결과를 JSON 파일로 저장" style={{
+            background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.4)', color: '#34d399',
+            padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderRadius: 6,
+            display: 'flex', alignItems: 'center', gap: 6
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+              <polyline points="17 21 17 13 7 13 7 21"/>
+              <polyline points="7 3 7 8 15 8"/>
+            </svg>
+            저장
+          </button>
+        )}
         <button className="tb-btn primary" onClick={() => window.print()}>
           {Ic.download} <span>PDF</span>
         </button>
@@ -770,20 +845,22 @@ function expectedVelocity(p) {
   const BASE_CMJWKG = 50;   // 4인 평균 CMJ W/kg
   const BASE_RSI    = 0.52; // 4인 평균 RSI-mod
 
-  // 체중 fallback (data에 없으면 평균 사용)
-  const mass = p.physical.weightKg ?? BASE_MASS;
-  const cmjAbs = p.physical.cmjPower.cmjAbs ?? (p.physical.cmjPower.cmj * mass);
-  const sjAbs  = p.physical.cmjPower.sjAbs  ?? (p.physical.cmjPower.sj  * mass);
+  // null-safe value getter
+  const v = (x, dflt) => (x == null || isNaN(x)) ? dflt : x;
+
+  const mass = v(p.physical?.weightKg, BASE_MASS);
+  const cmjPerKg = v(p.physical?.cmjPower?.cmj, BASE_CMJWKG);
+  const sjPerKg  = v(p.physical?.cmjPower?.sj, BASE_CMJWKG);
+  const rsi      = v(p.physical?.reactive?.cmj, BASE_RSI);
+  const cmjAbs = v(p.physical?.cmjPower?.cmjAbs, cmjPerKg * mass);
+  const sjAbs  = v(p.physical?.cmjPower?.sjAbs,  sjPerKg  * mass);
 
   // Physical Expected (옵션 D · Driveline 방식 차용)
-  // 절대값 (W, N) 위주 + 체격 보정 + RSI(체중 독립)
-  // 김주원 케이스 해결: 절대 IMTP·체격 큰 선수의 강점을 모델이 인식
-  // 권준서 케이스 검증: 체격 작아도 절대 W 충분하면 평가 유지
   const physContrib = {
     'CMJ 절대파워 (W)':   (cmjAbs - BASE_W_CMJ) / 100 * 0.18,
     'SJ 절대파워 (W)':    (sjAbs  - BASE_W_SJ)  / 100 * 0.10,
-    'CMJ 단위파워 (W/kg)': (p.physical.cmjPower.cmj - BASE_CMJWKG) * 0.08,
-    'RSI-mod 반응성':      (p.physical.reactive.cmj - BASE_RSI) * 14.0,
+    'CMJ 단위파워 (W/kg)': (cmjPerKg - BASE_CMJWKG) * 0.08,
+    'RSI-mod 반응성':      (rsi - BASE_RSI) * 14.0,
     '체격 (mass)':         (mass - BASE_MASS) * 0.05,
   };
   let physPred = BASE + Object.values(physContrib).reduce((a,b)=>a+b, 0);
@@ -792,10 +869,10 @@ function expectedVelocity(p) {
   // Mechanical Expected — 메카닉스 기반 (raw 시계열 4인 평균 baseline)
   // 4인 평균: ETI T→A 1.82, arm peak 1478°/s, layback 156°, leak 0%
   const mechContrib = {
-    'ETI 상완 전달':   ((p.energy.etiTA ?? 1.82) - 1.82) * 8.0,
-    '상완 회전 속도':  ((p.angular.arm ?? 1478) - 1478) / 50 * 1.2,
-    'Max layback':    ((p.layback.deg ?? 156) - 156) * 0.10,
-    '에너지 누수':    -(p.energy.leakPct ?? 0) * 0.10,
+    'ETI 상완 전달':   (v(p.energy?.etiTA, 1.82) - 1.82) * 8.0,
+    '상완 회전 속도':  (v(p.angular?.arm, 1478) - 1478) / 50 * 1.2,
+    'Max layback':    (v(p.layback?.deg, 156) - 156) * 0.10,
+    '에너지 누수':    -v(p.energy?.leakPct, 0) * 0.10,
   };
   let mechPred = BASE + Object.values(mechContrib).reduce((a,b)=>a+b, 0);
   mechPred = Math.max(BASE - CAP, Math.min(BASE + CAP, mechPred));
@@ -1080,11 +1157,660 @@ function ExpectedVelocityPanel({ p }) {
 }
 
 /* ---------------- COMMAND PROFILE PANEL ---------------- */
+/* ---------------- 신규 패널 (Section 05/06/D/E) ---------------- */
+
+// 학술 변인 설명 박스 — 정의/의미/해석/판단 (펼치기/접기)
+function InfoBox({ items }) {
+  const [open, setOpen] = useState(false);
+  // def / meaning / interpret / judge → 단일 통합 본문으로 결합
+  function joinBody(it) {
+    if (it.body) return it.body;  // 새 형식: body 필드만 사용
+    const parts = [];
+    if (it.def)       parts.push(it.def);
+    if (it.meaning)   parts.push(it.meaning);
+    if (it.interpret) parts.push(it.interpret);
+    if (it.judge)     parts.push(it.judge);
+    return parts.join(' ');
+  }
+  return (
+    <div style={{ marginTop: 10, border: '1px solid var(--d-border)', borderRadius: 6, overflow: 'hidden' }}>
+      <button onClick={() => setOpen(!open)} style={{
+        width: '100%', textAlign: 'left', padding: '8px 12px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        background: 'rgba(96,165,250,0.06)', color: '#60a5fa',
+        fontSize: 11.5, fontWeight: 700, cursor: 'pointer', border: 'none', fontFamily: 'inherit'
+      }} className="info-toggle">
+        <span>📖 변인 설명</span>
+        <span style={{ color: 'var(--d-fg3)' }}>{open ? '▲ 접기' : '▼ 펼치기'}</span>
+      </button>
+      {open && (
+        <div style={{ padding: 12, background: 'var(--d-bg2)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {items.map((it, i) => (
+            <div key={i} style={{ borderLeft: '2px solid #60a5fa', paddingLeft: 10 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--d-fg1)', marginBottom: 6 }}>{it.term}</div>
+              <div style={{ fontSize: 11.5, lineHeight: 1.7, color: 'var(--d-fg2)' }}>
+                {joinBody(it)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// Section 05 — 키네틱 체인 KE/Power/Transfer/Elbow 카드
+function KineticChainPanel({ kc }) {
+  if (!kc) return null;
+  const toneColor = { good: '#10b981', mid: '#60a5fa', low: '#f59e0b', bad: '#ef4444', na: '#94a3b8' };
+  const KECard = ({ label, val, sd, total, color }) => (
+    <div className="panel" style={{ background: 'transparent', border: '1px solid var(--d-border)', padding: '12px 14px' }}>
+      <div className="kicker" style={{ color }}>{label} 회전 KE</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+        <span style={{ fontSize: 22, fontWeight: 800, fontFamily: 'Inter', color: 'var(--d-fg1)' }}>
+          {val != null ? val.toFixed(1) : '—'}
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--d-fg3)' }}>J</span>
+        {sd != null && sd > 0 && (
+          <span style={{ fontSize: 10, color: 'var(--d-fg3)', marginLeft: 4 }}>SD ±{sd.toFixed(1)}</span>
+        )}
+      </div>
+      {val != null && (
+        <div style={{ fontSize: 10, color: 'var(--d-fg3)', marginTop: 2 }}>
+          추정 ±{(val * 0.12).toFixed(1)}J (±12%)
+        </div>
+      )}
+    </div>
+  );
+  const TransferCard = ({ label, formula, t }) => (
+    <div className="panel" style={{ background: 'transparent', border: `1px solid ${toneColor[t.tone]}40`, padding: '12px 14px' }}>
+      <div className="kicker">{label}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+        <span style={{ fontSize: 24, fontWeight: 800, fontFamily: 'Inter', color: 'var(--d-fg1)' }}>
+          {t.val != null ? t.val.toFixed(1) : '—'}
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--d-fg3)' }}>×</span>
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--d-fg3)', marginTop: 2 }}>{formula}</div>
+      <div style={{ fontSize: 11, color: toneColor[t.tone], marginTop: 4, fontWeight: 600 }}>{t.text}</div>
+    </div>
+  );
+  const PowerCard = ({ label, val }) => (
+    <div className="panel" style={{ background: 'transparent', border: '1px solid var(--d-border)', padding: '12px 14px' }}>
+      <div className="kicker">{label}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+        <span style={{ fontSize: 22, fontWeight: 800, fontFamily: 'Inter', color: 'var(--d-fg1)' }}>
+          {val != null ? val.toLocaleString() : '—'}
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--d-fg3)' }}>W</span>
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--d-fg3)', marginTop: 2 }}>순간 최대 파워 (dKE/dt max)</div>
+    </div>
+  );
+
+  const hasKE = kc.KE_pelvis?.val != null || kc.KE_trunk?.val != null || kc.KE_arm?.val != null;
+  const hasTransfer = kc.transferPT_KE?.val != null || kc.transferTA_KE?.val != null;
+  const hasPower = kc.peakPowerTrunk != null || kc.peakPowerArm != null;
+  const hasElbow = kc.elbowPeakTorqueNm?.val != null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {hasKE && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--d-fg3)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
+            분절 운동에너지 (회전 KE 기준 · ½·I·ω²)
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+            <KECard label="Pelvis" val={kc.KE_pelvis?.val} sd={kc.KE_pelvis?.sd} color="#60a5fa"/>
+            <KECard label="Trunk"  val={kc.KE_trunk?.val}  sd={kc.KE_trunk?.sd}  color="#a78bfa"/>
+            <KECard label="Arm"    val={kc.KE_arm?.val}    sd={kc.KE_arm?.sd}    color="#f472b6"/>
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--d-fg3)', fontStyle: 'italic', marginTop: 6 }}>
+            Naito 2011 / Aguinaldo & Escamilla 2019 — 키네틱 체인 amplification convention 적용. Ae M, Tang H, Yokoi T (1992) 일본인 운동선수 분절 inertia 표 기반.
+          </div>
+          <InfoBox items={[{
+            term: '분절 운동에너지 (Rotational KE · ½·I·ω²)',
+            def: '각 신체 분절(골반·몸통·팔)의 회전 운동에너지를 J(줄) 단위로 측정. 공식 KE = ½·I·ω² (I = 분절의 관성모멘트, ω = 회전 각속도). 회전 KE만 사용하는 이유는 분절별 비교 시 병진 KE의 비대칭성을 제거하기 위함 (몸통은 병진 우세, 팔은 회전 우세).',
+            meaning: '투수가 와인드업~릴리스 동안 만들어내는 회전 동력의 절대량. 분절이 클수록(I↑) 또는 빨리 회전할수록(ω↑) 큰 KE가 만들어지고, 이것이 키네틱 체인을 통해 공으로 전달되어 구속을 결정합니다. 공으로 전달되는 최종 에너지의 원천.',
+            interpret: 'Pelvis < Trunk < Arm 순으로 KE가 점진 증폭되는 것이 정상입니다. SD가 작으면 일관된 동작(제구에 유리), SD가 크면 시기마다 다른 출력. 절대값이 너무 낮으면 하체 또는 회전 동력 부족, 너무 높은데 구속이 안 따라오면 에너지가 공이 아닌 다른 곳으로 새는 중.',
+            judge: 'Pelvis 20-50 J, Trunk 80-150 J, Arm 150-250 J (한국 고교 우수). 절대값보다 분절 간 증폭 패턴(다음 항목 Transfer 비율)이 더 중요합니다. Naito 2011 기준 amplification convention: 다음 분절 KE > 이전 분절 KE.'
+          }]}/>
+        </div>
+      )}
+      {hasTransfer && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--d-fg3)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
+            Transfer 비율 (회전 KE amplification)
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+            <TransferCard label="Pelvis → Trunk" formula="KE_trunk_peak / KE_pelvis_peak · Naito 2011 ~3×" t={kc.transferPT_KE}/>
+            <TransferCard label="Trunk → Arm"    formula="KE_arm_peak / KE_trunk_peak · Naito 2011 ~2.7×" t={kc.transferTA_KE}/>
+          </div>
+          <InfoBox items={[{
+            term: 'Transfer 비율 (회전 KE Amplification)',
+            def: '인접한 두 분절의 회전 KE 비율. P→T는 KE_trunk_peak / KE_pelvis_peak, T→A는 KE_arm_peak / KE_trunk_peak. 1.0보다 크면 다음 분절이 더 큰 회전 운동량을 가졌다는 뜻 (= 에너지 증폭).',
+            meaning: '키네틱 체인의 핵심 지표. 골반에서 만든 동력이 몸통→팔로 얼마나 효율적으로 증폭되는지 정량화합니다. 분절이 작아질수록(I↓) 같은 에너지에서 더 빠른 ω가 가능하므로, 정상적인 키네틱 체인은 단조 증가 비율을 보입니다(Naito 2011, Hirashima 2008).',
+            interpret: 'P→T 비율이 약하면 → 골반 회전이 몸통으로 안 넘어감 (timing 문제 또는 골반-몸통 분리 부족). T→A 비율이 약하면 → 몸통이 팔을 끌어주지 못함 (어깨 가동성 또는 시퀀싱 문제). 두 비율 모두 좋으면 키네틱 체인 효율 우수.',
+            judge: 'P→T: 3× 이상 정상 증폭, 5× 이상 강한 증폭, 1.5× 미만 미약 / T→A: 1.7× 이상 정상, 2.5× 이상 강한 증폭, 1.0× 미만 에너지 손실. Naito 2011 elementary 야구선수 baseline P→T ~3×, T→A ~2.7×. Aguinaldo 2022 induced power 분석: 전완 파워의 86%는 몸통에서 유래.'
+          }]}/>
+        </div>
+      )}
+      {hasPower && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--d-fg3)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
+            순간 최대 파워 (Peak dE/dt · Wasserberger 2024)
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+            <PowerCard label="Power → Trunk" val={kc.peakPowerTrunk}/>
+            <PowerCard label="Power → Arm"   val={kc.peakPowerArm}/>
+          </div>
+          <InfoBox items={[{
+            term: '순간 최대 파워 (Peak dE/dt)',
+            def: '분절의 운동에너지가 시간에 대해 변화하는 비율(dKE/dt)의 최댓값. W(와트) = J/s. 시계열로 KE를 계산한 뒤 시간 미분의 peak를 추출. 평균 파워가 아닌 "찰나의 최대 출력". Wasserberger et al. 2024 (Sports Biomech 23:1160-1175)가 도입한 정밀 진단 지표.',
+            meaning: '에너지 양(KE)이 아닌 에너지 주입 속도를 봅니다. KE가 같아도 그 에너지를 더 짧은 시간에 폭발적으로 내는 선수가 빠른 공을 던집니다. 누수가 어느 시점에 일어나는지를 진단할 수 있는 정밀 지표.',
+            interpret: 'Trunk peak power가 높지만 Arm peak power가 따라오지 못하면 → 몸통에서 만든 폭발이 팔로 정확한 타이밍에 전달되지 않음 (T→A 시퀀싱 문제). 두 값 모두 낮으면 → 절대 출력 부족 (체력 또는 회전 동력 보강 필요).',
+            judge: 'Trunk peak power: 800-1500 W = 정상, 1500+ = 우수, 800 미만 = 부족 / Arm peak power: 1500-3000 W = 정상, 3000+ = 우수, 1500 미만 = 부족. 한국 고교 우수 투수 기준 (MLB 프로는 더 높음).'
+          }]}/>
+        </div>
+      )}
+      {hasElbow && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--d-fg3)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
+            팔꿈치 합성 모멘트 (Inverse Dynamics · Yanai 2023)
+          </div>
+          <div className="panel" style={{ background: 'transparent', border: '1px solid var(--d-border)', padding: '12px 14px' }}>
+            <div className="kicker">Peak Resultant Elbow Moment</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+              <span style={{ fontSize: 22, fontWeight: 800, fontFamily: 'Inter', color: 'var(--d-fg1)' }}>
+                {kc.elbowPeakTorqueNm.val.toFixed(0)}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--d-fg3)' }}>N·m</span>
+              {kc.elbowPeakTorqueNm.sd != null && (
+                <span style={{ fontSize: 10, color: 'var(--d-fg3)', marginLeft: 4 }}>SD ±{kc.elbowPeakTorqueNm.sd.toFixed(1)}</span>
+              )}
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--d-fg3)', fontStyle: 'italic', marginTop: 4 }}>
+              팔뚝+손+공 강체 모델 (Feltner 1989) · 추정 ±35%
+            </div>
+          </div>
+          <InfoBox items={[{
+            term: '팔꿈치 합성 모멘트 (Resultant Elbow Moment · Inverse Dynamics)',
+            def: '팔꿈치 관절에 가해지는 합성 회전 모멘트의 최대값 (N·m). 역동역학(Inverse Dynamics) 방법으로 산출 — 분절(팔뚝+손+공)의 운동방정식을 거꾸로 풀어 관절에 가해진 외력을 추정합니다. 분절 inertia는 Ae M, Tang H, Yokoi T (1992)의 일본인 운동선수 표를 사용 (Yanai et al. 2023, Sci Rep 13:12253과 동일).',
+            meaning: '투구 동작에서 팔꿈치 인대(특히 UCL · 척측 측부 인대)가 견뎌야 하는 부하를 정량화하는 핵심 부상 위험 지표. MER 시점부터 BR(공 놓는 순간)까지의 짧은 시간에 팔꿈치는 매우 큰 외반(valgus) 모멘트를 받으며, 이것이 누적되면 UCL 손상(흔히 "토미존 수술" 대상)으로 이어질 수 있습니다.',
+            interpret: '값이 클수록 팔꿈치 부하 ↑. 단순히 낮으면 안전한 것이 아니라 — 회전 동력이 부족해서 낮을 수도 있음. 따라서 "회전 파워(Trunk Vel) + 효율(Transfer 비율)"이 함께 좋은데도 elbow moment가 낮은 선수가 진정한 "효율적이고 안전한" 투구 동작입니다. 반대로 회전 파워는 평범한데 elbow moment가 높으면 → 키네틱 체인이 비효율적이라 어깨·팔꿈치로 부담이 집중된 상태.',
+            judge: '한국 고교 우수 투수 기준 50-100 N·m 정상 범위. 100-130 N·m 주의 (장기적으로 누적 시 위험), 130+ N·m 위험 (즉각 동작 점검 권장). MLB 프로 평균 ~120 N·m이지만 마커리스 측정의 추정 오차가 ±35% 정도이므로 절대값보다는 SD(시기 간 변동), 동작 점검 후 변화 추적이 더 의미 있습니다. Fleisig 1995 / Aguinaldo 2007 인구 데이터에서 100 N·m 이상부터 급격한 부상 위험 증가가 확인됨.'
+          }]}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Section 06 — 5축 구속 종합 RadarChart + 영역별 카드
+function VelocityRadarPanel({ data, mode }) {
+  // mode: 'both'(default · 좌측 레이더+우측 카드), 'cards'(우측 5모델 카드만), 'radar'(좌측 레이더+요약만)
+  const m = mode || 'both';
+  if (!data || data.length === 0) return null;
+  const statusOf = (score) => {
+    if (score == null) return { color: '#94a3b8', text: '데이터 없음', tone: 'na' };
+    if (score >= 80)   return { color: '#10b981', text: '엘리트 상위', tone: 'good' };
+    if (score >= 65)   return { color: '#84cc16', text: '엘리트 평균↑', tone: 'mid' };
+    if (score >= 50)   return { color: '#84cc16', text: '엘리트 평균', tone: 'mid' };
+    if (score >= 35)   return { color: '#f59e0b', text: '평균 미만', tone: 'low' };
+    return { color: '#ef4444', text: '낮음', tone: 'bad' };
+  };
+
+  // ─── cards mode: 5영역(=5모델) 카드만 표시 ───
+  if (m === 'cards') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{
+          padding: 10, fontSize: 11, color: 'var(--d-fg2)', lineHeight: 1.55,
+          background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 6,
+          marginBottom: 4
+        }}>
+          <b style={{ color: '#60a5fa' }}>5개 분석 모델</b> · 구속을 결정하는 다섯 영역을 별도 변인 묶음으로 평가합니다.
+          드라이브라인 4모델(Arm Action / Block / Posture / Rotation) + ⭐ 키네틱 체인 효율(우리 시스템 고유).
+          각 영역은 0-100 점수이며, 50=엘리트 평균, 80=엘리트 상위.
+        </div>
+        {data.map((ax, i) => {
+          const s = statusOf(ax.value);
+          return (
+            <div key={ax.label} className="panel" style={{
+              background: 'transparent',
+              border: `1px solid ${ax.isOurOwn ? 'rgba(20,184,166,0.4)' : 'var(--d-border)'}`,
+              padding: '12px 14px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, color: '#94a3b8',
+                      background: 'rgba(255,255,255,0.04)', padding: '2px 7px', borderRadius: 3,
+                      letterSpacing: '0.5px', fontFamily: 'Inter'
+                    }}>모델 {i + 1}</span>
+                    <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--d-fg1)' }}>{ax.label}</span>
+                    {ax.isOurOwn && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, color: '#5eead4',
+                        background: 'rgba(20,184,166,0.15)', padding: '1px 6px', borderRadius: 3
+                      }}>우리 시스템</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--d-fg3)', marginTop: 3 }}>{ax.sub}</div>
+                  {ax.dlMapping && (
+                    <div style={{ fontSize: 10, marginTop: 3, color: ax.isOurOwn ? '#5eead4' : 'var(--d-fg3)', fontStyle: 'italic' }}>
+                      {ax.dlMapping}
+                    </div>
+                  )}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, fontFamily: 'Inter', color: 'var(--d-fg1)' }}>
+                    {ax.display}
+                  </div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: s.color }}>{s.text}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // ─── radar mode: RadarChart + 점수 요약만 표시 (종합) ───
+  if (m === 'radar') {
+    const valid = data.filter(d => d.value != null);
+    const avg = valid.length > 0 ? valid.reduce((s, d) => s + d.value, 0) / valid.length : null;
+    const overallStatus = avg != null ? statusOf(avg) : null;
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16, alignItems: 'start' }}>
+        <div className="panel" style={{
+          background: 'transparent', border: '1px solid var(--d-border)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16
+        }}>
+          <RadarChart data={data}/>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {avg != null && (
+            <div className="panel" style={{
+              background: `linear-gradient(135deg, ${overallStatus.color}15, ${overallStatus.color}05)`,
+              border: `1.5px solid ${overallStatus.color}55`, padding: '16px 18px', textAlign: 'center'
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--d-fg3)', letterSpacing: '1px', marginBottom: 6 }}>
+                5모델 평균 점수
+              </div>
+              <div style={{ fontSize: 36, fontWeight: 800, fontFamily: 'Inter', color: overallStatus.color, lineHeight: 1 }}>
+                {Math.round(avg)}
+                <span style={{ fontSize: 14, color: 'var(--d-fg3)', marginLeft: 4 }}>/100</span>
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: overallStatus.color, marginTop: 4 }}>
+                {overallStatus.text}
+              </div>
+            </div>
+          )}
+          {/* 5모델 미니 점수 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {data.map(ax => {
+              const s = statusOf(ax.value);
+              return (
+                <div key={ax.label} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
+                  padding: '8px 12px',
+                  background: 'rgba(0,0,0,0.2)', border: '1px solid var(--d-border)', borderRadius: 6
+                }}>
+                  <span style={{ fontSize: 12, color: 'var(--d-fg2)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {ax.isOurOwn && <span style={{ color: '#5eead4', fontSize: 9 }}>⭐</span>}
+                    {ax.label}
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: s.color, fontFamily: 'Inter' }}>
+                    {ax.display}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{
+            padding: 10, fontSize: 10.5, color: 'var(--d-fg2)', lineHeight: 1.5,
+            background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 6
+          }}>
+            <b style={{ color: '#fbbf24' }}>해석</b> · 다각형이 클수록 균형 잡힌 메커닉. 한쪽으로 치우치면 그 영역이 약점.
+            상세 모델별 변인 분석은 <b style={{ color: '#60a5fa' }}>04 구속 변인 5모델 분석</b> 참조.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── both mode (기존 호환 — 다른 곳에서 그대로 호출 가능) ───
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 16, alignItems: 'start' }}>
+      <div className="panel" style={{ background: 'transparent', border: '1px solid var(--d-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+        <RadarChart data={data}/>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {data.map(ax => {
+          const s = statusOf(ax.value);
+          return (
+            <div key={ax.label} className="panel" style={{
+              background: 'transparent',
+              border: `1px solid ${ax.isOurOwn ? 'rgba(20,184,166,0.4)' : 'var(--d-border)'}`,
+              padding: '10px 12px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--d-fg1)' }}>{ax.label}</span>
+                    {ax.isOurOwn && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, color: '#5eead4',
+                        background: 'rgba(20,184,166,0.15)', padding: '1px 6px', borderRadius: 3
+                      }}>우리 시스템</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--d-fg3)' }}>{ax.sub}</div>
+                  {ax.dlMapping && (
+                    <div style={{ fontSize: 10, marginTop: 2, color: ax.isOurOwn ? '#5eead4' : 'var(--d-fg3)', fontStyle: 'italic' }}>
+                      {ax.dlMapping}
+                    </div>
+                  )}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, fontFamily: 'Inter', color: 'var(--d-fg1)' }}>
+                    {ax.display}
+                  </div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: s.color }}>{s.text}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <div style={{
+          padding: 10, fontSize: 10.5, color: 'var(--d-fg2)', lineHeight: 1.5,
+          background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 6
+        }}>
+          <b style={{ color: '#fbbf24' }}>점수 산정</b>: 각 축은 핵심 변인을 엘리트 중간값 기준으로 정규화한 후 평균낸 0-100점.
+          50점=엘리트 평균, 80점=엘리트 상위. 다각형이 클수록 균형 잡힌 메커닉.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Section D — 제구 일관성과 안정성 (5 영역별 카드 그룹)
+function ConsistencyPanel({ cs }) {
+  if (!cs) return null;
+  const toneColor = { good: '#10b981', mid: '#60a5fa', low: '#f59e0b', bad: '#ef4444', na: '#94a3b8' };
+  const gradeColor = { A: '#10b981', B: '#84cc16', C: '#f59e0b', D: '#ef4444' };
+  const Group = ({ icon, title, color, grade, desc, cards }) => {
+    if (!cards || cards.length === 0) return null;
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div style={{
+          display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8,
+          paddingLeft: 8, borderLeft: `3px solid ${color}`
+        }}>
+          <span style={{ fontSize: 14 }}>{icon}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color }}>{title}</span>
+          <span style={{ fontSize: 10, color: 'var(--d-fg3)' }}>— {desc}</span>
+          {grade && grade !== 'N/A' && (
+            <span style={{
+              marginLeft: 'auto', fontSize: 11, fontWeight: 800,
+              color: gradeColor[grade] || '#94a3b8',
+              background: `${gradeColor[grade] || '#94a3b8'}1a`,
+              padding: '1px 8px', borderRadius: 4
+            }}>{grade}</span>
+          )}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(cards.length, 3)}, 1fr)`, gap: 8, paddingLeft: 11 }}>
+          {cards.map((c, i) => (
+            <div key={i} className="panel" style={{
+              background: 'transparent',
+              border: `1px solid ${c.tone && c.tone !== 'na' ? toneColor[c.tone] + '60' : 'var(--d-border)'}`,
+              padding: '10px 12px'
+            }}>
+              <div style={{ fontSize: 10.5, color: 'var(--d-fg3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{c.label}</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginTop: 4 }}>
+                <span style={{ fontSize: 18, fontWeight: 800, fontFamily: 'Inter', color: 'var(--d-fg1)' }}>
+                  {typeof c.value === 'number' ? c.value.toFixed(c.value < 10 ? 2 : 0) : c.value}
+                </span>
+                <span style={{ fontSize: 10.5, color: 'var(--d-fg3)' }}>{c.unit}</span>
+                <span style={{ fontSize: 10, marginLeft: 'auto', color: toneColor[c.tone] || 'var(--d-fg3)', fontWeight: 600 }}>
+                  {c.text}
+                </span>
+              </div>
+              {c.description && <div style={{ fontSize: 10.5, color: 'var(--d-fg3)', marginTop: 4 }}>{c.description}</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div>
+      <Group icon="🦶" title="Foot Contact" color="#f472b6" grade={cs.footContact.grade}
+        desc="FC 시점 자세 일관성 — 키네틱 체인 시작점" cards={cs.footContact.cards}/>
+      <Group icon="🌀" title="Sequencing" color="#f472b6" grade={cs.sequencing.grade}
+        desc="분절 가속 타이밍 일관성 (lag CV)" cards={cs.sequencing.cards}/>
+      <Group icon="💨" title="Power Output" color="#f472b6" grade={cs.powerOutput.grade}
+        desc="출력 강도 일관성 (CV)" cards={cs.powerOutput.cards}/>
+      <Group icon="🎯" title="Release Position" color="#f472b6" grade={cs.releasePos.grade}
+        desc="릴리스 시 자세 일관성 (SD)" cards={cs.releasePos.cards}/>
+      <Group icon="⏱️" title="Release Timing" color="#f472b6" grade={cs.releaseTiming.grade}
+        desc="공을 놓는 시점 일관성 (CV)" cards={cs.releaseTiming.cards}/>
+    </div>
+  );
+}
+
+// Section E — 종합 평가 (구속·제구·체력 점수 + Mechanical Ceiling + 우선순위)
+function SummaryScoresPanel({ ss }) {
+  if (!ss) return null;
+  const gradeColor = (g) => {
+    if (!g || g === '—') return '#94a3b8';
+    if (g.startsWith('A')) return '#10b981';
+    if (g.startsWith('B')) return '#84cc16';
+    if (g.startsWith('C')) return '#f59e0b';
+    if (g.startsWith('D') || g === 'F') return '#ef4444';
+    return '#94a3b8';
+  };
+  const ScoreCard = ({ kind, label, score, grade, accent }) => (
+    <div className="panel" style={{
+      background: 'transparent', border: `1px solid ${accent}60`, padding: '14px 16px'
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: accent, textTransform: 'uppercase', letterSpacing: '1px' }}>
+        {label}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
+        <span style={{ fontSize: 28, fontWeight: 800, fontFamily: 'Inter', color: gradeColor(grade) }}>
+          {grade || '—'}
+        </span>
+        <span style={{ fontSize: 22, fontWeight: 700, fontFamily: 'Inter', color: 'var(--d-fg1)' }}>
+          {score != null ? score : '—'}
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--d-fg3)' }}>/ 100</span>
+      </div>
+    </div>
+  );
+  const PriorityFix = ({ rank, kind, title, detail, action }) => {
+    const kindLabel = { velocity: '구속', command: '제구', fitness: '체력', injury: '부상', mixed: '종합' }[kind] || '';
+    const kindColor = { velocity: '#f59e0b', command: '#a78bfa', fitness: '#10b981', injury: '#ef4444' }[kind] || '#94a3b8';
+    const rankColor = ['#ef4444', '#f59e0b', '#84cc16', '#60a5fa', '#94a3b8'][rank - 1] || '#94a3b8';
+    return (
+      <div className="panel" style={{
+        background: 'transparent', border: '1px solid var(--d-border)',
+        padding: '12px 14px', marginBottom: 8,
+        borderLeft: `3px solid ${rankColor}`
+      }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+          <span style={{
+            fontSize: 10, fontWeight: 800, color: rankColor,
+            background: `${rankColor}1a`, padding: '2px 8px', borderRadius: 4
+          }}>우선순위 {rank}</span>
+          {kindLabel && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: kindColor }}>· {kindLabel}</span>
+          )}
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--d-fg1)', flex: 1 }}>{title}</span>
+        </div>
+        {detail && <div style={{ fontSize: 11.5, color: 'var(--d-fg2)', marginTop: 2 }}>{detail}</div>}
+        {action && (
+          <div style={{ fontSize: 11, color: 'var(--d-fg2)', marginTop: 6,
+            padding: '6px 10px', background: 'rgba(96,165,250,0.06)', borderRadius: 4 }}>
+            <b style={{ color: '#60a5fa' }}>훈련 제안:</b> {action}
+          </div>
+        )}
+      </div>
+    );
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Mechanical Ceiling */}
+      {ss.ceiling && (
+        <div className="panel" style={{
+          background: 'linear-gradient(90deg, rgba(245,158,11,0.08), rgba(20,184,166,0.08))',
+          border: '1px solid rgba(20,184,166,0.3)', padding: '14px 18px'
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#5eead4', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
+            🎯 Mechanical Ceiling — 역학적 잠재 구속
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <span style={{ fontSize: 11, color: 'var(--d-fg3)' }}>현재 평균</span>
+              <span style={{ fontSize: 16, fontWeight: 700, marginLeft: 6, fontFamily: 'Inter', color: 'var(--d-fg1)' }}>
+                {ss.ceiling.currentMph} <span style={{ fontSize: 11, color: 'var(--d-fg3)' }}>mph</span>
+                <span style={{ fontSize: 10, color: 'var(--d-fg3)', marginLeft: 4 }}>({ss.ceiling.currentKmh} km/h)</span>
+              </span>
+            </div>
+            <span style={{ color: 'var(--d-fg3)', fontSize: 14 }}>→</span>
+            <div>
+              <span style={{ fontSize: 11, color: '#5eead4' }}>잠재 구속 (메커닉 100점)</span>
+              <span style={{ fontSize: 20, fontWeight: 800, marginLeft: 6, fontFamily: 'Inter', color: '#5eead4' }}>
+                {ss.ceiling.ceilingMph} <span style={{ fontSize: 11, color: 'var(--d-fg3)' }}>mph</span>
+                <span style={{ fontSize: 10, color: 'var(--d-fg3)', marginLeft: 4 }}>({ss.ceiling.ceilingKmh} km/h)</span>
+              </span>
+              {ss.ceiling.potentialMphGain >= 1 && (
+                <span style={{ fontSize: 11, marginLeft: 8, color: '#fbbf24', fontWeight: 700 }}>
+                  +{ss.ceiling.potentialMphGain} mph
+                </span>
+              )}
+            </div>
+          </div>
+          <div style={{ fontSize: 10.5, marginTop: 8, color: 'var(--d-fg3)', lineHeight: 1.5 }}>
+            현재 메커닉 점수가 <b style={{ color: '#fbbf24' }}>{ss.ceiling.velocityScore}/100</b>이며,
+            메커닉을 100점까지 향상시키면 <b style={{ color: '#5eead4' }}>{ss.ceiling.ceilingKmh} km/h</b>까지 잠재 구속을 끌어올릴 수 있습니다 (보수적 추정: 메커닉 6점당 1mph).
+          </div>
+        </div>
+      )}
+
+      {/* 4개 점수 카드 — 구속/제구/체력/종합 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+        <ScoreCard label="① 구속 (메카닉)" score={ss.velocity.score} grade={ss.velocity.grade} accent="#f59e0b"/>
+        <ScoreCard label="② 제구 (일관성)" score={ss.command.score}  grade={ss.command.grade}  accent="#a78bfa"/>
+        <ScoreCard label="③ 체력"           score={ss.fitness.score}  grade={ss.fitness.grade}  accent="#10b981"/>
+        <ScoreCard label="🏆 종합 평가"      score={ss.overall.score}  grade={ss.overall.grade}  accent="#5eead4"/>
+      </div>
+
+      {/* 점수 산출 근거 (사용자 요청 — 어떻게 점수가 나왔는지 투명하게 표시) */}
+      <ScoreSourcesPanel ss={ss}/>
+
+      {/* 우선순위 개선점 */}
+      {ss.priorities && ss.priorities.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--d-fg3)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 10 }}>
+            🎯 우선순위 개선점 ({ss.priorities.length}개)
+          </div>
+          {ss.priorities.map((p, i) => (
+            <PriorityFix key={i} rank={i + 1} kind={p.kind} title={p.title} detail={p.detail} action={p.action}/>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- 점수 산출 근거 패널 ---------------- */
+function ScoreSourcesPanel({ ss }) {
+  const [open, setOpen] = useState(false);
+  const groups = [
+    { key: 'velocity', label: '① 구속 (메카닉)', accent: '#f59e0b', score: ss.velocity.score, grade: ss.velocity.grade, sources: ss.velocity.sources, weight: '40%', desc: '평균 구속·몸통 각속도·MER·CoG 등 8개 변인을 한국 고1 우수 baseline으로 정규화한 가중평균' },
+    { key: 'command',  label: '② 제구 (일관성)', accent: '#a78bfa', score: ss.command.score,  grade: ss.command.grade,  sources: ss.command.sources,  weight: '30%', desc: '5개 변인의 시기 간 변동(CV/SD)을 0-100 점수로 변환한 가중평균. 작을수록 좋음' },
+    { key: 'fitness',  label: '③ 체력',          accent: '#10b981', score: ss.fitness.score,  grade: ss.fitness.grade,  sources: ss.fitness.sources,  weight: '30%', desc: 'BBL 메타 CSV 기반 6개 항목의 band(상위/범위/미만)를 점수화 (high=95 / mid=70 / low=40)' }
+  ];
+  if (!groups.some(g => g.sources && g.sources.length > 0)) return null;
+  return (
+    <div style={{ border: '1px solid var(--d-border)', borderRadius: 8, overflow: 'hidden' }}>
+      <button onClick={() => setOpen(!open)} style={{
+        width: '100%', textAlign: 'left', padding: '10px 14px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        background: 'rgba(96,165,250,0.06)', color: '#60a5fa',
+        fontSize: 12, fontWeight: 700, cursor: 'pointer', border: 'none', fontFamily: 'inherit'
+      }}>
+        <span>📊 점수 산출 근거 (투명한 계산식)</span>
+        <span style={{ color: 'var(--d-fg3)' }}>{open ? '▲ 접기' : '▼ 펼치기'}</span>
+      </button>
+      {open && (
+        <div style={{ padding: 14, background: 'var(--d-bg2)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {groups.map(g => g.sources && g.sources.length > 0 && (
+            <div key={g.key} style={{ borderLeft: `3px solid ${g.accent}`, paddingLeft: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: g.accent, marginBottom: 4 }}>
+                {g.label}: <span style={{ color: 'var(--d-fg1)' }}>{g.score}/100 ({g.grade})</span>
+                <span style={{ fontSize: 10, color: 'var(--d-fg3)', marginLeft: 8, fontWeight: 500 }}>· 종합 가중치 {g.weight}</span>
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--d-fg3)', marginBottom: 8, lineHeight: 1.5 }}>{g.desc}</div>
+              <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--d-border)', color: 'var(--d-fg3)', fontSize: 10 }}>
+                    <th style={{ textAlign: 'left', padding: '4px 6px', fontWeight: 600 }}>변인</th>
+                    <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600 }}>측정값</th>
+                    <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600 }}>점수</th>
+                    <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600 }}>가중치</th>
+                    <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 600 }}>기여</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.sources.map((s, i) => {
+                    const contribution = (s.score * s.weight).toFixed(1);
+                    const scoreColor = s.score >= 80 ? '#10b981' : s.score >= 65 ? '#84cc16' : s.score >= 50 ? '#f59e0b' : '#ef4444';
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px dashed var(--d-border)' }}>
+                        <td style={{ padding: '5px 6px', color: 'var(--d-fg2)' }}>
+                          {s.name}
+                          {s.bandLabel && <span style={{ fontSize: 9, color: 'var(--d-fg3)', marginLeft: 4 }}>({s.bandLabel})</span>}
+                        </td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', color: 'var(--d-fg2)', fontFamily: 'Inter' }}>
+                          {s.value}{s.unit ? ` ${s.unit}` : ''}
+                        </td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', fontFamily: 'Inter', fontWeight: 700, color: scoreColor }}>
+                          {s.score}
+                        </td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', color: 'var(--d-fg3)', fontFamily: 'Inter' }}>
+                          {(s.weight * 100).toFixed(0)}%
+                        </td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', color: 'var(--d-fg2)', fontFamily: 'Inter' }}>
+                          {contribution}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ))}
+          <div style={{ fontSize: 10.5, color: 'var(--d-fg3)', lineHeight: 1.6, padding: 10, background: 'rgba(0,0,0,0.2)', borderRadius: 4 }}>
+            <b style={{ color: '#fbbf24' }}>종합 평가 계산:</b> 구속 점수 × 0.40 + 제구 점수 × 0.30 + 체력 점수 × 0.30. 일부 변인이 측정 불가능한 경우 해당 변인을 제외하고 가중치를 재정규화합니다.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- COMMAND PROFILE PANEL ---------------- */
 function CommandProfilePanel({ cmd, energy, layback, factors }) {
   if (!cmd) return null;
-  const { strikePct, plateSdCm, grade, breakdown, measured, note, isDemo, nTrials } = cmd;
+  const { measured, note, isDemo, nTrials } = cmd;
 
-  // 등급 색상 매핑
+  // 등급 색상 매핑 (7대 요인 카드 표시용)
   const gradeColors = {
     A: { c: '#4ade80', label: '상위', bg: 'rgba(74,222,128,0.10)' },
     B: { c: '#60a5fa', label: '중상', bg: 'rgba(96,165,250,0.10)' },
@@ -1092,16 +1818,52 @@ function CommandProfilePanel({ cmd, energy, layback, factors }) {
     D: { c: '#f87171', label: '하위', bg: 'rgba(248,113,113,0.10)' },
     na: { c: '#94a3b8', label: '측정불가', bg: 'rgba(148,163,184,0.10)' },
   };
-  const g = gradeColors[grade] || gradeColors['C'];
 
-  const strikePctClamped = Math.max(0, Math.min(100, strikePct));
-
-  // 분산 시각화 — strike zone
-  const ZONE_W = 200;
-  const ZONE_H = 240;
-  const ZONE_REAL_W = 43;  // cm 홈플레이트 너비
-  const cmToPx = ZONE_W / ZONE_REAL_W;
-  const dispersionR = plateSdCm * cmToPx;
+  // ─── 제구력 7대 요인 학술 설명 (사용자 요청) ───
+  const FACTOR_INFO = {
+    F1_landing: {
+      def: '앞발(디딤발) 착지의 안정성 평가. 핵심 변수: 스트라이드 길이(stride length)·시행간 변동(CV) + FC 시점 무릎 굴곡(front knee flex)·SD. 키네틱 체인의 시작점이라 가장 먼저 평가됨.',
+      meaning: '앞다리는 골반 회전을 받아내는 "벽(wall)" 역할 — 매번 같은 위치, 같은 자세로 착지해야 그 다음 동작들도 일관되게 일어납니다. 첫 단추가 흔들리면 모든 후속 동작도 흔들립니다 (Howenstein 2019).',
+      interpret: 'stride CV > 5% → 매번 다른 위치 착지 → 릴리스 포인트 흔들림 / knee flex SD > 5° → 충격 흡수 일관성 부족 → 어깨 부담 ↑.',
+      judge: '엘리트: stride CV 2-3% · knee 30-50° · SD 3-5°. 한국 고교 우수 stride CV ≤ 4%, knee SD ≤ 5°.'
+    },
+    F2_separation: {
+      def: '골반-몸통 분리(X-factor)와 그 분리 타이밍(P→T lag) 평가. 핵심 변수: 최대 X-factor(°)·SD + P→T lag(ms)·SD.',
+      meaning: '하체가 먼저 회전하고 상체가 나중에 따라가는 시간차가 만들어내는 elastic potential energy가 회전 동력의 핵심. 분리각이 크고 일정해야 같은 폭발력이 매번 만들어집니다 (Stodden 2005).',
+      interpret: 'X-factor < 30°: 분리 부족 → 회전 동력 약함 / SD > 8°: 매번 다른 분리각 → 시기 간 출력 변동 / lag SD > 10ms: 시퀀싱 일관성 부족.',
+      judge: '엘리트: X-factor 40-60° · lag ~50ms · SD < 10ms. 한국 고교 우수 X-factor 35-55°.'
+    },
+    F3_arm_timing: {
+      def: '어깨-팔 타이밍(T→A lag)과 최대 외회전(MER) 일관성 평가. 핵심 변수: T→A lag(ms)·SD + MER(°)·SD.',
+      meaning: '몸통 회전이 정점에 도달한 직후 팔이 가속되어야 효율적 — 너무 빠르면(early arm) 어깨 부담↑, 너무 늦으면 동력 손실. MER이 일관되어야 매번 같은 릴리스 패턴이 만들어집니다 (Aguinaldo 2007).',
+      interpret: 'T→A lag SD > 8ms: 시기마다 다른 타이밍 → 제구·구속 모두 불안정 / MER SD > 5°: 외회전 가동성 일관성 부족.',
+      judge: '엘리트: lag 20-40ms · SD < 5ms · MER 170-185° · SD < 3°. 한국 고교 우수 lag 25-45ms.'
+    },
+    F4_knee_stability: {
+      def: '앞다리 무릎 안정성 평가. 핵심 변수: FC→BR 무릎 굴곡 변화량(Δ)·SD + BR 시점 무릎 신전 정도(lead knee ext at BR).',
+      meaning: '디딤발 무릎이 무너지면 회전축 안정성 손실 → 골반 회전 동력이 새고, 어깨로 부담이 전이됩니다. 반대로 강한 신전(extension)은 추가 가속 모멘텀을 제공 (Driveline Block model).',
+      interpret: 'Δ > +15° (무너짐): 디딤발 근력 부족 / Δ < -15° (강한 신전): 정상 블록 / SD > 5°: 안정성 일관성 부족.',
+      judge: '엘리트: ΔKnee -15°~-5° (블록), 신전각 < 10° at BR. SD < 4°.'
+    },
+    F5_trunk_tilt: {
+      def: '몸통 기울기(전방·측면) 평가. 핵심 변수: 릴리스 시 몸통 전방 기울기(°)·SD + 측면 기울기(lateral tilt at BR)·SD.',
+      meaning: '몸통이 적절히 앞으로 기울어져야 팔이 자연스럽게 회전하면서 공에 마지막 가속을 줍니다. 측면 기울기가 너무 크면 어깨 부담 ↑ (Aguinaldo 2022). 일관성이 핵심 — 매번 같은 자세로 던져야 같은 곳으로 갑니다.',
+      interpret: 'Forward < 25°: 직립 (어깨로 던짐) / 25-45° 정상 / > 50° 과도 / Lateral > 35°: 측면 기울기 과도 (어깨 부담↑).',
+      judge: '엘리트: forward 35-45° · lateral 15-30° · SD < 3°. 한국 고교 우수 forward SD ≤ 4°.'
+    },
+    F6_head_eyes: {
+      def: '머리·시선 안정성 평가. 핵심 변수: 머리 위치 SD (수직·수평) + 시선 방향 일관성. 일부 시스템은 마커리스 측정 한계로 N/A 가능.',
+      meaning: '눈은 타겟을 추적하는 핵심 — 머리와 시선이 흔들리면 vestibulo-ocular 시스템이 보정 작업을 하느라 미세 동작 제어가 흔들리고 제구가 떨어집니다. 정확한 투수일수록 머리가 거의 움직이지 않습니다 (Crotin 2014).',
+      interpret: '머리 위치 SD > 3cm: 자세 안정성 부족 / 시선 일관성 미흡: 타겟 추적 약화 → 제구 핀포인트 능력 저하.',
+      judge: '엘리트: 머리 SD < 2cm. 한국 고교 우수 SD ≤ 3cm. 마커리스 측정에서는 머리 추적 정확도가 제한적이라 N/A 가능 — 영상 검토 권장.'
+    },
+    F7_grip_release: {
+      def: '그립·릴리스 정렬 평가. 핵심 변수: 손목 높이 SD (cm) + Arm slot 각도 SD (°) + 그립 패턴 일관성.',
+      meaning: '같은 곳으로 공을 던지려면 매번 같은 손 위치, 같은 손가락 각도로 공을 놓아야 합니다. 손목 높이와 arm slot의 일관성이 직접 도착 위치 분산을 결정합니다 (Wakai 2002).',
+      interpret: '손목 높이 SD > 3cm 또는 Arm slot SD > 3°: 매번 다른 릴리스 → 도착 위치 분산 ↑ (직접 제구 저하). 그립 변화가 보이면 구질 일관성 문제.',
+      judge: '엘리트: 손목 높이 SD < 1.5cm · Arm slot SD < 2°. 한국 고교 우수 ≤ 2배 이내.'
+    }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1138,101 +1900,32 @@ function CommandProfilePanel({ cmd, energy, layback, factors }) {
         </div>
       )}
 
-      <div className="dash-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        {/* 좌측 — 등급 + Strike% 게이지 */}
+      <div className="dash-grid" style={{ gridTemplateColumns: '1fr', gap: 16 }}>
+        {/* 핵심 일관성 분석 (제구력 등급 박스 + 도착 위치 분산 시각화 삭제 — 사용자 요청) */}
         <div className="panel">
           <div className="panel-head">
             <div>
-              <div className="kicker">Estimated Command Grade</div>
-              <h3>제구력 등급</h3>
-            </div>
-          </div>
-          <div style={{ padding: '20px 0', textAlign: 'center' }}>
-            <div style={{
-              display: 'inline-flex', flexDirection: 'column', alignItems: 'center',
-              padding: '20px 36px',
-              background: `linear-gradient(135deg, ${g.c}15, ${g.c}05)`,
-              border: `2px solid ${g.c}`,
-              borderRadius: 16,
-            }}>
-              <div style={{ fontSize: 64, fontWeight: 800, color: g.c, lineHeight: 1, fontFamily: 'Inter' }}>{grade}</div>
-              <div style={{ fontSize: 11, color: 'var(--d-fg3)', marginTop: 4, letterSpacing: '1px' }}>{g.label}</div>
+              <div className="kicker">10-Pitch Consistency Snapshot</div>
+              <h3>핵심 일관성 분석</h3>
+              <div className="sub">· 10구 실측 변동성 — Section D 제구 일관성과 안정성 섹션을 함께 참조하세요</div>
             </div>
           </div>
 
-          {/* Strike% 게이지 */}
-          <div style={{ marginTop: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-              <span style={{ fontSize: 11, color: 'var(--d-fg3)' }}>추정 스트라이크 비율</span>
-              <span style={{ fontSize: 22, fontWeight: 700, color: g.c, fontFamily: 'Inter' }}>{strikePct.toFixed(1)}%</span>
-            </div>
-            <div style={{ height: 10, background: 'rgba(148,163,184,0.12)', borderRadius: 5, overflow: 'hidden', position: 'relative' }}>
-              <div style={{
-                position: 'absolute', left: 0, top: 0, bottom: 0,
-                width: `${strikePctClamped}%`,
-                background: `linear-gradient(90deg, ${g.c}88, ${g.c})`,
-                borderRadius: 5,
-              }}/>
-              <div style={{ position: 'absolute', left: '60%', top: -3, bottom: -3, width: 1, background: 'rgba(148,163,184,0.5)' }}/>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--d-fg3)', marginTop: 4 }}>
-              <span>0%</span>
-              <span>고교 평균 60%</span>
-              <span>100%</span>
-            </div>
-          </div>
-
-          {/* 추론 근거 */}
+          {/* 추론 근거 — 5 Domain 종합 요약 */}
           <div style={{
-            marginTop: 14, padding: '10px 12px',
+            marginTop: 8, padding: '10px 12px',
             background: 'rgba(8,8,12,0.3)', border: '1px solid var(--d-border)', borderRadius: 6,
             fontSize: 11.5, color: 'var(--d-fg2)', lineHeight: 1.6,
           }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: '#60a5fa', letterSpacing: '1px', marginBottom: 4 }}>
-              핵심 일관성 분석
+              5 Domain 종합
             </div>
             {note}
-          </div>
-        </div>
-
-        {/* 우측 — Plate dispersion 시각화 */}
-        <div className="panel">
-          <div className="panel-head">
-            <div>
-              <div className="kicker">Plate Dispersion Estimate</div>
-              <h3>도착 위치 분산 (추정)</h3>
-              <div className="sub">· 메카닉 일관성 → 릴리스 일관성 → 도착 분산</div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0' }}>
-            <svg viewBox={`0 0 ${ZONE_W + 80} ${ZONE_H + 60}`} style={{ maxWidth: 280 }}>
-              <rect x="40" y="30" width={ZONE_W} height={ZONE_H}
-                fill="rgba(96,165,250,0.04)" stroke="rgba(96,165,250,0.5)" strokeWidth="2" rx="2"/>
-              <line x1={40 + ZONE_W/3} y1="30" x2={40 + ZONE_W/3} y2={30 + ZONE_H} stroke="rgba(96,165,250,0.2)" strokeWidth="1"/>
-              <line x1={40 + 2*ZONE_W/3} y1="30" x2={40 + 2*ZONE_W/3} y2={30 + ZONE_H} stroke="rgba(96,165,250,0.2)" strokeWidth="1"/>
-              <line x1="40" y1={30 + ZONE_H/3} x2={40 + ZONE_W} y2={30 + ZONE_H/3} stroke="rgba(96,165,250,0.2)" strokeWidth="1"/>
-              <line x1="40" y1={30 + 2*ZONE_H/3} x2={40 + ZONE_W} y2={30 + 2*ZONE_H/3} stroke="rgba(96,165,250,0.2)" strokeWidth="1"/>
-              <circle cx={40 + ZONE_W/2} cy={30 + ZONE_H/2} r={dispersionR}
-                fill={`${g.c}25`} stroke={g.c} strokeWidth="2" strokeDasharray="4 3"/>
-              <circle cx={40 + ZONE_W/2} cy={30 + ZONE_H/2} r="3" fill={g.c}/>
-              <text x={40 + ZONE_W/2} y={30 + ZONE_H + 24} textAnchor="middle"
-                style={{ fontSize: 11, fill: 'var(--d-fg2)', fontFamily: 'Inter', fontWeight: 600 }}>
-                σ ≈ {plateSdCm.toFixed(1)} cm
-              </text>
-              <text x={40 + ZONE_W/2} y={30 + ZONE_H + 40} textAnchor="middle"
-                style={{ fontSize: 9, fill: 'var(--d-fg3)' }}>
-                추정 도착 위치 표준편차
-              </text>
-              <text x={40 + ZONE_W/2} y="22" textAnchor="middle"
-                style={{ fontSize: 9, fill: 'var(--d-fg3)', letterSpacing: '0.5px' }}>
-                STRIKE ZONE
-              </text>
-            </svg>
           </div>
 
           {/* 실측 변수 표시 */}
           {measured && (
-            <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(8,8,12,0.3)', border: '1px solid var(--d-border)', borderRadius: 6 }}>
+            <div style={{ marginTop: 12, padding: '10px 12px', background: 'rgba(8,8,12,0.3)', border: '1px solid var(--d-border)', borderRadius: 6 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: '#60a5fa', letterSpacing: '1px', marginBottom: 8 }}>
                 10구 실측 변동성 (작을수록 일관 ↑)
               </div>
@@ -1347,6 +2040,17 @@ function CommandProfilePanel({ cmd, energy, layback, factors }) {
                   <div style={{ fontSize: 11, color: 'var(--d-fg2)', lineHeight: 1.55, paddingTop: 4, borderTop: `1px dashed ${fg.c}33` }}>
                     {f.comment}
                   </div>
+
+                  {/* 학술 설명 InfoBox (사용자 요청 — 7대 요인 각각의 정의/의미/해석/판단) */}
+                  {FACTOR_INFO[f.id] && (
+                    <InfoBox items={[{
+                      term: f.name + ' · 학술 설명',
+                      def: FACTOR_INFO[f.id].def,
+                      meaning: FACTOR_INFO[f.id].meaning,
+                      interpret: FACTOR_INFO[f.id].interpret,
+                      judge: FACTOR_INFO[f.id].judge
+                    }]}/>
+                  )}
                 </div>
               );
             })}
@@ -1547,15 +2251,17 @@ function VideoCard({ src }) {
 
 /* ---------------- SINGLE PITCHER VIEW ---------------- */
 function SinglePitcherView({ p }) {
+  const _ = (v, dash = '—') => (v == null || (typeof v === 'number' && isNaN(v))) ? dash : v;
   const physRows = [
-    { k: '폭발력', sub: 'CMJ 단위파워 · W/kg', val: p.physical.cmjPower.cmj, band: p.physical.cmjPower.band },
-    { k: '버티는 힘', sub: '절대근력 IMTP · N/kg', val: p.physical.maxStrength.perKg ?? '—', band: p.physical.maxStrength.band },
-    { k: '빠른 반동', sub: '반응성 RSI-mod · m/s', val: p.physical.reactive.cmj, band: p.physical.reactive.band },
-    { k: '반동 활용', sub: 'EUR · CMJ/SJ 비율', val: p.physical.ssc.value, band: p.physical.ssc.band },
-    { k: '손목 힘', sub: '악력 · kg', val: p.physical.release.value, band: p.physical.release.band },
+    { k: '폭발력', sub: 'CMJ 단위파워 · W/kg', val: _(p.physical?.cmjPower?.cmj), band: p.physical?.cmjPower?.band || 'na' },
+    { k: '버티는 힘', sub: '절대근력 IMTP · N/kg', val: _(p.physical?.maxStrength?.perKg), band: p.physical?.maxStrength?.band || 'na' },
+    { k: '빠른 반동', sub: '반응성 RSI-mod · m/s', val: _(p.physical?.reactive?.cmj), band: p.physical?.reactive?.band || 'na' },
+    { k: '반동 활용', sub: 'EUR · CMJ/SJ 비율', val: _(p.physical?.ssc?.value), band: p.physical?.ssc?.band || 'na' },
+    { k: '손목 힘', sub: '악력 · kg', val: _(p.physical?.release?.value), band: p.physical?.release?.band || 'na' },
   ];
   const bandLabel = { high: '상위', mid: '범위', low: '미만', na: '미측정' };
-  const taLeak = p.energy.etiTA < 0.85;
+  const etiTA = p.energy?.etiTA;
+  const taLeak = etiTA != null && etiTA < 0.85;
 
   return (
     <>
@@ -1574,23 +2280,27 @@ function SinglePitcherView({ p }) {
         </span>
       </div>
 
-      {/* Hero — Video (full width) */}
-      <div style={{ marginBottom: 20 }}>
+      {/* Hero — Video Sequence Panel (추후 활성화 — VideoPanel 함수는 보존) */}
+      {/* <div style={{ marginBottom: 20 }}>
         <VideoPanel p={p}/>
-      </div>
+      </div> */}
 
       {/* KPI grid */}
       <div className="kpi-grid">
         <KPI hero label="Peak Velocity" value={p.velocity.toFixed(1)} unit="km/h"
           foot={`평균 ${p.velocityAvg.toFixed(1)}`}/>
+        {p.spinRate != null && p.spinRate > 0 && (
+          <KPI label="Avg Spin Rate" value={Math.round(p.spinRate)} unit="rpm"
+            foot="평균 회전수"/>
+        )}
         <KPI label="Max Layback" value={p.layback.deg.toFixed(1)} deg
           band={p.layback.band}
           foot="프로 160°–180°"/>
         <KPI label="Trunk → Arm ETI" value={p.energy.etiTA.toFixed(2)}
           band={taLeak ? 'low' : 'high'}
           foot={taLeak ? `${p.energy.leakPct}% 손실` : '효율 전달'}/>
-        <KPI label="CMJ 단위파워" value={p.physical.cmjPower.cmj} unit="W/kg"
-          band={p.physical.cmjPower.band}
+        <KPI label="CMJ 단위파워" value={p.physical?.cmjPower?.cmj ?? '—'} unit="W/kg"
+          band={p.physical?.cmjPower?.band || 'na'}
           foot="기준 50+"/>
       </div>
 
@@ -1599,10 +2309,10 @@ function SinglePitcherView({ p }) {
         <CoreIssuePanel p={p}/>
       </div>
 
-      {/* Expected Velocity — 체력/메카닉스 기대 구속 + 훈련 방향 */}
-      <div style={{ marginBottom: 24 }}>
+      {/* Expected Velocity Panel — 향후 활성화 (현재 v0.1 prototype, n=4 baseline로 미완성) */}
+      {/* <div style={{ marginBottom: 24 }}>
         <ExpectedVelocityPanel p={p}/>
-      </div>
+      </div> */}
 
       {/* Section: Physical */}
       <SectionBlock num="01" title="Velocity Drivers · 구속 관련 체력 요소"
@@ -1662,12 +2372,15 @@ function SinglePitcherView({ p }) {
           <div className="panel">
             <div className="panel-head">
               <div>
-                <div className="kicker">Energy Transfer</div>
+                <div className="kicker">Energy Transfer · 5편 논문 정밀 지표</div>
                 <h3>에너지 전달과 누수</h3>
-                <div className="sub">· ETI = 분절 간 에너지 전달 비율 · 1.0이면 손실 없음</div>
+                <div className="sub">· 통합 마네킹: 키네틱 체인 에너지 흐름 + 정밀 지표 (elbow load, cocking power, transfer KE T→A, leg asymmetry)</div>
               </div>
             </div>
-            <EnergyFlow energy={p.energy}/>
+            {IntegratedKineticDiagram
+              ? <IntegratedKineticDiagram energy={p.energy} precision={p.precision}/>
+              : <EnergyFlow energy={p.energy}/>
+            }
             <div className="chart-caption">{p.energy.comment}</div>
           </div>
           <div className="panel">
@@ -1686,7 +2399,7 @@ function SinglePitcherView({ p }) {
               <div>
                 <div className="kicker">Peak Angular Velocity</div>
                 <h3>분절별 최대 회전 속도</h3>
-                <div className="sub">· 프로 범위: 골반 580–640 · 몸통 800–900 · 상완 1450–1600 °/s</div>
+                <div className="sub">· 한국 우수 고1 기준: 골반 500–600 · 몸통 750–900 · 상완 1350–1550 °/s</div>
               </div>
             </div>
             <AngularChart angular={p.angular}/>
@@ -1726,14 +2439,67 @@ function SinglePitcherView({ p }) {
         </div>
       </SectionBlock>
 
+      {/* Section 04 — 구속 변인 5모델 분석 (사용자 요청 v14: v7 구조 복원)
+          5개 영역(드라이브라인 4모델 + 우리 시스템 키네틱 체인 효율)별 변인 묶음 분석
+          06 종합과 차별화: 04는 모델별 상세 카드, 06은 RadarChart + 평균 종합 점수 */}
+      {p.velocityRadar && p.velocityRadar.length > 0 && (
+        <SectionBlock num="04" title="Velocity Drivers · 5-Model Analysis · 구속 변인 5모델 분석"
+          sub="· 5개 분석 모델별 영역 점수 — 드라이브라인 4모델(팔동작 · 하체블록 · 로딩능력 · 회전파워) + ⭐ 키네틱 체인 효율">
+          <VelocityRadarPanel data={p.velocityRadar} mode="cards"/>
+        </SectionBlock>
+      )}
+
+      {/* Section 05 — 키네틱 체인 & 정밀 지표 통합 분석 (v7 제목 복원)
+          분절 KE · Transfer · Peak Power · Elbow Moment 4개 그룹 카드 + 각 변인 정의·의미·해석·판단 InfoBox */}
+      {p.kineticChain && (
+        <SectionBlock num="05" title="Kinetic Chain & Precision · 키네틱 체인 & 정밀 지표 통합 분석"
+          sub={`· 분절 운동에너지 (KE) · Transfer 비율 · Peak Power · Elbow Inverse Dynamics${p.energy?.leakPct ? ` · 종합 누수율 ${p.energy.leakPct}%` : ''} · 각 변인 정의·의미·해석·판단 기준 포함`}>
+          <KineticChainPanel kc={p.kineticChain}/>
+        </SectionBlock>
+      )}
+
+      {/* Section 06 — 구속 요인 종합 (5축 RadarChart + 평균 점수 + 미니 점수 표) */}
+      {p.velocityRadar && p.velocityRadar.length > 0 && (
+        <SectionBlock num="06" title="Velocity Synthesis · 구속 요인 종합"
+          sub="· 5모델 점수의 다이어그램 종합 — 한눈에 보는 메카닉 균형 + 평균 점수">
+          <VelocityRadarPanel data={p.velocityRadar} mode="radar"/>
+        </SectionBlock>
+      )}
+
       {/* Section: Command Profile (7대 요인) */}
       <SectionBlock num="03" title="Command Mechanics · 제구 관련 메카닉스"
         sub="· 10구 메카닉 일관성 + 제구력 7대 요인 평가 · Uplift Labs 실측">
+        {/* 5 Domain Radar — 풋컨택트·시퀀싱·파워·릴리즈 포지션·릴리즈 타이밍 일관성 */}
+        {p.command?.radarData && p.command.radarData.length > 0 && (
+          <div className="panel" style={{ marginBottom: 16 }}>
+            <div className="panel-head">
+              <div>
+                <div className="kicker">5 Domain Consistency</div>
+                <h3>제구력 5대 영역 일관성 레이더</h3>
+                <div className="sub">· 풋 컨택트 · 시퀀싱 · 파워 아웃풋 · 릴리즈 포지션 · 릴리즈 타이밍 — 외곽으로 갈수록 우수 (50점 미만 = 보강 필요)</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
+              <RadarChart data={p.command.radarData}/>
+            </div>
+            <div className="chart-caption">{p.command.note}</div>
+          </div>
+        )}
         <CommandProfilePanel cmd={p.command} energy={p.energy} layback={p.layback} factors={p.factors}/>
       </SectionBlock>
 
+      {/* Section D 삭제됨 — 사용자 요청에 따라 제거 (Section 03 제구 메카닉스 + Section E 종합 평가로 정리) */}
+
+      {/* Section E — 종합 평가 (구속·제구·체력 점수 + 우선순위 개선점) */}
+      {p.summaryScores && (
+        <SectionBlock num="E" title="Comprehensive Evaluation · 종합 평가"
+          sub="· 구속 · 제구 · 체력 3축 종합 점수 + Mechanical Ceiling + 우선순위 개선점">
+          <SummaryScoresPanel ss={p.summaryScores}/>
+        </SectionBlock>
+      )}
+
       {/* Section: SW */}
-      <SectionBlock num="04" title="Strengths & Weaknesses · 강점·약점"
+      <SectionBlock num="04B" title="Strengths & Weaknesses · 강점·약점"
         sub="· 통합 판정 기반">
         <div className="sw-grid">
           <div>
@@ -1768,7 +2534,7 @@ function SinglePitcherView({ p }) {
       </SectionBlock>
 
       {/* Section: Flags — 항상 표시 (빈 경우 '특이사항 없음' 메시지) */}
-      <SectionBlock num="05" title="Check Points · 체크 포인트"
+      <SectionBlock num="05B" title="Check Points · 체크 포인트"
         sub="· 자동 규칙 엔진이 감지한 확인 필요 항목">
         {p.flags.length > 0 ? p.flags.map((f,i) => (
           <div className={`flag-item ${f.severity}`} key={i}>
@@ -1809,33 +2575,7 @@ function SinglePitcherView({ p }) {
         )}
       </SectionBlock>
 
-      {/* Section: Training */}
-      <SectionBlock num="06"
-        title="Physical Training Guide · 피지컬 트레이닝 가이드"
-        sub="· 선수가 혼자 수행하는 자기주도 프로그램 · 최소 장비 · 4–12주 블록">
-        <div className="training-list">
-          {p.training.map((t,i) => (
-            <div className="training-card" data-idx={`0${i+1}`} key={i}>
-              <div className="tc-head">
-                <span className="tc-cat">{t.cat}</span>
-                <h3 className="tc-title">{t.title}</h3>
-                <span className="tc-weeks">{t.weeks}</span>
-              </div>
-              <div className="tc-reason">{t.rationale}</div>
-              <ul className="tc-drills">
-                {t.drills.map((d,j) => <li key={j}>{d}</li>)}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </SectionBlock>
-
-      {/* Section: Mechanic Drills */}
-      <SectionBlock num="07"
-        title="Movement Correction Drills · 동작 교정 드릴"
-        sub="· 선수가 혼자서도 수행할 수 있는 자기주도 드릴">
-        <MechanicDrills p={p}/>
-      </SectionBlock>
+      {/* Training/Drills 섹션은 사용자 요청에 따라 비활성화 */}
 
       <div style={{ marginTop: 24, padding: 20, borderRadius: 14, background: 'var(--d-surface)', border: '1px solid var(--d-border)', fontSize: 11, color: 'var(--d-fg3)', textAlign: 'center' }}>
         <b style={{ color: 'var(--d-fg1)' }}>BioMotion Baseball Lab</b> · Kookmin University · 
@@ -2321,7 +3061,184 @@ function CompareCol({ p }) {
   );
 }
 
-function CompareSummary({ left, right }) {
+// ⭐ v18 — 3~4명 비교용 간단한 표 컴포넌트
+function CompareSummaryTable({ pitchers }) {
+  if (!pitchers || pitchers.length < 2) return null;
+  const n = pitchers.length;
+
+  // 색상 — 선수별 고유 색
+  const slotColors = ['#60a5fa', '#fbbf24', '#a78bfa', '#34d399'];
+
+  // 등급 색
+  const gradeColor = g => g === 'A' ? '#10b981' : g === 'B' ? '#3b82f6'
+                       : g === 'C' ? '#f59e0b' : g === 'D' ? '#ef4444' : '#94a3b8';
+
+  // 표 행 정의 — [라벨, 값 추출 함수, 단위/포맷, "높을수록 좋음" 여부]
+  const rows = [
+    { group: '구속', label: '최고 구속', get: p => p.velocity, unit: 'km/h', fmt: v => v?.toFixed?.(1), higherBetter: true },
+    { label: '평균 구속',                get: p => p.velocityAvg, unit: 'km/h', fmt: v => v?.toFixed?.(1), higherBetter: true },
+    { label: '회전수',                   get: p => p.spinRate, unit: 'rpm', fmt: v => v?.toFixed?.(0), higherBetter: true },
+
+    { group: '체력', label: 'CMJ 파워', get: p => p.physical?.cmjPower?.cmj, unit: 'W/kg', fmt: v => Number(v)?.toFixed?.(1), higherBetter: true },
+    { label: 'IMTP/체중',                get: p => p.physical?.maxStrength?.perKg, unit: 'N/kg', fmt: v => Number(v)?.toFixed?.(1), higherBetter: true },
+    { label: 'RSI (CMJ)',                get: p => p.physical?.reactive?.cmj, unit: 'm/s', fmt: v => Number(v)?.toFixed?.(2), higherBetter: true },
+    { label: '악력',                     get: p => p.physical?.release?.value, unit: 'kg', fmt: v => Number(v)?.toFixed?.(1), higherBetter: true },
+
+    { group: '구속 메카닉스', label: '골반→몸통 ETI', get: p => p.energy?.etiPT, fmt: v => v?.toFixed?.(2), higherBetter: true },
+    { label: '몸통→팔 ETI',                          get: p => p.energy?.etiTA, fmt: v => v?.toFixed?.(2), higherBetter: true },
+    { label: '에너지 누수 %',                        get: p => p.energy?.leakPct, unit: '%', fmt: v => v?.toFixed?.(0), higherBetter: false },
+    { label: 'Max Layback',                          get: p => p.layback?.deg, unit: '°', fmt: v => v?.toFixed?.(1), higherBetter: true },
+    { label: '골반 각속도',                          get: p => p.angular?.pelvis, unit: '°/s', fmt: v => v?.toFixed?.(0), higherBetter: true },
+    { label: '몸통 각속도',                          get: p => p.angular?.trunk, unit: '°/s', fmt: v => v?.toFixed?.(0), higherBetter: true },
+    { label: '상완 각속도',                          get: p => p.angular?.arm, unit: '°/s', fmt: v => v?.toFixed?.(0), higherBetter: true },
+
+    { group: '제구', label: '제구 등급', get: p => p.command?.grade, fmt: v => v || '—', higherBetter: null, isGrade: true },
+    { label: '스트라이크 %',              get: p => p.command?.strikePct, unit: '%', fmt: v => v?.toFixed?.(0), higherBetter: true },
+  ];
+
+  // 각 행에서 최고/최저 찾기 (셀 강조용)
+  function bestWorst(row) {
+    if (row.isGrade) return { best: null, worst: null };
+    if (row.higherBetter == null) return { best: null, worst: null };
+    const vals = pitchers.map((p, i) => {
+      const v = row.get(p);
+      const n = Number(v);
+      return isFinite(n) ? { i, v: n } : null;
+    }).filter(Boolean);
+    if (vals.length < 2) return { best: null, worst: null };
+    let best, worst;
+    if (row.higherBetter) {
+      best = vals.reduce((m, x) => x.v > m.v ? x : m);
+      worst = vals.reduce((m, x) => x.v < m.v ? x : m);
+    } else {
+      best = vals.reduce((m, x) => x.v < m.v ? x : m);
+      worst = vals.reduce((m, x) => x.v > m.v ? x : m);
+    }
+    if (best.v === worst.v) return { best: null, worst: null };
+    return { best: best.i, worst: worst.i };
+  }
+
+  return (
+    <div style={{
+      background: 'var(--d-surface)', borderRadius: 14, padding: 24,
+      border: '1px solid var(--d-border)', marginTop: 24
+    }}>
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#93c5fd', letterSpacing: '1.2px', marginBottom: 4 }}>
+          COMPARISON SUMMARY
+        </div>
+        <h3 style={{ fontSize: 18, fontWeight: 700, color: 'var(--d-fg1)', margin: 0 }}>
+          {n}명 종합 비교표
+        </h3>
+        <div style={{ fontSize: 11, color: 'var(--d-fg3)', marginTop: 4 }}>
+          🔵 행별 최고값 강조 · ⭕ 행별 최저값 표시 · 등급은 색으로 구분
+        </div>
+      </div>
+
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{
+          width: '100%', borderCollapse: 'separate', borderSpacing: 0,
+          fontSize: 12.5
+        }}>
+          <thead>
+            <tr>
+              <th style={{
+                padding: '10px 12px', textAlign: 'left',
+                background: 'rgba(0,0,0,0.2)', color: 'var(--d-fg3)',
+                fontSize: 10, letterSpacing: '0.5px', fontWeight: 700,
+                borderBottom: '2px solid var(--d-border)'
+              }}>변인</th>
+              {pitchers.map((p, i) => (
+                <th key={i} style={{
+                  padding: '10px 12px', textAlign: 'center',
+                  background: `${slotColors[i]}15`,
+                  color: slotColors[i],
+                  fontSize: 12, fontWeight: 800,
+                  borderBottom: `2px solid ${slotColors[i]}55`,
+                  borderTop: `2px solid ${slotColors[i]}`,
+                  minWidth: 110
+                }}>
+                  <div style={{ fontSize: 9, opacity: 0.7, fontWeight: 600, marginBottom: 2 }}>{['A','B','C','D'][i]}</div>
+                  {p.name}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, ri) => {
+              const { best, worst } = bestWorst(row);
+              return (
+                <React.Fragment key={ri}>
+                  {row.group && (
+                    <tr>
+                      <td colSpan={n + 1} style={{
+                        padding: '12px 12px 6px',
+                        fontSize: 10, fontWeight: 700, color: '#60a5fa',
+                        letterSpacing: '0.8px', textTransform: 'uppercase'
+                      }}>
+                        {row.group}
+                      </td>
+                    </tr>
+                  )}
+                  <tr>
+                    <td style={{
+                      padding: '8px 12px', color: 'var(--d-fg2)',
+                      borderBottom: '1px solid var(--d-border)'
+                    }}>
+                      {row.label}
+                    </td>
+                    {pitchers.map((p, i) => {
+                      const raw = row.get(p);
+                      const display = row.fmt ? row.fmt(raw) : raw;
+                      const isBest = best === i;
+                      const isWorst = worst === i;
+                      const isMissing = raw == null || display == null || display === '—' || display === 'NaN' || isNaN(Number(raw));
+                      const cellStyle = {
+                        padding: '8px 12px', textAlign: 'center',
+                        fontFamily: 'Inter', fontSize: 13, fontWeight: 700,
+                        borderBottom: '1px solid var(--d-border)',
+                        background: isBest ? `${slotColors[i]}1f` : isWorst ? 'rgba(248,113,113,0.06)' : 'transparent',
+                        color: row.isGrade ? gradeColor(raw)
+                              : isBest ? slotColors[i]
+                              : isWorst ? '#f87171'
+                              : 'var(--d-fg1)',
+                        position: 'relative'
+                      };
+                      return (
+                        <td key={i} style={cellStyle}>
+                          {isMissing ? '—' : (
+                            <>
+                              {display}{row.unit && !isMissing && <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 2 }}>{row.unit}</span>}
+                              {isBest && <span style={{ marginLeft: 4, fontSize: 9 }}>🔵</span>}
+                              {isWorst && <span style={{ marginLeft: 4, fontSize: 9 }}>⭕</span>}
+                            </>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+
+  // ⭐ v18 — N명(2~4) 비교 지원
+  // 2명 — 기존 풍부한 텍스트 분석 사용
+  // 3~4명 — 간단한 비교표 표시
+  // (호환: 옛 호출 left/right도 받음)
+  if (pitchers && pitchers.length >= 3) {
+    return <CompareSummaryTable pitchers={pitchers}/>;
+  }
+  // 2명 — 기존 로직 (left/right를 pitchers에서 추출)
+  if (pitchers && pitchers.length === 2) {
+    left = pitchers[0]; right = pitchers[1];
+  }
   if (!left || !right) return null;
   
   const GRADE_PT = { A: 4, B: 3, C: 2, D: 1, na: 2.5 };
@@ -2919,72 +3836,108 @@ function CompareSummary({ left, right }) {
   );
 }
 
-function CompareView({ pitchers, leftId, rightId, onLeft, onRight }) {
-  const left = pitchers.find(p => p.id === leftId);
-  const right = pitchers.find(p => p.id === rightId);
+function CompareView({ pitchers, slotIds, onSlotChange }) {
+  // ⭐ v18 — 2~4명 비교 지원
+  // slotIds: 선택된 선수 ID 배열 (2~4)
+  // onSlotChange(idx, newId): 슬롯 idx의 선수를 newId로 변경
+  const slots = (slotIds || []).map(id => pitchers.find(p => p.id === id)).filter(Boolean);
+  const n = slots.length;
+  const slotLabels = ['A', 'B', 'C', 'D'];
+
   return (
     <>
       <div className="page-head">
         <div>
           <h1 className="page-title">Compare Mode · 선수 비교</h1>
-          <div className="page-sub">2명 동시 비교 · 체력 + 구속 메카닉스 + 제구 메카닉스 종합</div>
+          <div className="page-sub">
+            {n}명 동시 비교 · 체력 + 구속 메카닉스 + 제구 메카닉스 종합
+          </div>
         </div>
       </div>
-      <div className="compare-bar">
-        <span className="label">A</span>
-        <div className="compare-slot">
-          <select value={leftId} onChange={(e) => onLeft(e.target.value)}>
-            {pitchers.map(p => (
-              <option key={p.id} value={p.id} disabled={p.id === rightId}>
-                {p.name} · {p.velocity.toFixed(1)} km/h · {p.command?.grade || '—'}
-              </option>
-            ))}
-          </select>
-        </div>
-        <span className="label" style={{ marginLeft: 12 }}>vs</span>
-        <span className="label">B</span>
-        <div className="compare-slot">
-          <select value={rightId} onChange={(e) => onRight(e.target.value)}>
-            {pitchers.map(p => (
-              <option key={p.id} value={p.id} disabled={p.id === leftId}>
-                {p.name} · {p.velocity.toFixed(1)} km/h · {p.command?.grade || '—'}
-              </option>
-            ))}
-          </select>
-        </div>
+
+      {/* 슬롯 선택 바 */}
+      <div className="compare-bar" style={{ flexWrap: 'wrap', gap: 8 }}>
+        {slotIds.map((sid, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && <span className="label" style={{ marginLeft: 6, opacity: 0.5 }}>vs</span>}
+            <span className="label">{slotLabels[i]}</span>
+            <div className="compare-slot">
+              <select value={sid} onChange={e => onSlotChange(i, e.target.value)}>
+                {pitchers.map(p => (
+                  <option key={p.id} value={p.id}
+                    disabled={slotIds.some((other, j) => j !== i && other === p.id)}>
+                    {p.name} · {p.velocity?.toFixed?.(1) || p.velocity || '?'} km/h · {p.command?.grade || '—'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </React.Fragment>
+        ))}
       </div>
-      <div className="compare-grid">
-        {left && <CompareCol p={left}/>}
-        {right && <CompareCol p={right}/>}
+
+      {/* N열 비교 그리드 — N에 따라 동적 컬럼 */}
+      <div className="compare-grid" data-cols={n} style={{
+        gridTemplateColumns: `repeat(${n}, 1fr)`
+      }}>
+        {slots.map((p, i) => <CompareCol key={p.id || i} p={p}/>)}
       </div>
-      
-      {/* === 비교 요약 (텍스트 기반 자동 생성) === */}
-      <CompareSummary left={left} right={right}/>
+
+      {/* === 비교 요약 — N명 지원 === */}
+      <CompareSummary pitchers={slots}/>
     </>
   );
 }
 
 /* ---------------- APP ---------------- */
-function App() {
-  const pitchers = window.BBL_PITCHERS;
-  const [activeId, setActiveId] = useState(pitchers[0].id);
-  const [mode, setMode] = useState('single');
-  const [leftId, setLeftId] = useState(pitchers[0].id);
-  const [rightId, setRightId] = useState(pitchers[1].id);
+function App({ onBack }) {
+  const pitchers = window.BBL_PITCHERS || [];
+  // Hooks를 모든 조건문 이전에 호출 (React Hooks 규칙)
+  const fallbackId = pitchers[0]?.id || 'none';
+  const [activeId, setActiveId] = useState(fallbackId);
+  // ⭐ v18 — 여러 명일 때 자동 비교 모드 진입
+  const [mode, setMode] = useState(pitchers.length >= 2 ? 'compare' : 'single');
+  // ⭐ v18 — 슬롯 ID 배열 (2~4명 비교 지원). 처음 N명 자동 채움
+  const initialSlots = pitchers.slice(0, Math.min(4, pitchers.length)).map(p => p.id);
+  // 비교에 최소 2명 필요 — 1명뿐이면 fallback으로 같은 ID 두 번 (실제로는 비교 모드 비활성)
+  while (initialSlots.length < 2) initialSlots.push(fallbackId);
+  const [slotIds, setSlotIds] = useState(initialSlots);
+  const onSlotChange = (idx, newId) => {
+    setSlotIds(prev => prev.map((id, i) => i === idx ? newId : id));
+  };
   const [theme, setTheme] = useTheme();
   const [activeNav, setActiveNav] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const active = pitchers.find(p => p.id === activeId);
+
+  // pitchers 비어 있으면 안내 화면
+  if (!pitchers.length) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: '#0a1628', color: '#e2e8f0', flexDirection: 'column', gap: 16
+      }}>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>분석된 선수 데이터가 없습니다</div>
+        {onBack && (
+          <button onClick={onBack} style={{
+            padding: '8px 18px', background: '#2563EB', color: '#fff', border: 'none', borderRadius: 6,
+            cursor: 'pointer', fontSize: 13, fontWeight: 600
+          }}>← 입력 페이지로</button>
+        )}
+      </div>
+    );
+  }
+  const active = pitchers.find(p => p.id === activeId) || pitchers[0];
 
   const navItems = [
-    { id: 'overview', label: 'Overview',     icon: Ic.home,     num: '00' },
-    { id: 'physical', label: '구속 관련 체력', icon: Ic.body,     num: '01' },
+    { id: 'overview', label: 'Overview',          icon: Ic.home,     num: '00' },
+    { id: 'physical', label: '구속 관련 체력',    icon: Ic.body,     num: '01' },
     { id: 'mech',     label: '구속 관련 메카닉스', icon: Ic.motion,   num: '02' },
+    { id: 'velSyn5',  label: '5모델 분석',         icon: Ic.star,     num: '04' },
+    { id: 'kinetic',  label: '키네틱 체인 정밀',   icon: Ic.motion,   num: '05' },
+    { id: 'velSyn',   label: '구속 요인 종합',     icon: Ic.star,     num: '06' },
     { id: 'command',  label: '제구 관련 메카닉스', icon: Ic.flag,     num: '03' },
-    { id: 'sw',       label: '강점·약점',     icon: Ic.star,     num: '04' },
-    { id: 'flags',    label: '체크 포인트',   icon: Ic.flag,     num: '05' },
-    { id: 'training', label: '피지컬 트레이닝', icon: Ic.dumbbell, num: '06' },
-    { id: 'drills',   label: '동작 교정 드릴', icon: Ic.motion,   num: '07' },
+    { id: 'summary',  label: '종합 평가',          icon: Ic.star,     num: 'E' },
+    { id: 'sw',       label: '강점·약점',          icon: Ic.star,     num: '04B' },
+    { id: 'flags',    label: '체크 포인트',        icon: Ic.flag,     num: '05B' },
   ];
 
   // Smooth scroll to section
@@ -2994,7 +3947,7 @@ function App() {
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
-    const numMap = { physical: '01', mech: '02', command: '03', sw: '04', flags: '05', training: '06', drills: '07' };
+    const numMap = { physical: '01', mech: '02', command: '03', sw: '04B', flags: '05B', velSyn5: '04', kinetic: '05', velSyn: '06', summary: 'E' };
     const targetNum = numMap[id];
     setTimeout(() => {
       const block = document.querySelector(`.section-block[data-section-num="${targetNum}"]`);
@@ -3017,16 +3970,15 @@ function App() {
         <Sidebar pitchers={pitchers} activeId={activeId} onSelect={setActiveId}
           mode={mode} onMode={setMode}
           navItems={navItems} activeNav={activeNav} onNavSelect={onNavSelect}
-          isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)}/>
+          isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onBack={onBack}/>
         <div className="main">
           <DashTopBar pitcher={active} mode={mode} theme={theme} onTheme={setTheme}
-            onMenu={() => setSidebarOpen(o => !o)}/>
+            onMenu={() => setSidebarOpen(o => !o)} onBack={onBack}/>
           <div className="content">
             {mode === 'single' && active && <SinglePitcherView p={active} key={activeId}/>}
             {mode === 'compare' && (
               <CompareView pitchers={pitchers}
-                leftId={leftId} rightId={rightId}
-                onLeft={setLeftId} onRight={setRightId}/>
+                slotIds={slotIds} onSlotChange={onSlotChange}/>
             )}
           </div>
         </div>
@@ -3035,4 +3987,5 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+window.BBLDashboardApp = App;
+})();
