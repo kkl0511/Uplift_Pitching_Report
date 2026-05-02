@@ -133,6 +133,17 @@
 
 ## 변경 이력
 
+### 2026-05-03 v30.14 — 좌완 좌표계 정합성 (circular normalize + 우완 등가 매핑)
+- **좌완 좌표계 진단**: 우완 6명 59 trial(`-67.1°±33`) + 좌완 8명 157 trial(`+173.8°±26.6`) 검증
+- **circular normalize 도입**: ±360° wrap-around 처리 (parkjibin H1 trial 7 -248° 같은 경계 케이스 정상 처리)
+- **좌완 → 우완 등가 매핑**: 좌완 normalized 값에서 trunk 241°, pelvis 200° 차감 → 단일 target -67° 사용 가능
+- **단순 부호 뒤집기 폐지**: v30.13.1의 `trunkRot = -trunkRot` 방식이 좌완 lab fixed-axis 좌표를 잘못 가정한 것을 수정
+- **hip_shoulder_sep_at_fc 부호 통일**: `Math.abs()` → signed (pelvis − trunk), 양수 = pelvis 먼저 열림(좋음)
+- **max_x_factor 좌투 보정**: 회전 방향 반대이므로 컬럼 순서 swap (trunk − pelvis max in [KH, FC+5])
+- **표준값 갱신**: trunk_rotation_at_fc { optimal -67°, sigma 30 } / hip_shoulder_sep_at_fc { optimal +21°, sigma 13 }
+- **좌완 elite n=8 표본**: 오승현·배민성·정지원·고도현·전우진·안현석·정하경·박지빈
+- **검증 결과**: 좌완 8명 모든 trial이 변환 후 `[-130°, -30°]` 우완 등가 영역에 위치, hip_sep는 +5°~+33° 범위
+
 ### 2026-05-03 v30 — Raw 시계열 기반 산출 + QC
 - **모든 메카닉/제구 변수를 raw 시계열에서 직접 산출** (Uplift 사전계산값 의존 제거)
   - peak_pelvis/trunk_av: max\|시계열\| in [KH, BR+30]

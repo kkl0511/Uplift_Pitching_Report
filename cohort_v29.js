@@ -283,6 +283,13 @@ window.COHORT = {
         "ratio",
         2,
         "higher"
+      ],
+      [
+        "hip_shoulder_sep_sd_deg",
+        "FC sep 변동성 (메카닉 안정성) ★",
+        "°",
+        2,
+        "lower"
       ]
     ],
     "C6_ArmCocking": [
@@ -356,6 +363,13 @@ window.COHORT = {
         "%",
         0,
         "higher"
+      ],
+      [
+        "hip_shoulder_sep_sd_deg",
+        "FC 분리각 변동성 ★",
+        "°",
+        2,
+        "lower"
       ]
     ],
     "P5_StrideConsistency": [
@@ -9590,6 +9604,7 @@ window.COHORT = {
     "stride_sd_cm": "lower",
     "stride_mean_m": "higher",
     "trunk_tilt_sd_deg": "lower",
+    "hip_shoulder_sep_sd_deg": "lower",
     "arm_trunk_speedup": "higher",
     "pelvis_trunk_speedup": "higher"
   },

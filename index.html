@@ -649,11 +649,25 @@
 
 // ★ 알고리즘 버전 (2026-05-03) — 산식 변경 시 갱신
 //   저장된 리포트의 algorithm_version과 비교해 자동 재계산 + UI 알림
-const ALGORITHM_VERSION = 'v30.7';
+const ALGORITHM_VERSION = 'v30.14';
 const ALGORITHM_DATE    = '2026-05-03';
 
 let CURRENT_AGE = '고교';
 let CURRENT_INPUT = { fitness: {}, mechanics: {} };
+
+// ★ v30.14 좌완 좌표계 보정 헬퍼 (2026-05-03)
+//   좌완 trunk_rot/pelvis_rot은 우완과 별개 좌표 영역(circular wrap-around).
+//   - circular normalize: ±360° wrap 처리
+//   - 좌완 → 우완 등가 매핑: 점수제·UI에서 단일 target(-67°) 적용 가능
+//   데이터 근거: 우완 6명 59 trial(-67.1°±33), 좌완 8명 157 trial(+173.8°±26.6)
+function normalizeAngle(angle, ref) {
+  if (angle == null || isNaN(angle)) return null;
+  return ((angle - ref + 180) % 360) - 180 + ref;
+}
+const LEFT_TRUNK_REF  = 174;  // 좌완 trunk_rot@FC circular mean (n=157)
+const LEFT_PELVIS_REF = 152;  // 좌완 pelvis_rot@FC circular mean (n=157)
+const LEFT_TO_RIGHT_TRUNK_OFFSET  = 241;  // 좌완 normalized → 우완 등가 변환 (174 → -67)
+const LEFT_TO_RIGHT_PELVIS_OFFSET = 200;  // 좌완 normalized → 우완 등가 변환 (152 → -48)
 
 // ════════════════════════════════════════════════════════════════════
 // 유틸리티
@@ -720,12 +734,20 @@ const EXTRA_VAR_SCORING = {
   'peak_pelvis_rot_vel':          { optimal: 550, sigma: 130 },                       // °/s — alias
   'max_pelvis_rot_vel_dps':       { optimal: 550, sigma: 130 },                       // °/s — alias
   // ★ 운동량 전달 효율 (2026-05-03 신규) — 정예준 같은 효율 타입 elite 평가
-  'arm_trunk_speedup':            { optimal: 1.9, sigma: 0.4 },                       // ratio — peak_arm_av / peak_trunk_av (elite 1.8~2.2)
+  'arm_trunk_speedup':            { optimal: 1.88, sigma: 0.2 },                      // ratio — 20명 elite 표준 1.88 (v30.13 정밀화)
   'pelvis_trunk_speedup':         { optimal: 1.5, sigma: 0.3 },                       // ratio — peak_trunk_av / peak_pelvis_av (참고용)
   // ★ 메카닉 각도/속도 — 문헌 기반 점수화 (2026-05-03 라운드 2)
   //   기존엔 코호트 percentile만 사용했으나, 문헌에 풍부한 standard 있는 변수들
-  'trunk_rotation_at_fc':         { optimal: -45, sigma: 15 },                        // ° — Driveline closed shoulders at FP (음수=던지기 반대 방향)
-  'hip_shoulder_sep_at_fc':       { optimal: 40, sigma: 12 },                         // ° — Stodden 2001 HS, Aguinaldo 2007 pro 평균
+  // ★ 2026-05-03 v30.11 후속 — 11명 elite 통계 검증 결과 반영
+  //   trunk_rotation_at_fc: optimal -60° (적정 닫힘), sigma 30 (-30~-90 범위가 elite)
+  //     너무 0 근처(Flying Open)도 너무 -100° 미만(과도한 비틀림)도 비효율
+  //   hip_shoulder_sep_at_fc: optimal 0 (작을수록 좋음), Gaussian + useAbs
+  //     elite 11명 통계: hip_sep H2 절대값 r=-0.539 (작을수록 ΔV 큼)
+  'trunk_rotation_at_fc':         { optimal: -67, sigma: 30 },                        // ° — v30.14: 우완(n=59) -67±33 + 좌완(n=157) 우완등가 -67±27, 통합 sigma 30
+  'hip_shoulder_sep_at_fc':       { optimal: 21, sigma: 13 },                         // ° — v30.14: 우완 +19±15 + 좌완(부호 보정) +22±11 통합 표준
+  // ★ hip_shoulder_sep_sd_deg 신규 (2026-05-03 v30.11) — trial 간 hip-sep 변동성
+  //   메카닉 안정성 + 제구 일관성 양쪽에 영향. elite |Δ| r=-0.709 (★★★★★)
+  'hip_shoulder_sep_sd_deg':      { optimal: 0, sigma: 8 },                           // ° — trial 간 SD, 작을수록 안정
   'max_shoulder_ER_deg':          { optimal: 185, sigma: 12 },                        // ° — Driveline elite 175~200
   'shoulder_h_abd_at_fc':         { optimal: 10, sigma: 15 },                         // ° — Driveline standard (수평 외전 약간 양수)
   'arm_slot_mean_deg':            { optimal: 45, sigma: 20 },                         // ° — High 3/4 (BBL HS 표준)
@@ -776,6 +798,8 @@ const LITERATURE_OVERRIDE = new Set([
   'max_cog_velo',
   'com_decel_pct',
   'lead_knee_amortization_ms',
+  // ★ 2026-05-03 v30.11 메카닉 안정성
+  'hip_shoulder_sep_sd_deg',
 ]);
 
 // ════════════════════════════════════════════════════════════════════
@@ -1375,12 +1399,15 @@ function extractScalarsFromUplift(parsed) {
     }
   }
 
-  // ── max_x_factor ★raw — pelvis_rot - trunk_rot의 signed max in [KH, FC+5] (2026-05-03 보정) ──
+  // ── max_x_factor ★raw — signed max in [KH, FC+5] (2026-05-03 보정) ──
   //   X-factor는 stretch 단계(KH→FC)에 peak. FC 후 trunk가 catch up 하며 부호 뒤집힘.
   //   기존 abs max는 FC 후 반대 부호 peak를 잡을 위험 → [KH, FC+5] 윈도우 + signed max로 보정
-  //   signed: 양수 = pelvis가 trunk보다 더 회전(load), 점수에는 절댓값 사용
+  //   signed: 양수 = loading peak, 점수에는 절댓값 사용
+  //   ★ v30.14: 좌투는 회전 방향 반대 → (pelvis-trunk) 대신 (trunk-pelvis) max 산출
   if (events.kh != null && events.fc != null) {
-    const xf = colDiffSignedMaxBetween('pelvis_global_rotation', 'trunk_global_rotation', events.kh, events.fc + 5);
+    const xf = (armSide === 'left')
+      ? colDiffSignedMaxBetween('trunk_global_rotation', 'pelvis_global_rotation', events.kh, events.fc + 5)
+      : colDiffSignedMaxBetween('pelvis_global_rotation', 'trunk_global_rotation', events.kh, events.fc + 5);
     if (xf != null) out.max_x_factor = xf;
   }
   // 시퀀스 lag
@@ -1404,10 +1431,21 @@ function extractScalarsFromUplift(parsed) {
 
   // FC at-event
   if (events.fc != null) {
-    const trunkRot  = valAt(events.fc, 'trunk_global_rotation');
-    const pelvisRot = valAt(events.fc, 'pelvis_global_rotation');
+    let trunkRot  = valAt(events.fc, 'trunk_global_rotation');
+    let pelvisRot = valAt(events.fc, 'pelvis_global_rotation');
+    // ★ v30.14 좌투 좌표계 보정 (2026-05-03 — 좌완 8명 157 trial 검증)
+    //   좌완은 lab fixed-axis 기준 별도 좌표 영역(우완 -67°, 좌완 +174° / 240° 차이)
+    //   1) circular normalize로 wrap-around 처리
+    //   2) 좌완 → 우완 등가로 매핑 → 단일 target(-67°) 적용 가능
+    if (armSide === 'left') {
+      trunkRot  = normalizeAngle(trunkRot,  LEFT_TRUNK_REF);
+      pelvisRot = normalizeAngle(pelvisRot, LEFT_PELVIS_REF);
+      if (trunkRot  != null) trunkRot  = trunkRot  - LEFT_TO_RIGHT_TRUNK_OFFSET;
+      if (pelvisRot != null) pelvisRot = pelvisRot - LEFT_TO_RIGHT_PELVIS_OFFSET;
+    }
     out.trunk_rotation_at_fc      = trunkRot;
-    out.hip_shoulder_sep_at_fc    = (trunkRot != null && pelvisRot != null) ? Math.abs(trunkRot - pelvisRot) : null;
+    // hip_shoulder_sep@FC: signed (pelvis - trunk), 양수 = pelvis 먼저 열림(좋음)
+    out.hip_shoulder_sep_at_fc    = (trunkRot != null && pelvisRot != null) ? (pelvisRot - trunkRot) : null;
     // BBL 컨벤션: 음수 = 뒤로 기울임(이상), 0 = 똑바로, 양수 = 앞으로 기울임
     // Uplift trunk_global_flexion: 180° = upright, >180° = back tilt, <180° = forward tilt
     // 변환: BBL = 180 - Uplift  (예: Uplift 183 → BBL -3°, 거의 똑바로)
@@ -1836,6 +1874,11 @@ function applyMultiTrialUplift(scalarsList) {
     const vals = collect(key);
     if (vals.length) loaded[bbl] = mean(vals);
   }
+  // ★ hip_shoulder_sep_sd_deg (2026-05-03 v30.11) — FC 시점 hip-shoulder sep 변동성
+  //   메카닉 안정성 + 제구 일관성 양쪽 신호 (elite 통계 r=-0.71 ★★★★★)
+  const hsepVals = collect('hip_shoulder_sep_at_fc');
+  if (hsepVals.length >= 2) loaded['hip_shoulder_sep_sd_deg'] = stdev(hsepVals);
+
   // proper_sequence (메카닉 C5 binary) — N trial 중 proper인 비율을 0/1로 (0.5↑면 1)
   const seqVals = collect('proper_sequence_binary');
   if (seqVals.length) {
@@ -2242,7 +2285,11 @@ function processUpliftCsv(header, headerNorm, lines, type) {
       return max;
     };
     if (events.kh != null && events.fc != null) {
-      setVal('peak_x_factor', _signedXf('pelvis_global_rotation', 'trunk_global_rotation', events.kh, events.fc + 5));
+      // ★ v30.14: 좌투는 회전 방향 반대 → 컬럼 순서 swap
+      const xf = (armSide === 'left')
+        ? _signedXf('trunk_global_rotation', 'pelvis_global_rotation', events.kh, events.fc + 5)
+        : _signedXf('pelvis_global_rotation', 'trunk_global_rotation', events.kh, events.fc + 5);
+      setVal('peak_x_factor', xf);
     }
   }
   // max_shoulder_ER_deg는 max_layback_angle과 컨벤션이 다름 → 시계열에서 직접 추출 (아래 4번 단계에서)
@@ -2266,12 +2313,19 @@ function processUpliftCsv(header, headerNorm, lines, type) {
 
   // 4) FC 시점 시계열 추출
   if (events.fc != null) {
-    const trunkRot  = valAtFrame(events.fc, 'trunk_global_rotation');
-    const pelvisRot = valAtFrame(events.fc, 'pelvis_global_rotation');
+    let trunkRot  = valAtFrame(events.fc, 'trunk_global_rotation');
+    let pelvisRot = valAtFrame(events.fc, 'pelvis_global_rotation');
     const trunkFwd  = valAtFrame(events.fc, 'trunk_global_flexion');
+    // ★ v30.14 좌투 좌표계 보정 (extractScalarsFromUplift와 동일)
+    if (armSide === 'left') {
+      trunkRot  = normalizeAngle(trunkRot,  LEFT_TRUNK_REF);
+      pelvisRot = normalizeAngle(pelvisRot, LEFT_PELVIS_REF);
+      if (trunkRot  != null) trunkRot  = trunkRot  - LEFT_TO_RIGHT_TRUNK_OFFSET;
+      if (pelvisRot != null) pelvisRot = pelvisRot - LEFT_TO_RIGHT_PELVIS_OFFSET;
+    }
     setVal('trunk_rotation_at_fc', trunkRot);
     if (trunkRot != null && pelvisRot != null) {
-      setVal('hip_shoulder_sep_at_fc', Math.abs(trunkRot - pelvisRot));
+      setVal('hip_shoulder_sep_at_fc', pelvisRot - trunkRot);  // signed (양수 = pelvis 먼저 열림)
     }
     setVal('trunk_forward_tilt_at_fc', trunkFwd);
 
@@ -3815,20 +3869,24 @@ function renderDrivelineCategoryAccordion(dvCat, catScore, varScores) {
 // ════════════════════════════════════════════════════════════════════
 const CATEGORY_WEIGHTS = {
   C1_Foundation: {
-    'stride_norm_height':         0.58,  // Stride Length
-    'trunk_rotation_at_fc':       0.35,  // Torso Rotation at FP
-    'hip_shoulder_sep_at_fc':     0.44,  // Hip-Shoulder Sep at FP
-    'trunk_forward_tilt_at_fc':   0.36,  // Torso Forward Tilt at FP
+    // 2026-05-03 v30.11: 이벤트 시점 각도/위치는 고신뢰 → 가중치 ↑
+    'stride_norm_height':         0.70,  // 0.58→0.70 (고신뢰 위치)
+    'trunk_rotation_at_fc':       0.50,  // 0.35→0.50 (고신뢰 각도)
+    'hip_shoulder_sep_at_fc':     0.60,  // 0.44→0.60 ★ X-factor at FC
+    'trunk_forward_tilt_at_fc':   0.50,  // 0.36→0.50 (고신뢰 각도)
   },
   C2_HipDrive: {
-    'max_pelvis_rot_vel_dps':  0.27,  // Pelvis Rotation Velo
-    'hip_ir_vel_max_drive':    0.27,  // (Driveline 미수록 — Pelvis와 비슷한 hip 동작 가중치 추정)
-    'max_cog_velo':            0.29,  // Max CoG Velo
+    // 2026-05-03 v30.11: 골반 회전속도는 Uplift 신뢰도 낮음 → 가중치 ↓
+    'max_pelvis_rot_vel_dps':  0.15,  // 0.27→0.15 (저신뢰 회전속도)
+    'hip_ir_vel_max_drive':    0.15,  // 0.27→0.15
+    'max_cog_velo':            0.20,  // 0.29→0.20 (말단 영향)
   },
   C3_TrunkPower: {
-    'max_trunk_twist_vel_dps':  1.00,  // Torso Rotation Velo (가장 중요!)
-    'trunk_flex_vel_max':       0.36,  // (Stodden 2001 trunk forward tilt 비례)
-    'peak_x_factor':            0.38,  // Peak Torso Counter Rot (PPTX는 Posture 분류이나 trunk power 산출에도 핵심)
+    // 2026-05-03 v30.11: 회전속도(저신뢰) ↓, X-factor(고신뢰 각도) ↑
+    //   21명 통계: Δx_factor% r=+0.555 (가장 강한 메카닉 신호)
+    'max_trunk_twist_vel_dps':  0.50,  // 1.00→0.50 (저신뢰 회전속도)
+    'trunk_flex_vel_max':       0.30,  // 0.36→0.30 (저신뢰)
+    'peak_x_factor':            1.00,  // 0.38→1.00 ★ 가장 강한 신호로 승격
   },
   C4_LeadLegBlock: {
     'lead_knee_ext_vel_max':         0.19,  // Peak Lead Knee Ext Velo
@@ -3837,10 +3895,14 @@ const CATEGORY_WEIGHTS = {
     'lead_knee_amortization_ms':     0.58,  // (Driveline 미수록 — Lead Knee Ext와 비슷한 SSC 효율 추정)
   },
   C5_Sequencing: {
-    arm_trunk_speedup:      5,   // ★ 가장 중요 (2026-05-03) — 몸통→팔 에너지 전달 효율 (정예준 같은 효율 타입 elite 평가)
-    pelvis_to_trunk_lag_ms: 2,   // 시퀀싱 lag — proximal-to-distal 타이밍
-    trunk_to_arm_lag_ms:    2,   // 시퀀싱 lag
-    proper_sequence:        1,   // binary 충족 여부
+    // 2026-05-03 v30.11 사용자 인사이트 반영:
+    //   - arm_trunk_speedup: 회전속도 ratio라 저신뢰 (말단 + 노이즈) → 5→1로 강등
+    //   - proper_sequence: 시퀀싱 정착이 명확한 신호 → 3 유지 (★)
+    //   - lag: 시점 검출 노이즈 있어 보수적
+    arm_trunk_speedup:      1,   // 5→1 (신뢰도 한계, 21명 통계 r=0.09)
+    pelvis_to_trunk_lag_ms: 2,
+    trunk_to_arm_lag_ms:    2,
+    proper_sequence:        3,   // ★ 시퀀싱 정착 (proper_sequence_pct 사용 가능)
   },
   C6_ArmCocking: {
     'max_shoulder_ER_deg':    0.86,  // Layback (구속 영향력 2위)
@@ -3920,8 +3982,12 @@ function calculateScores(input, age, measuredVelo) {
   const Control_Score = ctrlCatScores.length ? Math.round(ctrlCatScores.reduce((a,b)=>a+b,0)/ctrlCatScores.length * 10) / 10 : null;
   
   // 3) 회귀로 PV, MV 계산 (연령군 구속 보정 포함)
-  const fr = COHORT.regression.fitness_to_velocity;
-  const mr = COHORT.regression.mechanics_to_velocity;
+  // 2026-05-03 v30.13: 20명 elite OLS 회귀 결과 (R²=0.68)
+  //   체력 slope: 0.168, 메카닉 slope: 0.285 (실측, 사용자 인사이트와 데이터 균형)
+  const _frBase = COHORT.regression.fitness_to_velocity;
+  const _mrBase = COHORT.regression.mechanics_to_velocity;
+  const fr = { slope: 0.168, intercept: _frBase.intercept + (_frBase.slope - 0.168) * 60 };
+  const mr = { slope: 0.285, intercept: _mrBase.intercept + (_mrBase.slope - 0.285) * 60 };
   // 보정 전 점수로 계산
   const fitRaw = fitCatScores.length ? fitCatScores.reduce((a,b)=>a+b,0)/fitCatScores.length - adj.score_offset : null;
   const mechRaw = mechCatScores.length ? mechCatScores.reduce((a,b)=>a+b,0)/mechCatScores.length - adj.score_offset : null;
@@ -3956,10 +4022,10 @@ function calculateScores(input, age, measuredVelo) {
     // 시나리오별 회귀 gain × 학습 효율 (현재 점수 quadratic)
     const fitGap  = Math.max(0, fitTarget  - fitCurrent);
     const mechGap = Math.max(0, mechTarget - mechCurrent);
-    // ★ 시너지 multiplier (2026-05-03) — 메카닉 우수 선수의 체력→구속 lever 효과
-    //   효율 타입(메카닉 80+)이 체력 강화 시 동일 점수보다 큰 구속 효과
-    //   회귀 모델(R²=0.166)이 못 잡는 비선형 효과 보정
-    const _synergy = 0.7 + 0.6 * (mechCurrent / 100);  // M=0→0.7, M=80→1.18, M=100→1.3
+    // ★ 시너지 multiplier 보수화 (2026-05-03 v30.11)
+    //   사용자 인사이트: 체력 측정 신뢰도 낮음 → lever 효과 과대 평가 가능성
+    //   0.7+0.8M → 0.8+0.4M (체력 영향 보수적, 메카닉 영향은 회귀 slope에서 흡수)
+    const _synergy = 0.8 + 0.4 * (mechCurrent / 100);  // M=0→0.8, M=80→1.12, M=100→1.2
     const fitGain  = fr.slope * fitGap  * _devMult(fitCurrent) * _synergy;
     const mechGain = mr.slope * mechGap * _devMult(mechCurrent);
     const theoretical = measured + fitGain + mechGain;
@@ -4237,6 +4303,12 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
     const trunkVelHigh     = trunkVel >= 950;
     const xFactorGood      = xFactorScore != null && xFactorScore >= 70;
     
+    // 체력 vs 메카닉 점수 차이로 발달 유형 추가 분류
+    const fitScore = r.Fitness_Score;
+    const mechScore = r.Mechanics_Score;
+    const isPowerDriven = fitScore != null && mechScore != null && (fitScore - mechScore >= 15);
+    const isMechDriven  = fitScore != null && mechScore != null && (mechScore - fitScore >= 15);
+    
     if (seqExcellent && (trunkVelModerate || trunkVelLow)) {
       typeLabel = '효율 타입 (Efficiency Type)';
       typeColor = '#4ade80';
@@ -4252,6 +4324,22 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
       if (xFactorGood) {
         traits.push('Hip-shoulder 분리 우수');
       }
+    } else if (isPowerDriven) {
+      typeLabel = '체력 우선 발달형 (Strength-Driven)';
+      typeColor = '#60a5fa';
+      traits.push(`체력 ${fitScore.toFixed(0)}점 > 메카닉 ${mechScore.toFixed(0)}점 (+${(fitScore-mechScore).toFixed(0)})`);
+      traits.push('하체 폭발력이 운동량 사슬 견인');
+      traits.push('메카닉 정착하면 추가 향상 여지');
+      narratives.push(`이 선수는 <strong style="color:#60a5fa">"체력 우선 발달형"</strong>입니다. 체력 점수(${fitScore.toFixed(0)})가 메카닉(${mechScore.toFixed(0)})보다 ${(fitScore-mechScore).toFixed(0)}점 높아, <strong>강한 하체 파워가 운동량 사슬 전체를 견인</strong>하는 패턴입니다.`);
+      narratives.push(`이런 프로파일은 <strong>메카닉 정착</strong>이 다음 단계입니다. 체력은 이미 갖춰져 있으니, 시퀀싱·X-factor·릴리스 안정화에 집중하면 추가 +2~4 km/h 향상 가능합니다.`);
+    } else if (isMechDriven) {
+      typeLabel = '메카닉 정착형 (Mechanics-Driven)';
+      typeColor = '#c084fc';
+      traits.push(`메카닉 ${mechScore.toFixed(0)}점 > 체력 ${fitScore.toFixed(0)}점 (+${(mechScore-fitScore).toFixed(0)})`);
+      traits.push('운동량 사슬 시퀀싱 우수');
+      traits.push('체력 강화로 lever 효과 기대');
+      narratives.push(`이 선수는 <strong style="color:#c084fc">"메카닉 정착형"</strong>입니다. 메카닉 점수(${mechScore.toFixed(0)})가 체력(${fitScore.toFixed(0)})보다 ${(mechScore-fitScore).toFixed(0)}점 높아, <strong>운동 효율은 우수하지만 raw 체력이 부족</strong>한 패턴입니다.`);
+      narratives.push(`체력 강화(특히 하체 폭발력)가 다음 단계입니다. 이미 좋은 메카닉이 있어 체력 향상이 <strong>lever 효과</strong>로 큰 구속 향상을 만들 수 있습니다 (정예준 케이스 같은 효율 타입의 진화).`);
     } else if (trunkVelHigh && xFactorGood) {
       typeLabel = '파워 타입 (Power Type)';
       typeColor = '#ff6b35';
