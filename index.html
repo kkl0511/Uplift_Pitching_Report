@@ -1726,13 +1726,659 @@ function drivelineFiveCatScores(varScores) {
 
 // 메카닉 차트 모드 토글
 let MECH_VIEW_MODE = '6';  // '6' = BBL 6각형, '5' = Driveline 5각형
+let CURRENT_REPORT_RESULT = null;  // setMechMode가 메카닉 카드를 재렌더하기 위해 보관
+
+const DRIVELINE_5_DETAILS = {
+  'Posture': { name: 'Posture · 자세', short_desc: 'FC 시점 정렬 + X-Factor',
+    meaning: 'Foot Plant 시점에서의 몸통/골반/어깨 정렬과 회전 자세. 강한 와인드업과 X-Factor 형성의 기반. Flying open(몸통이 일찍 열리는 현상) 방지가 핵심.',
+    method: '몸통 회전 절대값(닫힘 정도), Hip-Shoulder Sep, Forward Tilt 등 자세 변수의 코호트 백분위 평균.',
+    coaching: 'FC 시점 몸통 닫힘 비디오 피드백, X-Factor 인식 메디신볼 회전, 와인드업 정렬 드릴' },
+  'Block': { name: 'Block · 앞다리 블록', short_desc: '앞다리 신전 + Stride',
+    meaning: 'Stride 길이와 앞다리 무릎 신전. 착지 후 회전 사슬에 에너지를 전달하는 블로킹 효율을 결정.',
+    method: 'Lead Knee Extension Velo, Stride Length, FC→BR 신전량의 코호트 백분위 평균.',
+    coaching: '드롭 점프, 한 다리 SSC 점프(plyometric), 앞다리 강화 + 블로킹 안정성 드릴' },
+  'Rotation': { name: 'Rotation · 회전', short_desc: '몸통·골반 회전 속도',
+    meaning: '몸통 회전 속도가 가장 강력한 구속 결정 요인 (Driveline 중요도 1.00 · 1mph ≈ 40°/s).',
+    method: 'Torso Rotation Velo + Pelvis Rotation Velo의 코호트 백분위 평균.',
+    coaching: '메디신볼 회전 던지기, 분절 회전 드릴, 코어 회전 가속 훈련' },
+  'Arm Action': { name: 'Arm Action · 팔 동작', short_desc: 'MER · Layback · 팔 가속',
+    meaning: 'Layback(MER), Elbow Extension Velo, Shoulder Abduction 등 팔의 가속·릴리스 동작.',
+    method: 'Layback, Elbow Ext Velo, Shoulder Abd, Scap Load, Shoulder IR Velo 등의 백분위 평균.',
+    coaching: '어깨 외회전 모빌리티, Sleeper Stretch, 견갑골 안정화, 팔 가속 드릴' },
+  'CoG': { name: 'CoG · 무게중심', short_desc: 'COM 가속/감속',
+    meaning: '무게중심의 전후방 가속(Max CoG Velo)과 착지 시 감속(CoG Decel). 운동량 전환 효율의 지표.',
+    method: 'CoG Decel, Max CoG Velo의 코호트 백분위 평균.',
+    coaching: 'COM 전진 속도 향상 스트라이드 파워, 앞다리 블로킹으로 COM 감속 효율 ↑' },
+};
+
 function setMechMode(mode) {
   MECH_VIEW_MODE = mode;
-  document.querySelectorAll('.mech-mode-btn').forEach(b => b.classList.remove('active'));
-  const activeBtn = document.getElementById('mech-mode-' + mode);
-  if (activeBtn) activeBtn.classList.add('active');
-  // 메카닉 차트만 다시 그리기 (sec.key === 'Mechanics_Score' 인 것)
+  if (!CURRENT_REPORT_RESULT) {
+    // 리포트 미생성 — 토글만 시각적으로 활성
+    document.querySelectorAll('.mech-mode-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('mech-mode-' + mode)?.classList.add('active');
+    return;
+  }
+  // 메카닉 카드 전체를 새 모드로 재렌더
+  const card = document.getElementById('mech-section-card');
+  if (card) card.innerHTML = renderMechCardInner(CURRENT_REPORT_RESULT, mode);
+  // 차트 데이터 캐시도 같이 갱신 (다운로드 HTML이 정확히 반영되도록)
+  if (window.__BBL_RADAR_DATA__) {
+    const mechData = window.__BBL_RADAR_DATA__.find(d => d && d.isMechanics);
+    // 메카닉 데이터는 변하지 않음 (양쪽 데이터 다 들어있음) — 그냥 차트 재렌더
+  }
   renderRadarCharts();
+}
+
+// ════════════════════════════════════════════════════════════════════
+// 코칭 세션 — 동영상 + 키네매틱 시퀀스 + 키네틱 체인 시각화
+// ════════════════════════════════════════════════════════════════════
+const COACH_VIDEO_SAMPLES = [
+  { key: 'hong',  label: '홍 (sample)',  url: 'https://raw.githubusercontent.com/kkl0511/BBL_Pitching_Report1/main/assets/hong.mp4'  },
+  { key: 'jeong', label: '정 (sample)',  url: 'https://raw.githubusercontent.com/kkl0511/BBL_Pitching_Report1/main/assets/jeong.mp4' },
+  { key: 'kim',   label: '김 (sample)',  url: 'https://raw.githubusercontent.com/kkl0511/BBL_Pitching_Report1/main/assets/kim.mp4'   },
+  { key: 'kwon',  label: '권 (sample)',  url: 'https://raw.githubusercontent.com/kkl0511/BBL_Pitching_Report1/main/assets/kwon.mp4'  },
+];
+const COACH_VIDEO_FPS = 30;  // 기본 fps 가정 (사용자가 알면 입력 가능)
+
+function loadVideoSample(key) {
+  const sample = COACH_VIDEO_SAMPLES.find(s => s.key === key);
+  if (!sample) return;
+  const v = document.getElementById('coach-video');
+  if (!v) return;
+  v.src = sample.url;
+  v.load();
+}
+function loadVideoLocal(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  const v = document.getElementById('coach-video');
+  if (!v) return;
+  v.src = URL.createObjectURL(file);
+  v.load();
+}
+function setVideoSpeed(rate) {
+  const v = document.getElementById('coach-video');
+  if (!v) return;
+  v.playbackRate = rate;
+  document.querySelectorAll('.video-speed-btn').forEach(b => b.classList.toggle('active', parseFloat(b.dataset.rate) === rate));
+}
+function videoFrameStep(direction) {
+  const v = document.getElementById('coach-video');
+  if (!v) return;
+  v.pause();
+  const fpsInput = parseFloat(document.getElementById('coach-video-fps')?.value);
+  const fps = !isNaN(fpsInput) && fpsInput > 0 ? fpsInput : COACH_VIDEO_FPS;
+  const dt = 1 / fps;
+  v.currentTime = Math.max(0, Math.min(v.duration || 999, v.currentTime + dt * direction));
+}
+function videoTogglePlay() {
+  const v = document.getElementById('coach-video');
+  if (!v) return;
+  if (v.paused) v.play(); else v.pause();
+}
+
+// 코칭 세션 HTML — 메카닉 결과 r 입력
+function renderCoachSessionHtml(r) {
+  const speeds = [1.0, 0.5, 0.25, 0.1];
+  const speedBtns = speeds.map(s =>
+    `<button class="mech-mode-btn video-speed-btn ${s===1?'active':''}" data-rate="${s}" onclick="setVideoSpeed(${s})">${s}x</button>`
+  ).join('');
+  const sampleBtns = COACH_VIDEO_SAMPLES.map(s =>
+    `<button class="mech-mode-btn" onclick="loadVideoSample('${s.key}')">${s.label}</button>`
+  ).join('');
+
+  // 키네매틱 시퀀스 타임라인 SVG
+  const seqSvg = renderKinematicSequenceSvg(r);
+  // 키네틱 체인 에너지 흐름 SVG
+  const chainSvg = renderKineticChainSvg(r);
+
+  return `
+    <section class="card p-6 mt-6" style="border-left: 4px solid var(--accent);">
+      <div class="display text-xl mb-2">🎥 코칭 세션 — 메카닉 시각화</div>
+      <div class="text-xs text-[var(--text-muted)] mb-4">동영상을 0.1~0.25배속·프레임 단위로 보면서, 옆의 시퀀스/체인 시각화로 데이터를 직관적으로 설명할 수 있습니다.</div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <!-- 동영상 플레이어 -->
+        <div>
+          <video id="coach-video" controls preload="metadata" class="w-full rounded" style="background: #000; max-height: 380px;"></video>
+
+          <!-- 영상 소스 선택 -->
+          <div class="flex flex-wrap gap-2 mt-3 items-center">
+            <label class="mech-mode-btn cursor-pointer">
+              📁 로컬 파일
+              <input type="file" accept="video/*" style="display:none" onchange="loadVideoLocal(event)">
+            </label>
+            ${sampleBtns}
+          </div>
+
+          <!-- 재생 컨트롤 -->
+          <div class="flex flex-wrap gap-2 mt-2 items-center">
+            <span class="mono text-[10px] text-[var(--text-muted)] mr-1">SPEED</span>
+            ${speedBtns}
+          </div>
+          <div class="flex flex-wrap gap-2 mt-2 items-center">
+            <button class="mech-mode-btn" onclick="videoFrameStep(-1)">◀ 1프레임</button>
+            <button class="mech-mode-btn" onclick="videoTogglePlay()">▶/❚❚</button>
+            <button class="mech-mode-btn" onclick="videoFrameStep(+1)">1프레임 ▶</button>
+            <span class="mono text-[10px] text-[var(--text-muted)] ml-2">fps</span>
+            <input type="number" id="coach-video-fps" value="${COACH_VIDEO_FPS}" min="15" max="240" class="input-field" style="width:70px; padding:4px 8px; font-size:11px">
+          </div>
+        </div>
+
+        <!-- max-layback 참고 이미지 + LaybackMeter 게이지 -->
+        <div>
+          <div class="text-xs text-[var(--text-muted)] mb-2">📐 어깨 코킹 (Max Layback)</div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <img src="https://raw.githubusercontent.com/kkl0511/BBL_Pitching_Report1/main/assets/max-layback.png"
+                   alt="Max Layback reference"
+                   class="w-full rounded border border-[var(--border)]"
+                   onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
+                   style="max-height: 220px; object-fit: contain; background: var(--bg-elevated);">
+              <div style="display:none" class="text-xs text-[var(--text-muted)] py-8 text-center border border-dashed border-[var(--border)] rounded">이미지 로드 실패 (네트워크 확인)</div>
+              <div class="text-[10px] text-[var(--text-muted)] mt-1 text-center">참고 — 정상 MER 170~190°</div>
+            </div>
+            <div>
+              ${renderLaybackMeterSvg(CURRENT_INPUT.mechanics?.max_shoulder_ER_deg)}
+              <div class="text-[10px] text-[var(--text-muted)] mt-1 text-center">현 선수 MER 게이지</div>
+            </div>
+          </div>
+          <div class="mt-3 text-xs text-[var(--text-secondary)] leading-relaxed">
+            정상 MER(최대 어깨 외회전)은 <strong>170~190°</strong>. 현 선수: <strong>${CURRENT_INPUT.mechanics?.max_shoulder_ER_deg != null ? Math.round(CURRENT_INPUT.mechanics.max_shoulder_ER_deg) + '°' : '미입력'}</strong>${r.var_scores?.max_shoulder_ER_deg != null ? ` (백분위 ${Math.round(r.var_scores.max_shoulder_ER_deg)}점)` : ''}.
+            영상 슬로우로 MER 시점에서 팔이 얼마나 뒤로 젖혀지는지 게이지와 함께 비교해보세요.
+          </div>
+        </div>
+      </div>
+
+      <!-- 키네매틱 시퀀스 타임라인 -->
+      <div class="mt-4">
+        <div class="display text-base mb-1">📊 키네매틱 시퀀스 — 피크 속도 타이밍</div>
+        <div class="text-xs text-[var(--text-muted)] mb-3">골반 → 몸통 → 팔 순서로 회전 속도가 정점을 찍어야 합니다. 각 단계 사이 lag은 <strong>40~50 ms</strong>가 이상적.</div>
+        ${seqSvg}
+      </div>
+
+      <!-- 키네틱 체인 에너지 흐름 -->
+      <div class="mt-6">
+        <div class="display text-base mb-1">⚡ 키네틱 체인 — 에너지 흐름</div>
+        <div class="text-xs text-[var(--text-muted)] mb-3">지면 → 앞다리 → 골반 → 몸통 → 어깨 → 팔꿈치 → 손목 순으로 에너지가 전달됩니다. 색상은 해당 분절의 코호트 백분위 점수.</div>
+        ${chainSvg}
+      </div>
+    </section>`;
+}
+
+// ── SequenceChart: Gaussian 곡선 키네매틱 시퀀스 (BBL 패키지 포팅) ──
+function renderKinematicSequenceSvg(r) {
+  const pToT = CURRENT_INPUT.mechanics?.pelvis_to_trunk_lag_ms;
+  const tToA = CURRENT_INPUT.mechanics?.trunk_to_arm_lag_ms;
+  if (pToT == null || tToA == null) {
+    return `<div class="text-xs text-[var(--text-muted)] py-6 text-center border border-dashed border-[var(--border)] rounded">시퀀스 lag 데이터가 없어 시각화 불가 (Uplift CSV 업로드 필요)</div>`;
+  }
+  const pelvisMs = 0;
+  const trunkMs  = pelvisMs + Math.round(pToT);
+  const armMs    = trunkMs  + Math.round(tToA);
+  const g1 = Math.round(pToT), g2 = Math.round(tToA);
+
+  const uid = 'seq' + Math.random().toString(36).slice(2, 8);
+  const tMin = -30, tMax = Math.max(150, armMs + 30);
+  const w = 800, h = 320;
+  const padL = 24, padR = 24, padT = 30, padB = 90;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const toX = (ms) => padL + ((ms - tMin) / (tMax - tMin)) * plotW;
+  const toY = (v)  => padT + plotH - v * plotH;
+
+  const segs = [
+    { ko: '골반', peakMs: pelvisMs, amp: 0.42, color: '#4a90c2', sigma: 26 },
+    { ko: '몸통', peakMs: trunkMs,  amp: 0.66, color: '#5db885', sigma: 24 },
+    { ko: '상완', peakMs: armMs,    amp: 0.95, color: '#e8965a', sigma: 20 },
+  ];
+  const sample = (peak, amp, sigma, t) => amp * Math.exp(-((t - peak) * (t - peak)) / (2 * sigma * sigma));
+  const curvePath = (peak, amp, sigma) => {
+    let d = '';
+    for (let t = tMin; t <= tMax; t += 2) {
+      d += (d === '' ? `M ${toX(t).toFixed(1)} ${toY(sample(peak, amp, sigma, t)).toFixed(1)}`
+                     : ` L ${toX(t).toFixed(1)} ${toY(sample(peak, amp, sigma, t)).toFixed(1)}`);
+    }
+    return d;
+  };
+
+  const okG1 = g1 >= 30 && g1 <= 60;
+  const okG2 = g2 >= 30 && g2 <= 60;
+  const dtRow1Y = padT + plotH + 26;
+  const dtRow2Y = padT + plotH + 58;
+
+  // 곡선 paths
+  const curveDefs = segs.map((s, i) =>
+    `<path id="seqCurve-${i}-${uid}" d="${curvePath(s.peakMs, s.amp, s.sigma)}" fill="none"/>`
+  ).join('');
+
+  // Curve groups + animations
+  const curveGroups = segs.map((s, i) => {
+    const d = curvePath(s.peakMs, s.amp, s.sigma);
+    const peakX = toX(s.peakMs);
+    const peakY = toY(s.amp);
+    const partDur = 2.0;
+    const partDelay = -((segs.length - 1 - i) * 0.35);
+    const particles = [0, 0.5].map((offset, j) => `
+      <circle r="3.2" fill="${s.color}" opacity="0.95" style="filter: url(#curveGlow-${uid})">
+        <animateMotion dur="${partDur}s" repeatCount="indefinite" begin="${(partDelay - offset * partDur).toFixed(2)}s">
+          <mpath href="#seqCurve-${i}-${uid}"/>
+        </animateMotion>
+      </circle>`).join('');
+    return `
+      <g>
+        <path d="${d} L ${toX(tMax)} ${toY(0)} L ${toX(tMin)} ${toY(0)} Z" fill="${s.color}" opacity="0.10"/>
+        <path d="${d}" stroke="${s.color}" stroke-width="2.6" fill="none" stroke-linecap="round" style="filter: url(#curveGlow-${uid})"/>
+        <path d="${d}" stroke="#ffffff" stroke-opacity="0.5" stroke-width="1.2" fill="none" stroke-dasharray="10 22">
+          <animate attributeName="stroke-dashoffset" values="32;0" dur="1.6s" repeatCount="indefinite"/>
+        </path>
+        ${particles}
+        <circle cx="${peakX}" cy="${peakY}" r="10" fill="none" stroke="${s.color}" stroke-opacity="0.65" stroke-width="2">
+          <animate attributeName="r" values="8;20;8" dur="1.6s" repeatCount="indefinite" begin="${i * 0.4}s"/>
+          <animate attributeName="stroke-opacity" values="0.7;0;0.7" dur="1.6s" repeatCount="indefinite" begin="${i * 0.4}s"/>
+        </circle>
+        <circle cx="${peakX}" cy="${peakY}" r="6.5" fill="${s.color}" stroke="#08080c" stroke-width="2" style="filter: url(#peakGlow-${uid})"/>
+        <text x="${peakX}" y="${peakY - 18}" text-anchor="middle" fill="${s.color}" font-size="11" font-family="JetBrains Mono" font-weight="700">${s.ko} ${s.peakMs}ms</text>
+      </g>`;
+  }).join('');
+
+  // Δt 표시 (두 행)
+  const dtBars = [
+    { x1: toX(pelvisMs), x2: toX(trunkMs), val: g1, ok: okG1, label: '골반→몸통', y: dtRow1Y },
+    { x1: toX(trunkMs),  x2: toX(armMs),   val: g2, ok: okG2, label: '몸통→상완', y: dtRow2Y },
+  ].map(b => {
+    const xmid = (b.x1 + b.x2) / 2;
+    const clr = b.ok ? '#4ade80' : '#f87171';
+    return `
+      <g>
+        <line x1="${b.x1}" x2="${b.x1}" y1="${b.y - 6}" y2="${b.y + 6}" stroke="${clr}" stroke-width="2"/>
+        <line x1="${b.x2}" x2="${b.x2}" y1="${b.y - 6}" y2="${b.y + 6}" stroke="${clr}" stroke-width="2"/>
+        <line x1="${b.x1 + 2}" x2="${b.x2 - 2}" y1="${b.y}" y2="${b.y}" stroke="${clr}" stroke-width="1.8"/>
+        <polygon points="${b.x1 + 8},${b.y - 4} ${b.x1 + 2},${b.y} ${b.x1 + 8},${b.y + 4}" fill="${clr}"/>
+        <polygon points="${b.x2 - 8},${b.y - 4} ${b.x2 - 2},${b.y} ${b.x2 - 8},${b.y + 4}" fill="${clr}"/>
+        <rect x="${xmid - 70}" y="${b.y - 22}" width="140" height="18" rx="3" fill="#0b1220" stroke="${clr}" stroke-opacity="0.75"/>
+        <text x="${xmid}" y="${b.y - 9}" text-anchor="middle" font-size="11" fill="${clr}" font-weight="700" font-family="JetBrains Mono">Δt ${b.label} ${b.val} ms</text>
+      </g>`;
+  }).join('');
+
+  // 시간 눈금
+  const ticks = [-30, 0, 30, 60, 90, 120, 150, 180].filter(t => t <= tMax).map(t =>
+    `<line x1="${toX(t)}" x2="${toX(t)}" y1="${padT}" y2="${padT + plotH}" stroke="#1e293b" stroke-width="1" stroke-dasharray="2 4"/>`
+  ).join('');
+
+  return `
+    <div class="card p-3" style="background: #0a1322;">
+      <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <filter id="curveGlow-${uid}" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="peakGlow-${uid}" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="4" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <linearGradient id="plotBg-${uid}" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0" stop-color="#0a1322"/><stop offset="1" stop-color="#0d182b"/>
+          </linearGradient>
+          ${curveDefs}
+        </defs>
+        <rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="url(#plotBg-${uid})" rx="4"/>
+        <rect x="${toX(30)}" y="${padT}" width="${toX(60) - toX(30)}" height="${plotH}" fill="rgba(74,222,128,0.05)"/>
+        <rect x="${toX(60)}" y="${padT}" width="${toX(120) - toX(60)}" height="${plotH}" fill="rgba(74,222,128,0.04)"/>
+        ${ticks}
+        <line x1="${toX(0)}" x2="${toX(0)}" y1="${padT}" y2="${padT + plotH}" stroke="#475569" stroke-width="1.5" stroke-opacity="0.6"/>
+        ${curveGroups}
+        ${dtBars}
+        <text x="${padL + 6}" y="${padT + 14}" fill="#64748b" font-size="9" font-family="Inter">↑ 정규화 회전 속도 (이상 lag 30~60 ms 영역 음영)</text>
+      </svg>
+    </div>`;
+}
+
+// ── EnergyFlow: 3D 마네킹 + 에너지 파이프 (BBL 패키지 포팅, 단순화) ──
+function renderKineticChainSvg(r) {
+  const cs = r.cat_scores || {};
+  // ETI 추정: 메카닉 카테고리 점수에서 도출 (실제 ETI 데이터 없음)
+  // PT (pelvis-trunk): C2 → C3 효율 = 두 점수의 비율을 참고
+  // TA (trunk-arm): C3 → C6 효율
+  const etiPT = (cs.C2_HipDrive != null && cs.C3_TrunkPower != null)
+    ? Math.min(2.0, (cs.C3_TrunkPower + 50) / (cs.C2_HipDrive + 50)) : null;
+  const etiTA = (cs.C3_TrunkPower != null && cs.C6_ArmCocking != null)
+    ? Math.min(2.0, (cs.C6_ArmCocking + 50) / (cs.C3_TrunkPower + 50)) : null;
+  const taLeak = etiTA != null && etiTA < 0.85;
+  const ptLeak = etiPT != null && etiPT < 0.85;
+  const leakPct = taLeak ? Math.round((1 - etiTA) * 100) : 0;
+
+  const uid = 'eg' + Math.random().toString(36).slice(2, 8);
+  // 마네킹 keypoints
+  const K = {
+    head: [470, 100], neck: [478, 138],
+    rShoulder: [520, 162], lShoulder: [438, 158],
+    rElbow: [572, 108], rWrist: [612, 72], ball: [634, 60],
+    lElbow: [376, 176], lWrist: [424, 220],
+    pelvisR: [506, 280], pelvisL: [446, 280], pelvisC: [476, 280],
+    rKnee: [556, 358], rAnkle: [620, 412], rToe: [658, 420],
+    lKnee: [370, 384], lAnkle: [332, 472], lToe: [290, 474],
+  };
+  const energyPath = `M ${K.lAnkle[0]} ${K.lAnkle[1]} L ${K.lKnee[0]} ${K.lKnee[1]} L ${K.pelvisC[0]} ${K.pelvisC[1]} L ${K.neck[0]} ${K.neck[1]+5} L ${K.rShoulder[0]} ${K.rShoulder[1]} L ${K.rElbow[0]} ${K.rElbow[1]} L ${K.rWrist[0]} ${K.rWrist[1]} L ${K.ball[0]} ${K.ball[1]}`;
+
+  // 누수 시 burst
+  const leakBurst = taLeak ? `
+    <g>
+      <circle cx="${(K.rShoulder[0]+K.rElbow[0])/2}" cy="${(K.rShoulder[1]+K.rElbow[1])/2}" r="38" fill="url(#leak-${uid})">
+        <animate attributeName="r" values="28;44;28" dur="1.2s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.9;0.4;0.9" dur="1.2s" repeatCount="indefinite"/>
+      </circle>
+    </g>` : '';
+
+  return `
+    <div class="card p-3" style="background: #0b1220;">
+      <svg viewBox="0 0 800 520" width="100%" preserveAspectRatio="xMidYMid meet" style="max-height: 520px;">
+        <defs>
+          <linearGradient id="bg-${uid}" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stop-color="#0b1220" stop-opacity="0"/>
+            <stop offset="1" stop-color="#0b1220" stop-opacity="0.35"/>
+          </linearGradient>
+          <linearGradient id="energy-${uid}" gradientUnits="userSpaceOnUse" x1="${K.lAnkle[0]}" y1="${K.lAnkle[1]}" x2="${K.ball[0]}" y2="${K.ball[1]}">
+            <stop offset="0%" stop-color="#22d3ee"/>
+            <stop offset="28%" stop-color="#60a5fa"/>
+            <stop offset="55%" stop-color="${taLeak ? '#f59e0b' : '#2563EB'}"/>
+            <stop offset="85%" stop-color="${taLeak ? '#ef4444' : '#1d4ed8'}"/>
+            <stop offset="100%" stop-color="${taLeak ? '#7f1d1d' : '#1e3a8a'}"/>
+          </linearGradient>
+          <filter id="glow-${uid}" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <radialGradient id="leak-${uid}">
+            <stop offset="0%" stop-color="#fee2e2" stop-opacity="0.95"/>
+            <stop offset="40%" stop-color="#ef4444" stop-opacity="0.7"/>
+            <stop offset="100%" stop-color="#7f1d1d" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="mSphere-${uid}" cx="35%" cy="30%" r="75%">
+            <stop offset="0%" stop-color="#f1f5f9"/><stop offset="45%" stop-color="#cbd5e1"/>
+            <stop offset="85%" stop-color="#64748b"/><stop offset="100%" stop-color="#334155"/>
+          </radialGradient>
+          <linearGradient id="mLimb-${uid}" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stop-color="#e2e8f0"/><stop offset="50%" stop-color="#94a3b8"/><stop offset="100%" stop-color="#475569"/>
+          </linearGradient>
+          <linearGradient id="mLimbD-${uid}" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stop-color="#94a3b8"/><stop offset="55%" stop-color="#64748b"/><stop offset="100%" stop-color="#1e293b"/>
+          </linearGradient>
+          <linearGradient id="mTorso-${uid}" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stop-color="#e2e8f0"/><stop offset="40%" stop-color="#94a3b8"/><stop offset="100%" stop-color="#334155"/>
+          </linearGradient>
+          <radialGradient id="mJoint-${uid}" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#f8fafc"/><stop offset="60%" stop-color="#94a3b8"/><stop offset="100%" stop-color="#334155"/>
+          </radialGradient>
+          <radialGradient id="aoShadow-${uid}" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#000" stop-opacity="0.45"/>
+            <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+
+        <line x1="40" y1="485" x2="760" y2="485" stroke="#2a3a5a" stroke-width="1.5" stroke-dasharray="3 6"/>
+        <rect x="0" y="0" width="800" height="520" fill="url(#bg-${uid})"/>
+        <ellipse cx="${(K.lAnkle[0]+K.rAnkle[0])/2}" cy="488" rx="180" ry="12" fill="url(#aoShadow-${uid})"/>
+
+        <!-- Glove arm (back) -->
+        <g>
+          <line x1="${K.lShoulder[0]}" y1="${K.lShoulder[1]}" x2="${K.lElbow[0]}" y2="${K.lElbow[1]}" stroke="url(#mLimbD-${uid})" stroke-width="22" stroke-linecap="round"/>
+          <circle cx="${K.lElbow[0]}" cy="${K.lElbow[1]}" r="12" fill="url(#mJoint-${uid})"/>
+          <line x1="${K.lElbow[0]}" y1="${K.lElbow[1]}" x2="${K.lWrist[0]}" y2="${K.lWrist[1]}" stroke="url(#mLimbD-${uid})" stroke-width="19" stroke-linecap="round"/>
+          <circle cx="${K.lWrist[0]}" cy="${K.lWrist[1]}" r="13" fill="url(#mSphere-${uid})"/>
+        </g>
+
+        <!-- Back leg (drive) -->
+        <g>
+          <line x1="${K.pelvisR[0]-2}" y1="${K.pelvisR[1]}" x2="${K.rKnee[0]}" y2="${K.rKnee[1]}" stroke="url(#mLimb-${uid})" stroke-width="32" stroke-linecap="round"/>
+          <circle cx="${K.rKnee[0]}" cy="${K.rKnee[1]}" r="15" fill="url(#mJoint-${uid})"/>
+          <line x1="${K.rKnee[0]}" y1="${K.rKnee[1]}" x2="${K.rAnkle[0]}" y2="${K.rAnkle[1]}" stroke="url(#mLimb-${uid})" stroke-width="24" stroke-linecap="round"/>
+          <circle cx="${K.rAnkle[0]}" cy="${K.rAnkle[1]}" r="11" fill="url(#mJoint-${uid})"/>
+          <path d="M ${K.rAnkle[0]-8} ${K.rAnkle[1]+4} Q ${K.rAnkle[0]-4} ${K.rAnkle[1]+18} ${K.rToe[0]-6} ${K.rToe[1]+10} L ${K.rToe[0]+4} ${K.rToe[1]+2} Q ${K.rToe[0]-2} ${K.rAnkle[1]-2} ${K.rAnkle[0]+6} ${K.rAnkle[1]-4} Z" fill="url(#mLimb-${uid})"/>
+        </g>
+
+        <!-- Front leg (braced) -->
+        <g>
+          <line x1="${K.pelvisL[0]+2}" y1="${K.pelvisL[1]}" x2="${K.lKnee[0]}" y2="${K.lKnee[1]}" stroke="url(#mLimb-${uid})" stroke-width="34" stroke-linecap="round"/>
+          <circle cx="${K.lKnee[0]}" cy="${K.lKnee[1]}" r="17" fill="url(#mJoint-${uid})"/>
+          <line x1="${K.lKnee[0]}" y1="${K.lKnee[1]}" x2="${K.lAnkle[0]}" y2="${K.lAnkle[1]}" stroke="url(#mLimb-${uid})" stroke-width="26" stroke-linecap="round"/>
+          <circle cx="${K.lAnkle[0]}" cy="${K.lAnkle[1]}" r="12" fill="url(#mJoint-${uid})"/>
+          <path d="M ${K.lAnkle[0]-12} ${K.lAnkle[1]+2} Q ${K.lToe[0]-4} ${K.lToe[1]-8} ${K.lToe[0]-12} ${K.lToe[1]+8} L ${K.lAnkle[0]-4} ${K.lAnkle[1]+14} Z" fill="url(#mLimb-${uid})"/>
+        </g>
+
+        <!-- Torso -->
+        <line x1="${K.lShoulder[0]+2}" y1="${K.lShoulder[1]+4}" x2="${K.rShoulder[0]-2}" y2="${K.rShoulder[1]+4}" stroke="url(#mLimb-${uid})" stroke-width="34" stroke-linecap="round"/>
+        <path d="M ${K.lShoulder[0]+4} ${K.lShoulder[1]+8} C ${K.lShoulder[0]-2} ${K.lShoulder[1]+50}, ${K.pelvisL[0]+2} ${K.pelvisL[1]-68}, ${K.pelvisL[0]+6} ${K.pelvisL[1]-20} L ${K.pelvisR[0]-6} ${K.pelvisR[1]-20} C ${K.pelvisR[0]-2} ${K.pelvisR[1]-68}, ${K.rShoulder[0]+2} ${K.rShoulder[1]+50}, ${K.rShoulder[0]-4} ${K.rShoulder[1]+8} Z" fill="url(#mTorso-${uid})" stroke="#1e293b" stroke-width="1.2"/>
+        <path d="M ${K.pelvisL[0]+6} ${K.pelvisL[1]-22} C ${K.pelvisL[0]+2} ${K.pelvisL[1]-12}, ${K.pelvisL[0]-2} ${K.pelvisL[1]-2}, ${K.pelvisL[0]-6} ${K.pelvisL[1]+10} L ${K.pelvisR[0]+6} ${K.pelvisR[1]+10} C ${K.pelvisR[0]+2} ${K.pelvisR[1]-2}, ${K.pelvisR[0]-2} ${K.pelvisR[1]-12}, ${K.pelvisR[0]-6} ${K.pelvisR[1]-22} Z" fill="url(#mTorso-${uid})" stroke="#1e293b" stroke-width="1"/>
+        <circle cx="${K.lShoulder[0]}" cy="${K.lShoulder[1]}" r="15" fill="url(#mJoint-${uid})"/>
+        <circle cx="${K.rShoulder[0]}" cy="${K.rShoulder[1]}" r="16" fill="url(#mJoint-${uid})"/>
+
+        <!-- Neck + head -->
+        <line x1="${K.neck[0]-2}" y1="${K.neck[1]-6}" x2="${K.neck[0]+2}" y2="${K.neck[1]+8}" stroke="url(#mLimb-${uid})" stroke-width="16" stroke-linecap="round"/>
+        <circle cx="${K.head[0]}" cy="${K.head[1]}" r="28" fill="url(#mSphere-${uid})" stroke="#1e293b" stroke-width="1"/>
+
+        <!-- Throwing arm -->
+        <g>
+          <line x1="${K.rShoulder[0]}" y1="${K.rShoulder[1]}" x2="${K.rElbow[0]}" y2="${K.rElbow[1]}" stroke="url(#mLimb-${uid})" stroke-width="26" stroke-linecap="round"/>
+          <circle cx="${K.rElbow[0]}" cy="${K.rElbow[1]}" r="13" fill="url(#mJoint-${uid})"/>
+          <line x1="${K.rElbow[0]}" y1="${K.rElbow[1]}" x2="${K.rWrist[0]}" y2="${K.rWrist[1]}" stroke="url(#mLimb-${uid})" stroke-width="20" stroke-linecap="round"/>
+          <circle cx="${K.rWrist[0]}" cy="${K.rWrist[1]}" r="11" fill="url(#mJoint-${uid})"/>
+        </g>
+
+        <!-- Ball -->
+        <circle cx="${K.ball[0]}" cy="${K.ball[1]}" r="9" fill="#f8fafc" stroke="#1e293b" stroke-width="1.2"/>
+        <path d="M ${K.ball[0]-6} ${K.ball[1]-3} Q ${K.ball[0]} ${K.ball[1]-8} ${K.ball[0]+6} ${K.ball[1]-3}" stroke="#ef4444" stroke-width="1.2" fill="none"/>
+        <path d="M ${K.ball[0]-6} ${K.ball[1]+3} Q ${K.ball[0]} ${K.ball[1]+8} ${K.ball[0]+6} ${K.ball[1]+3}" stroke="#ef4444" stroke-width="1.2" fill="none"/>
+
+        <!-- Energy pipe -->
+        <path d="${energyPath}" stroke="#0f1a30" stroke-opacity="0.6" stroke-width="22" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="${energyPath}" stroke="url(#energy-${uid})" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow-${uid})" stroke-dasharray="24 14">
+          <animate attributeName="stroke-dashoffset" from="0" to="-76" dur="1.6s" repeatCount="indefinite"/>
+        </path>
+        ${leakBurst}
+
+        <!-- Annotations -->
+        <g>
+          <line x1="${K.lAnkle[0]-6}" y1="${K.lAnkle[1]-14}" x2="150" y2="430" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="2 3"/>
+          <rect x="42" y="412" width="176" height="44" rx="6" fill="#0b1220" stroke="#22d3ee" stroke-opacity="0.55"/>
+          <text x="130" y="428" fill="#22d3ee" font-size="10" font-family="Inter" font-weight="700" text-anchor="middle" letter-spacing="1">FRONT-FOOT BLOCK</text>
+          <text x="130" y="446" fill="#e2e8f0" font-size="11" font-family="Inter" font-weight="600" text-anchor="middle">지면 반력 · 에너지 시작</text>
+        </g>
+        <g>
+          <line x1="${K.pelvisC[0]-20}" y1="${K.pelvisC[1]-10}" x2="150" y2="280" stroke="${ptLeak ? '#ef4444' : '#60a5fa'}" stroke-width="1.2" stroke-dasharray="2 3"/>
+          <rect x="42" y="252" width="176" height="52" rx="6" fill="#0b1220" stroke="${ptLeak ? '#ef4444' : '#60a5fa'}" stroke-opacity="0.6"/>
+          <text x="130" y="268" fill="${ptLeak ? '#ef4444' : '#60a5fa'}" font-size="10" font-family="Inter" font-weight="700" text-anchor="middle" letter-spacing="1">PELVIS → TRUNK</text>
+          <text x="130" y="284" fill="#e2e8f0" font-size="13" font-family="Inter" font-weight="700" text-anchor="middle">ETI ${etiPT != null ? etiPT.toFixed(2) : '—'}</text>
+          <text x="130" y="298" fill="#94a3b8" font-size="10" font-family="Inter" text-anchor="middle">${ptLeak ? '누수 감지' : '정상 전달'}</text>
+        </g>
+        <g>
+          <line x1="${K.rShoulder[0]+12}" y1="${K.rShoulder[1]-4}" x2="700" y2="140" stroke="${taLeak ? '#ef4444' : '#2563EB'}" stroke-width="1.2" stroke-dasharray="2 3"/>
+          <rect x="592" y="110" width="180" height="60" rx="6" fill="#0b1220" stroke="${taLeak ? '#ef4444' : '#2563EB'}" stroke-opacity="0.7"/>
+          <text x="682" y="126" fill="${taLeak ? '#ef4444' : '#2563EB'}" font-size="10" font-family="Inter" font-weight="700" text-anchor="middle" letter-spacing="1">TRUNK → ARM</text>
+          <text x="682" y="144" fill="#e2e8f0" font-size="15" font-family="Inter" font-weight="800" text-anchor="middle">ETI ${etiTA != null ? etiTA.toFixed(2) : '—'}</text>
+          <text x="682" y="160" fill="${taLeak ? '#fca5a5' : '#94a3b8'}" font-size="10" font-family="Inter" font-weight="${taLeak ? 700 : 400}" text-anchor="middle">${taLeak ? `⚠ 누수 ${leakPct}% · 어깨 부하↑` : '정상 전달'}</text>
+        </g>
+      </svg>
+
+      <div class="text-xs text-[var(--text-muted)] mt-2 px-2">
+        <span style="color:#22d3ee">●</span> 에너지 흐름 (발 → 골반 → 몸통 → 팔 → 공) ·
+        <span style="color:#ef4444">●</span> 누수 지점 · 어깨/팔꿈치 부하 증가 ·
+        ETI 1.0 근처 = 거의 전부 전달, 0.85 미만 = 누수 신호 (체력 점수 비율로 추정)
+      </div>
+    </div>`;
+}
+
+// ── LaybackMeter: 어깨 외회전 게이지 (BBL 패키지 포팅) ──
+function renderLaybackMeterSvg(deg) {
+  if (deg == null || isNaN(deg)) {
+    return `<div class="text-xs text-[var(--text-muted)] py-6 text-center">어깨 외회전 데이터 없음</div>`;
+  }
+  const size = 280;
+  const cx = size/2, cy = size * 0.78, r = size * 0.38;
+  const angle = Math.min(220, Math.max(0, deg));
+  const toRad = (a) => (a * Math.PI) / 180;
+  const angleToPos = (a) => [cx + Math.cos(toRad(a)) * r, cy - Math.sin(toRad(a)) * r];
+  const arcPath = (from, to, color, w = 10) => {
+    const [x1,y1] = angleToPos(from), [x2,y2] = angleToPos(to);
+    const large = Math.abs(to - from) > 180 ? 1 : 0;
+    return `<path d="M ${x1} ${y1} A ${r} ${r} 0 ${large} 0 ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round"/>`;
+  };
+  const [nx, ny] = angleToPos(angle);
+  const ticks = [0, 60, 120, 180, 220].map(t => {
+    const [x,y] = angleToPos(t);
+    const rOut = r + 16;
+    const xo = cx + Math.cos(toRad(t)) * rOut;
+    const yo = cy - Math.sin(toRad(t)) * rOut;
+    const xi = cx + Math.cos(toRad(t)) * (r-8);
+    const yi = cy - Math.sin(toRad(t)) * (r-8);
+    return `<line x1="${x}" y1="${y}" x2="${xi}" y2="${yi}" stroke="rgba(255,255,255,0.18)"/>
+            <text x="${xo}" y="${yo+4}" text-anchor="middle" font-size="11" font-weight="600" fill="#cbd5e1" font-family="Inter">${t}°</text>`;
+  }).join('');
+  const proBand = (deg >= 160 && deg <= 180) ? '✓ 프로 밴드 (160~180°)' : '';
+  return `
+    <svg width="100%" viewBox="0 0 ${size} ${size * 1.2}" preserveAspectRatio="xMidYMid meet" style="max-width: 280px;">
+      <defs>
+        <linearGradient id="laybackG" x1="0" x2="1">
+          <stop offset="0" stop-color="#2563EB"/><stop offset="1" stop-color="#60a5fa"/>
+        </linearGradient>
+      </defs>
+      ${arcPath(0, 220, 'rgba(255,255,255,0.08)', 10)}
+      ${arcPath(160, 180, 'rgba(34,197,94,0.7)', 10)}
+      ${arcPath(0, Math.max(1, angle), 'url(#laybackG)', 10)}
+      ${ticks}
+      <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="${cx}" cy="${cy}" r="6" fill="#fff"/>
+      <text x="${cx}" y="${cy + 30}" text-anchor="middle" font-size="22" font-weight="800" fill="#fff" font-family="JetBrains Mono">${Math.round(deg)}°</text>
+      <text x="${cx}" y="${cy + 48}" text-anchor="middle" font-size="10" fill="#4ade80" font-family="Inter">${proBand}</text>
+    </svg>`;
+}
+
+// 메카닉 카드 본문 렌더 (헤더 + 토글 + 차트 + 아코디언) — 모드별 분기
+function renderMechCardInner(r, mode) {
+  const isDriveline = mode === '5';
+  let displayScore, accordionHtml;
+
+  if (isDriveline) {
+    // Driveline 5각형 모드
+    const dvScores = drivelineFiveCatScores(r.var_scores || {});
+    const dvVals = Object.values(dvScores).filter(v => v != null);
+    displayScore = dvVals.length ? Math.round(dvVals.reduce((a,b)=>a+b,0)/dvVals.length * 10)/10 : null;
+    accordionHtml = DRIVELINE_5_ORDER.map(cat => {
+      return renderDrivelineCategoryAccordion(cat, dvScores[cat], r.var_scores || {});
+    }).join('');
+  } else {
+    // BBL 6각형 모드
+    displayScore = r.Mechanics_Score;
+    accordionHtml = COHORT.mechanics_cats.map(catId => {
+      return renderCategoryAccordion(catId, r.var_scores || {}, r.cat_scores[catId]);
+    }).join('');
+  }
+
+  const headerScore = displayScore != null ? Math.round(displayScore) : '—';
+  const headerColor = scoreColor(displayScore);
+
+  return `
+    <div class="flex justify-between items-end mb-4">
+      <div>
+        <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)]">SECTION</div>
+        <div class="display text-xl mt-1" style="color: var(--accent)">메카닉</div>
+      </div>
+      <div class="text-right">
+        <div class="display text-4xl" style="color: ${headerColor}">${headerScore}</div>
+        <div class="text-[10px] text-[var(--text-muted)] mono uppercase">/100${isDriveline ? ' · Driveline' : ''}</div>
+      </div>
+    </div>
+    <div class="flex items-center justify-end gap-1 mb-2">
+      <span class="mono text-[10px] text-[var(--text-muted)] mr-1">VIEW</span>
+      <button id="mech-mode-6" class="mech-mode-btn ${mode==='6'?'active':''}" onclick="setMechMode('6')">6각 (BBL)</button>
+      <button id="mech-mode-5" class="mech-mode-btn ${mode==='5'?'active':''}" onclick="setMechMode('5')">5각 (Driveline)</button>
+    </div>
+    <div class="mb-4 relative" style="height: 240px;">
+      <canvas id="radar-mech"></canvas>
+    </div>
+    ${accordionHtml}`;
+}
+
+// Driveline 카테고리용 아코디언 — DRIVELINE_5_CATS의 변수들을 코호트 백분위로 보여줌
+function renderDrivelineCategoryAccordion(dvCat, catScore, varScores) {
+  const d = DRIVELINE_5_DETAILS[dvCat];
+  if (!d) return '';
+  const catColor = scoreColor(catScore);
+  const varKeys = DRIVELINE_5_CATS[dvCat] || [];
+
+  // 각 변수의 점수 행 (코호트 분포 없으면 ★Phase2 표기)
+  const varRows = varKeys.map(key => {
+    // 코호트 메타에서 변수 정보 찾기
+    let varMeta = null;
+    for (const cat of [...COHORT.mechanics_cats, ...COHORT.fitness_cats, ...COHORT.control_cats]) {
+      for (const v of (COHORT.category_vars[cat] || [])) {
+        if (v[0] === key) { varMeta = v; break; }
+      }
+      if (varMeta) break;
+    }
+    const name = varMeta ? varMeta[1] : key;
+    const unit = varMeta ? varMeta[2] : '';
+    const dec  = varMeta && varMeta[3] != null ? varMeta[3] : 2;
+    const polarity = varMeta && varMeta[4] || 'higher';
+    const score = varScores[key];
+    const inputVal = (CURRENT_INPUT.fitness[key] != null) ? CURRENT_INPUT.fitness[key] : CURRENT_INPUT.mechanics[key];
+    const rawStr = inputVal != null ? Number(inputVal).toFixed(dec) + (unit ? ' ' + unit : '') : '—';
+    const inCohort = COHORT.var_distributions[key];
+    const phase2Tag = !inCohort ? '<span class="badge badge-warn ml-1" style="font-size:9px">★Phase2</span>' : '';
+    const scoreStr = score != null ? Math.round(score) : '—';
+    const w = score != null ? Math.max(0, Math.min(100, score)) : 0;
+    const vColor = scoreColor(score);
+    const dirIndicator = polarity === 'lower' ? ' <span style="opacity:0.5">↓</span>' : '';
+    return `
+      <div class="var-row-v29">
+        <div>
+          <div class="var-name">${name}${dirIndicator}${phase2Tag}</div>
+          <div class="var-desc">${key}</div>
+        </div>
+        <div class="var-raw">${rawStr}</div>
+        <div class="var-score">
+          <div class="var-mini-bar"><div class="var-mini-bar-fill" style="width:${w}%; background:${vColor}"></div></div>
+          <span class="cat-mini-score" style="color:${vColor}">${scoreStr}</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="accordion-card" data-cat="${dvCat}">
+      <div class="accordion-header" onclick="this.parentElement.classList.toggle('open')">
+        <div class="flex-1">
+          <div class="flex items-center gap-3">
+            <div class="text-sm font-bold">${d.name}</div>
+            <div class="cat-mini-score" style="color:${catColor}">${catScore != null ? Math.round(catScore) : '—'}점</div>
+          </div>
+          <div class="mono text-[10px] text-[var(--text-muted)] mt-1">${d.short_desc || ''}</div>
+        </div>
+        <span class="accordion-icon">▶</span>
+      </div>
+      <div class="accordion-content">
+        <div class="accordion-body">
+          ${varRows ? `
+          <div class="mb-4">
+            <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-2">매핑 변수 점수 (코호트 백분위)</div>
+            ${varRows}
+          </div>` : ''}
+          <div class="mb-3">
+            <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1">의미</div>
+            <div class="text-xs text-[var(--text-secondary)] leading-relaxed">${d.meaning}</div>
+          </div>
+          <div class="mb-3">
+            <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1">산출 방식</div>
+            <div class="text-xs text-[var(--text-secondary)] leading-relaxed">${d.method}</div>
+          </div>
+          <div class="mb-3">
+            <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)] mb-1">코칭 포인트</div>
+            <div class="text-xs text-[var(--text-secondary)] leading-relaxed">${d.coaching}</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1840,7 +2486,8 @@ function generateReport() {
   const measuredVelo = parseFloat(document.getElementById('player-velo').value) || null;
   const date = document.getElementById('player-date').value || '';
   const result = calculateScores(CURRENT_INPUT, CURRENT_AGE, measuredVelo);
-  
+  CURRENT_REPORT_RESULT = result;  // setMechMode 등이 참조
+
   const reportHtml = renderReportHtml(playerName, measuredVelo, date, result, totalFit, totalMech);
   const area = document.getElementById('report-area');
   area.innerHTML = reportHtml;
@@ -2030,20 +2677,16 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
       <div class="text-sm text-[var(--text-muted)] py-12 text-center">변수 입력 부족 — 점수 산출 불가</div>
     </div>`;
 
-    // v29 동일 — 카테고리 아코디언 (변인 점수 + 변인 설명 포함)
+    // 메카닉 카드는 토글에 따라 본문 전체가 바뀌므로 별도 함수로 분리
+    if (sec.key === 'Mechanics_Score') {
+      return `<div class="card p-6" id="mech-section-card">${renderMechCardInner(r, MECH_VIEW_MODE)}</div>`;
+    }
+
+    // 체력·제구 카드: v29 동일 — 카테고리 아코디언 (변인 점수 + 변인 설명 포함)
     const catRows = sec.cats.map(catId => {
       const catScore = r.cat_scores[catId];
       return renderCategoryAccordion(catId, r.var_scores || {}, catScore);
     }).join('');
-
-    // 메카닉 카드에만 5각/6각 토글 버튼 추가
-    const isMech = sec.key === 'Mechanics_Score';
-    const toggleHtml = isMech ? `
-      <div class="flex items-center justify-end gap-1 mb-2">
-        <span class="mono text-[10px] text-[var(--text-muted)] mr-1">VIEW</span>
-        <button id="mech-mode-6" class="mech-mode-btn ${MECH_VIEW_MODE==='6'?'active':''}" onclick="setMechMode('6')">6각 (BBL)</button>
-        <button id="mech-mode-5" class="mech-mode-btn ${MECH_VIEW_MODE==='5'?'active':''}" onclick="setMechMode('5')">5각 (Driveline)</button>
-      </div>` : '';
 
     return `
       <div class="card p-6">
@@ -2057,7 +2700,6 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
             <div class="text-[10px] text-[var(--text-muted)] mono uppercase">/100</div>
           </div>
         </div>
-        ${toggleHtml}
         <div class="mb-4 relative" style="height: 240px;">
           <canvas id="${sec.radarId}"></canvas>
         </div>
@@ -2127,7 +2769,14 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
       <button class="btn btn-secondary" onclick="window.print()">🖨 인쇄/PDF</button>
     </div>`;
 
-  return header + `<div class="grid grid-cols-1 md:grid-cols-3 gap-4">` + sectionsHtml + `</div>` + summary + downloadBtn;
+  // 코칭 세션 (메카닉 결과 시각화 + 영상)
+  const coachSession = renderCoachSessionHtml(r);
+
+  return header
+    + `<div class="grid grid-cols-1 md:grid-cols-3 gap-4">` + sectionsHtml + `</div>`
+    + coachSession
+    + summary
+    + downloadBtn;
 }
 
 // ════════════════════════════════════════════════════════════════════
