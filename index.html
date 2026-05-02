@@ -451,7 +451,18 @@
       <div class="step-num">1</div>
       <div class="step-title">선수 정보 + 연령군</div>
     </div>
-    
+
+    <!-- 저장된 선수 빠른 선택 (자동 저장된 선수가 있으면 노출) -->
+    <div id="saved-player-selector" class="hidden mb-4 p-3 rounded" style="background: rgba(96,165,250,0.05); border-left: 3px solid var(--fitness);">
+      <label class="text-xs text-[var(--text-muted)] block mb-1">📋 이전에 분석한 선수 — 선택해서 데이터 불러오기 (자동 리포트 생성)</label>
+      <div class="flex gap-2 items-center">
+        <select id="saved-player-select" class="input-field flex-1" onchange="loadSavedPlayer(this.value)">
+          <option value="">— 선택 안 함 (새로 입력) —</option>
+        </select>
+        <button class="btn btn-secondary text-xs" onclick="deleteSelectedSavedPlayer()" title="선택한 선수 삭제">🗑</button>
+      </div>
+    </div>
+
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
       <div>
         <label class="text-xs text-[var(--text-muted)] block mb-1">선수 ID 또는 이름</label>
@@ -658,19 +669,19 @@ const EXTRA_VAR_SCORING = {
   'max_cog_velo':                 { min: 1.0, max: 4.0,  polarity: 'higher' },  // m/s — 몸통 COM 전진 속도
   // C3 몸통 파워
   'peak_x_factor':                { min: 25,  max: 65,   polarity: 'higher', useAbs: true },  // ° — Peak hip-shoulder 분리
-  // C4 앞다리 블로킹
-  'lead_knee_ext_change_fc_to_br':{ min: 10,  max: 60,   polarity: 'higher' },  // ° — 무릎 신전량
+  // C4 앞다리 블로킹 — 무릎 신전량은 음수(무너짐)부터 양수(정상)까지 polarity higher
+  'lead_knee_ext_change_fc_to_br':{ min: -15, max: 40, polarity: 'higher' },   // ° — 음수=무릎 무너짐, 양수=정상 신전
   'com_decel_pct':                { min: 20,  max: 80,   polarity: 'higher' },  // % — COM 감속률
-  'lead_knee_amortization_ms':    { min: 30,  max: 150,  polarity: 'lower'  },  // ms — SSC 전환 시간 (짧을수록 ↑)
+  'lead_knee_amortization_ms':    { min: 30,  max: 200,  polarity: 'lower'  },  // ms — SSC 전환 시간 (HS 더 김)
   // C1 — Phase2 자세 변수
-  'stride_norm_height':           { min: 0.70, max: 1.00, polarity: 'higher' }, // 신장 정규화
+  'stride_norm_height':           { min: 0.55, max: 0.95, polarity: 'higher' }, // 신장 정규화 (HS 더 짧음)
   'trunk_forward_tilt_at_fc':     { optimal: -30, sigma: 20 },                  // ° — 약간 뒤로 기울임이 좋음
-  // ── Driveline 5각형 추가 변수 (PPTX 9페이지) ──
-  'elbow_ext_vel_max':            { min: 1800, max: 3200, polarity: 'higher' }, // °/s — Driveline elite ~2300
-  'shoulder_ir_vel_max':          { min: 3000, max: 5500, polarity: 'higher' }, // °/s — elite ~4700
-  'peak_torso_counter_rot':       { min: 25,   max: 60,   polarity: 'higher', useAbs: true }, // ° — elite -37
-  'torso_side_bend_at_mer':       { optimal: 25, sigma: 10, useAbs: true },    // ° — elite 25
-  'torso_rotation_at_br':         { optimal: 110, sigma: 25, useAbs: true },   // ° — elite 111
+  // ── Driveline 5각형 추가 변수 — HS 한국 현실 반영 ──
+  'elbow_ext_vel_max':            { min: 1200, max: 2800, polarity: 'higher' }, // °/s — Driveline elite 2630, HS는 더 낮음
+  'shoulder_ir_vel_max':          { min: 1500, max: 4500, polarity: 'higher' }, // °/s — HS elite 4700, 평균 2500-3500
+  'peak_torso_counter_rot':       { min: 15,   max: 60,   polarity: 'higher', useAbs: true }, // ° — elite -37
+  'torso_side_bend_at_mer':       { optimal: 25, sigma: 12, useAbs: true },    // ° — elite 25
+  'torso_rotation_at_br':         { optimal: 100, sigma: 30, useAbs: true },   // ° — elite 111 (HS 더 짧음)
   'elbow_flexion_at_fp':          { optimal: 95, sigma: 20 },                  // ° — elite 93
 };
 
@@ -1182,13 +1193,16 @@ function extractScalarsFromUplift(parsed) {
     }
   }
 
-  // ── shoulder_ir_vel_max ★ — 어깨 내회전 속도 max [MER, BR] (Arm Action 0.36) ──
+  // ── shoulder_ir_vel_max ★ — 어깨 회전 속도 max [MER-30, BR+30] (Arm Action 0.36) ──
+  // peak는 MER 직전~직후 또는 BR 근처. 윈도우 확장으로 누락 방지
   if (events.mer != null && events.br != null) {
     const irVelCol = armSide === 'left' ? 'left_shoulder_external_rotation_velocity' : 'right_shoulder_external_rotation_velocity';
     const ci = idx[irVelCol];
     if (ci != null) {
       let maxAbs = null;
-      for (let f = events.mer; f <= events.br + 10; f++) {
+      const lo = Math.max(0, events.mer - 30);
+      const hi = events.br + 30;
+      for (let f = lo; f <= hi; f++) {
         const ri = frameMap[f]; if (ri == null) continue;
         const v = parseFloat(rows[ri][ci]); if (isNaN(v)) continue;
         const abs = Math.abs(v);
@@ -2132,13 +2146,26 @@ const COACH_VIDEO_SAMPLES = [
   { key: 'kim',   label: '김 (sample)',  url: 'https://raw.githubusercontent.com/kkl0511/BBL_Pitching_Report1/main/assets/kim.mp4'   },
   { key: 'kwon',  label: '권 (sample)',  url: 'https://raw.githubusercontent.com/kkl0511/BBL_Pitching_Report1/main/assets/kwon.mp4'  },
 ];
-const COACH_VIDEO_FPS = 30;  // 기본 fps 가정 (사용자가 알면 입력 가능)
+const COACH_VIDEO_FPS = 240;  // 기본 fps (Uplift 표준 240 Hz, 사용자 변경 가능)
+const COACH_VIDEO_DEFAULT_SPEED = 0.1;  // 기본 배속 (슬로우 분석용)
 
 function _showVideoElement() {
   const v = document.getElementById('coach-video');
   const drop = document.getElementById('coach-video-drop');
   if (v) v.classList.remove('hidden');
   if (drop) drop.classList.add('hidden');
+}
+function _applyDefaultSpeed() {
+  const v = document.getElementById('coach-video');
+  if (!v) return;
+  // 메타데이터 로드 후 디폴트 배속 적용
+  const apply = () => {
+    v.playbackRate = COACH_VIDEO_DEFAULT_SPEED;
+    document.querySelectorAll('.video-speed-btn').forEach(b =>
+      b.classList.toggle('active', parseFloat(b.dataset.rate) === COACH_VIDEO_DEFAULT_SPEED));
+  };
+  if (v.readyState >= 1) apply();
+  else v.addEventListener('loadedmetadata', apply, { once: true });
 }
 function loadVideoSample(key) {
   const sample = COACH_VIDEO_SAMPLES.find(s => s.key === key);
@@ -2148,6 +2175,7 @@ function loadVideoSample(key) {
   v.src = sample.url;
   v.load();
   _showVideoElement();
+  _applyDefaultSpeed();
 }
 function loadVideoLocal(event) {
   const file = (event.target && event.target.files && event.target.files[0]) || null;
@@ -2157,6 +2185,7 @@ function loadVideoLocal(event) {
   v.src = URL.createObjectURL(file);
   v.load();
   _showVideoElement();
+  _applyDefaultSpeed();
 }
 function loadVideoFile(file) {
   if (!file) return;
@@ -2169,6 +2198,7 @@ function loadVideoFile(file) {
   v.src = URL.createObjectURL(file);
   v.load();
   _showVideoElement();
+  _applyDefaultSpeed();
 }
 // 드래그앤드롭 + 영상 영역 초기화 (리포트 렌더 후 호출)
 function setupCoachVideoDropZone() {
@@ -2229,7 +2259,7 @@ function videoTogglePlay() {
 function renderCoachSessionHtml(r) {
   const speeds = [1.0, 0.5, 0.25, 0.1];
   const speedBtns = speeds.map(s =>
-    `<button class="mech-mode-btn video-speed-btn ${s===1?'active':''}" data-rate="${s}" onclick="setVideoSpeed(${s})">${s}x</button>`
+    `<button class="mech-mode-btn video-speed-btn ${s===COACH_VIDEO_DEFAULT_SPEED?'active':''}" data-rate="${s}" onclick="setVideoSpeed(${s})">${s}x</button>`
   ).join('');
   const sampleBtns = COACH_VIDEO_SAMPLES.map(s =>
     `<button class="mech-mode-btn" onclick="loadVideoSample('${s.key}')">${s.label}</button>`
@@ -2444,12 +2474,12 @@ function renderKineticChainSvg(r) {
   const trunkRotScore = vs.max_trunk_twist_vel_dps;
   // ② Flying Open — X-Factor @ FC가 작으면 몸통이 일찍 열렸다는 뜻
   const xFactor = inputs.hip_shoulder_sep_at_fc;
-  const flyingOpen = xFactor != null && xFactor < 30;  // <30° 위험
-  // ③ 어깨 무너짐 — MER 부족 또는 ETI_TA leak
-  const merDeg = inputs.max_shoulder_ER_deg;
-  const merScore = vs.max_shoulder_ER_deg;
-  const merLow = merDeg != null && merDeg < 170;
-  const shoulderCollapse = taLeak || merLow;
+  const flyingOpen = xFactor != null && xFactor < 30;
+  // ③ 무릎 무너짐 — FC 시 무릎보다 BR 시 무릎이 더 굽었다면 무너짐
+  //    lead_knee_ext_change_fc_to_br = (BR knee_extension) - (FC knee_extension)
+  //    양수 = 신전 (정상), 음수 = 무너짐 (역신전)
+  const kneeChange = inputs.lead_knee_ext_change_fc_to_br;
+  const kneeCollapse = kneeChange != null && kneeChange < 0;
 
   const uid = 'eg' + Math.random().toString(36).slice(2, 8);
   // 마네킹 keypoints
@@ -2623,14 +2653,14 @@ function renderKineticChainSvg(r) {
           <text x="687" y="394" fill="${flyingOpen ? '#fca5a5' : '#94a3b8'}" font-size="9" font-family="Inter" text-anchor="middle">${flyingOpen ? '몸통이 일찍 열림 · 회전 가속 손실' : '몸통 닫힘 양호'}</text>
         </g>` : ''}
 
-        <!-- ③ 어깨 무너짐 — MER 또는 leak 검사 -->
-        ${(merDeg != null || taLeak) ? `
+        <!-- ③ 무릎 무너짐 — FC vs BR 무릎 신전량 비교 -->
+        ${kneeChange != null ? `
         <g>
-          <line x1="${K.rElbow[0]-4}" y1="${K.rElbow[1]+8}" x2="180" y2="125" stroke="${shoulderCollapse ? '#ef4444' : '#4ade80'}" stroke-width="1.5" stroke-dasharray="2 3"/>
-          <rect x="42" y="100" width="176" height="62" rx="6" fill="#0b1220" stroke="${shoulderCollapse ? '#ef4444' : '#4ade80'}" stroke-opacity="0.85" stroke-width="2"/>
-          <text x="130" y="116" fill="${shoulderCollapse ? '#ef4444' : '#4ade80'}" font-size="10" font-family="Inter" font-weight="800" text-anchor="middle" letter-spacing="1">${shoulderCollapse ? '⚠ 어깨 무너짐' : '✓ 어깨 안정'}</text>
-          <text x="130" y="135" fill="#e2e8f0" font-size="13" font-family="JetBrains Mono" font-weight="700" text-anchor="middle">MER ${merDeg != null ? Math.round(merDeg) + '°' : '—'}</text>
-          <text x="130" y="153" fill="${shoulderCollapse ? '#fca5a5' : '#94a3b8'}" font-size="9" font-family="Inter" text-anchor="middle">${merLow ? '외회전 < 170° · 부족' : taLeak ? '에너지 누수 · 부하↑' : '정상 (170~190° 범위)'}</text>
+          <line x1="${K.lKnee[0]-12}" y1="${K.lKnee[1]+4}" x2="180" y2="370" stroke="${kneeCollapse ? '#ef4444' : '#4ade80'}" stroke-width="1.5" stroke-dasharray="2 3"/>
+          <rect x="42" y="346" width="176" height="62" rx="6" fill="#0b1220" stroke="${kneeCollapse ? '#ef4444' : '#4ade80'}" stroke-opacity="0.85" stroke-width="2"/>
+          <text x="130" y="362" fill="${kneeCollapse ? '#ef4444' : '#4ade80'}" font-size="10" font-family="Inter" font-weight="800" text-anchor="middle" letter-spacing="1">${kneeCollapse ? '⚠ 무릎 무너짐' : '✓ 무릎 신전 정상'}</text>
+          <text x="130" y="381" fill="#e2e8f0" font-size="13" font-family="JetBrains Mono" font-weight="700" text-anchor="middle">Δ ${kneeChange >= 0 ? '+' : ''}${kneeChange.toFixed(1)}°</text>
+          <text x="130" y="399" fill="${kneeCollapse ? '#fca5a5' : '#94a3b8'}" font-size="9" font-family="Inter" text-anchor="middle">${kneeCollapse ? 'BR 시 더 굽음 · 에너지 손실' : 'FC→BR 신전 (정상 SSC 활용)'}</text>
         </g>` : ''}
       </svg>
 
@@ -2932,25 +2962,57 @@ function calculateScores(input, age, measuredVelo) {
   const PV = fitRaw != null ? Math.round((fr.slope * fitRaw + fr.intercept + adj.velo_offset) * 10) / 10 : null;
   const MV = mechRaw != null ? Math.round((mr.slope * mechRaw + mr.intercept + adj.velo_offset) * 10) / 10 : null;
 
-  // 4) 잠재 구속 — v29 산식 일치
-  //    측정 구속이 있으면: 본인 측정 구속 + 체력·메카닉 부족분 × 각 회귀 slope
-  //                        (= 체력·메카닉 100점화 시 추가 도달 구속)
-  //                        v29의 drvLineCeiling 패턴 (개인화 보정)
-  //    측정 구속이 없으면: 메카닉 절대 회귀 ceiling (mr.slope*100 + mr.intercept) — fallback
-  let ceiling = null;
-  if (measuredVelo != null && fitRaw != null && mechRaw != null) {
-    const fitGap  = Math.max(0, 100 - fitRaw);   // 체력 부족분
-    const mechGap = Math.max(0, 100 - mechRaw);  // 메카닉 부족분
-    ceiling = measuredVelo + fr.slope * fitGap + mr.slope * mechGap;
-  } else if (measuredVelo != null && mechRaw != null) {
-    // 체력 점수가 없을 때 — 메카닉만 보정
-    const mechGap = Math.max(0, 100 - mechRaw);
-    ceiling = measuredVelo + mr.slope * mechGap;
-  } else if (mechRaw != null) {
-    // 측정 구속 미입력 fallback — 절대 회귀
-    ceiling = mr.slope * 100 + mr.intercept + adj.velo_offset;
+  // 4) 잠재 구속 — 3가지 시나리오 (F100, M100, FM100)
+  //    공통 보수화: 개인화 ×2 + 절대 ×1 / 3 → 가중평균
+  //    Cap: 측정 + 연령군 max gain | 연령군 elite ceiling | floor: 측정+0
+  const AGE_MAX_GAIN     = { '중학': 15, '고교': 12, '대학': 8,  '프로': 5  };
+  const AGE_ELITE_CEILING= { '중학': 142, '고교': 152, '대학': 160, '프로': 168 };
+  const maxGain  = AGE_MAX_GAIN[age]      || 10;
+  const eliteCap = AGE_ELITE_CEILING[age] || 155;
+
+  // 단일 시나리오 ceiling 계산
+  function _computeCeiling(measured, fitGap, mechGap) {
+    if (measured == null) return { theoretical: null, ceiling: null };
+    const personal = measured + fr.slope * fitGap + mr.slope * mechGap;
+    const absolute = mr.slope * 100 + mr.intercept + adj.velo_offset;
+    let theoretical = (personal * 2 + absolute) / 3;
+    let c = Math.min(theoretical, measured + maxGain);
+    c = Math.min(c, eliteCap);
+    c = Math.max(c, measured);  // 최소 측정값 (유지)
+    return { theoretical: Math.round(theoretical * 10) / 10, ceiling: Math.round(c * 10) / 10 };
   }
-  if (ceiling != null) ceiling = Math.round(ceiling * 10) / 10;
+
+  let ceiling_F100 = null, ceiling_M100 = null, ceiling_FM100 = null;
+  let ceiling = null, theoreticalCeiling = null;
+
+  if (measuredVelo != null && fitRaw != null && mechRaw != null) {
+    const fitGap  = Math.max(0, 100 - fitRaw);
+    const mechGap = Math.max(0, 100 - mechRaw);
+    // 시나리오 1: 체력만 100점 — 메카닉은 현재
+    const cF = _computeCeiling(measuredVelo, fitGap, 0);
+    // 시나리오 2: 메카닉만 100점 — 체력은 현재
+    const cM = _computeCeiling(measuredVelo, 0, mechGap);
+    // 시나리오 3: 체력 + 메카닉 둘 다 100점
+    const cFM = _computeCeiling(measuredVelo, fitGap, mechGap);
+    ceiling_F100 = cF.ceiling;
+    ceiling_M100 = cM.ceiling;
+    ceiling_FM100 = cFM.ceiling;
+    ceiling = cFM.ceiling;
+    theoreticalCeiling = cFM.theoretical;
+  } else if (measuredVelo != null && mechRaw != null) {
+    const mechGap = Math.max(0, 100 - mechRaw);
+    const cM = _computeCeiling(measuredVelo, 0, mechGap);
+    ceiling_M100 = cM.ceiling;
+    ceiling_FM100 = cM.ceiling;  // F 모르니 M100 == FM100
+    ceiling = cM.ceiling;
+    theoreticalCeiling = cM.theoretical;
+  } else if (mechRaw != null) {
+    // 측정 미입력 — 절대 회귀
+    theoreticalCeiling = mr.slope * 100 + mr.intercept + adj.velo_offset;
+    ceiling = Math.min(theoreticalCeiling, eliteCap);
+    if (ceiling != null) ceiling = Math.round(ceiling * 10) / 10;
+    if (theoreticalCeiling != null) theoreticalCeiling = Math.round(theoreticalCeiling * 10) / 10;
+  }
 
   return {
     age, adj,
@@ -2960,6 +3022,12 @@ function calculateScores(input, age, measuredVelo) {
     PV_predicted: PV,
     MV_predicted: MV,
     ceiling,
+    ceiling_F100,           // 체력만 100점화
+    ceiling_M100,           // 메카닉만 100점화
+    ceiling_FM100,          // 체력 + 메카닉 둘 다 100점화 (= ceiling)
+    theoretical_ceiling: theoreticalCeiling,
+    age_max_gain: maxGain,
+    age_elite_cap: eliteCap,
     measuredVelo,
   };
 }
@@ -2989,6 +3057,8 @@ function generateReport() {
   // DOM에 캔버스가 박힌 후 레이더 차트 렌더 + 동영상 드롭존 초기화
   renderRadarCharts();
   setupCoachVideoDropZone();
+  // 자동 저장 (같은 name+date+age면 update, 아니면 add)
+  autoSaveReport(true);
   area.scrollIntoView({ behavior: 'smooth' });
 }
 
@@ -3215,12 +3285,40 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
       
       ${utilLine}
       
-      ${r.ceiling != null ? `<p class="text-sm leading-relaxed mb-3">
-        ${measuredVelo != null
-          ? `현재 측정 구속 <strong>${measuredVelo.toFixed(1)} km/h</strong> 기준, 체력·메카닉을 100점까지 끌어올리면 <strong>${r.ceiling.toFixed(1)} km/h</strong>까지 도달 가능합니다.`
-          : `메카닉 점수를 100점까지 끌어올리면 <strong>${r.ceiling.toFixed(1)} km/h</strong>까지 도달 가능합니다 <span class="text-xs text-[var(--text-muted)]">(코호트 절대 회귀 기준 — 측정 구속 입력 시 더 정확)</span>.`}
-        ${growth != null ? `현재로부터 <strong>+${growth.toFixed(1)} km/h</strong>의 성장 여지가 있습니다.` : ''}
-      </p>` : ''}
+      ${r.ceiling != null ? (() => {
+        const capped = r.theoretical_ceiling != null && r.theoretical_ceiling > r.ceiling + 0.5;
+        const capNote = capped
+          ? `<div class="text-[10px] text-[var(--text-muted)] mt-2 italic">⚠ 이론값 ${r.theoretical_ceiling.toFixed(1)} km/h 이나 ${r.age} 연령군 현실적 성장 한도(+${r.age_max_gain} km/h, elite ${r.age_elite_cap} km/h)로 보정됨</div>`
+          : '';
+        // 3가지 시나리오 (체력만/메카닉만/둘다)
+        const scenarios = [
+          { name: '체력만 100점',    val: r.ceiling_F100,  desc: '메카닉은 현재 유지', color: 'var(--fitness)' },
+          { name: '메카닉만 100점',  val: r.ceiling_M100,  desc: '체력은 현재 유지',   color: 'var(--accent)' },
+          { name: '체력+메카닉 100점', val: r.ceiling_FM100, desc: '둘 다 발달',        color: 'var(--good)' },
+        ].filter(s => s.val != null);
+        if (measuredVelo == null || scenarios.length === 0) {
+          return `<p class="text-sm leading-relaxed mb-3">
+            메카닉 점수를 100점까지 끌어올리면 <strong>${r.ceiling.toFixed(1)} km/h</strong>까지 도달 가능합니다 <span class="text-xs text-[var(--text-muted)]">(코호트 절대 회귀 기준 — 측정 구속 입력 시 더 정확)</span>.
+          </p>`;
+        }
+        return `
+          <div class="mb-3">
+            <div class="text-sm mb-2"><strong>📈 잠재 구속 시나리오</strong> — 측정 구속 <strong>${measuredVelo.toFixed(1)} km/h</strong> 기준</div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+              ${scenarios.map(s => {
+                const gain = s.val - measuredVelo;
+                return `
+                <div class="card p-3" style="background: var(--bg-elevated); border-left: 3px solid ${s.color};">
+                  <div class="mono text-[10px] text-[var(--text-muted)] uppercase tracking-wider">${s.name}</div>
+                  <div class="display text-2xl mt-1" style="color: ${s.color}">${s.val.toFixed(1)}<span class="text-xs ml-1 text-[var(--text-muted)]">km/h</span></div>
+                  <div class="text-[10px] mt-1" style="color: ${gain > 0 ? 'var(--good)' : 'var(--text-muted)'}">+${gain.toFixed(1)} km/h 성장</div>
+                  <div class="text-[10px] text-[var(--text-muted)] mt-1">${s.desc}</div>
+                </div>`;
+              }).join('')}
+            </div>
+            ${capNote}
+          </div>`;
+      })() : ''}
       
       ${strengths.length ? `
       <div class="mt-4">
@@ -3292,36 +3390,147 @@ function persistSavedReports() {
   catch (e) { console.error('localStorage 저장 실패:', e); }
 }
 
-function saveCurrentReport() {
+// 자동 저장 — 같은 (name + date + age)면 update, 아니면 add
+function autoSaveReport(silent = false) {
   const name = document.getElementById('player-name').value || '신규 선수';
   const date = document.getElementById('player-date').value || '';
+  const age  = CURRENT_AGE;
   const velo = parseFloat(document.getElementById('player-velo').value) || null;
-  const result = calculateScores(CURRENT_INPUT, CURRENT_AGE, velo);
+  const totalVars = Object.keys(CURRENT_INPUT.fitness).length + Object.keys(CURRENT_INPUT.mechanics).length;
+  if (totalVars === 0) return null;
 
-  // 변수 입력 0개면 저장 거부
+  const result = CURRENT_REPORT_RESULT || calculateScores(CURRENT_INPUT, age, velo);
+  const existingIdx = SAVED_REPORTS.findIndex(r => r.name === name && r.date === date && r.age === age);
+  const report = {
+    id: existingIdx >= 0 ? SAVED_REPORTS[existingIdx].id
+                         : 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    name, age, date, measuredVelo: velo,
+    inputs: JSON.parse(JSON.stringify(CURRENT_INPUT)),
+    scores: result,
+    savedAt: new Date().toISOString(),
+  };
+  if (existingIdx >= 0) SAVED_REPORTS[existingIdx] = report;
+  else SAVED_REPORTS.push(report);
+  persistSavedReports();
+  refreshPlayerSelector();
+  return report;
+}
+
+function saveCurrentReport() {
   const totalVars = Object.keys(CURRENT_INPUT.fitness).length + Object.keys(CURRENT_INPUT.mechanics).length;
   if (totalVars === 0) {
     alert('⚠️ 입력 변수가 없어 저장할 수 없습니다. CSV를 업로드하고 리포트를 먼저 생성해주세요.');
     return;
   }
+  const r = autoSaveReport(true);
+  if (r) alert(`✅ 리포트 저장 완료: ${r.name}${r.date ? ' (' + r.date + ')' : ''}\n총 저장 ${SAVED_REPORTS.length}개`);
+}
 
-  const report = {
-    id: 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
-    name, age: CURRENT_AGE, date,
-    measuredVelo: velo,
-    inputs: JSON.parse(JSON.stringify(CURRENT_INPUT)),
-    scores: result,
-    savedAt: new Date().toISOString(),
-  };
-  SAVED_REPORTS.push(report);
-  persistSavedReports();
-  alert(`✅ 리포트 저장 완료: ${name}${date ? ' (' + date + ')' : ''}\n총 저장 ${SAVED_REPORTS.length}개`);
+// 저장된 선수 dropdown 갱신
+function refreshPlayerSelector() {
+  const sel = document.getElementById('saved-player-select');
+  const wrap = document.getElementById('saved-player-selector');
+  if (!sel || !wrap) return;
+  if (SAVED_REPORTS.length === 0) {
+    wrap.classList.add('hidden');
+    return;
+  }
+  wrap.classList.remove('hidden');
+  const opts = SAVED_REPORTS
+    .slice()
+    .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))
+    .map(r => `<option value="${r.id}">${r.name} · ${r.age || '—'} · ${r.date || '날짜없음'}${r.measuredVelo != null ? ' · ' + r.measuredVelo + 'km/h' : ''}</option>`)
+    .join('');
+  sel.innerHTML = '<option value="">— 선택 안 함 (새로 입력) —</option>' + opts;
+}
+
+// 저장된 선수 데이터 복원 + 자동 리포트 생성
+function loadSavedPlayer(id) {
+  if (!id) return;
+  const saved = SAVED_REPORTS.find(r => r.id === id);
+  if (!saved) return;
+
+  // Step 1 필드 복원
+  document.getElementById('player-name').value = saved.name || '';
+  document.getElementById('player-date').value = saved.date || '';
+  document.getElementById('player-velo').value = saved.measuredVelo != null ? saved.measuredVelo : '';
+  selectAge(saved.age || '고교');
+
+  // 입력 데이터 복원
+  CURRENT_INPUT.fitness  = JSON.parse(JSON.stringify((saved.inputs && saved.inputs.fitness) || {}));
+  CURRENT_INPUT.mechanics = JSON.parse(JSON.stringify((saved.inputs && saved.inputs.mechanics) || {}));
+
+  // Step 2 status 복원
+  const fitCount = Object.keys(CURRENT_INPUT.fitness).length;
+  const mechCount = Object.keys(CURRENT_INPUT.mechanics).length;
+  const fitStatus = document.getElementById('fitness-upload-status');
+  const fitEmpty = document.getElementById('fitness-empty-state');
+  const fitSummary = document.getElementById('fitness-upload-summary');
+  if (fitStatus && fitEmpty && fitSummary) {
+    if (fitCount > 0) {
+      fitStatus.classList.remove('hidden');
+      fitEmpty.classList.add('hidden');
+      fitSummary.innerHTML = `✅ <strong>저장된 선수 복원</strong> — 체력+구속 변수 ${fitCount}개`;
+    } else {
+      fitStatus.classList.add('hidden');
+      fitEmpty.classList.remove('hidden');
+    }
+  }
+  // Step 3 status 복원
+  const mechStatus = document.getElementById('mech-upload-status');
+  const mechEmpty = document.getElementById('mech-empty-state');
+  const mechSummary = document.getElementById('mech-upload-summary');
+  if (mechStatus && mechEmpty && mechSummary) {
+    if (mechCount > 0) {
+      mechStatus.classList.remove('hidden');
+      mechEmpty.classList.add('hidden');
+      mechSummary.innerHTML = `✅ <strong>저장된 선수 복원</strong> — 메카닉 변수 ${mechCount}개`;
+    } else {
+      mechStatus.classList.add('hidden');
+      mechEmpty.classList.remove('hidden');
+    }
+  }
+
+  // 자동 리포트 생성 (현재 알고리즘으로 재계산됨)
+  generateReport();
+}
+
+function deleteSelectedSavedPlayer() {
+  const sel = document.getElementById('saved-player-select');
+  if (!sel || !sel.value) {
+    alert('삭제할 선수를 선택해주세요.');
+    return;
+  }
+  deleteSavedReport(sel.value);
+  sel.value = '';
+}
+
+// 알고리즘 변경 시 — 저장된 모든 리포트 자동 재계산
+function recomputeAllSavedReports() {
+  if (!SAVED_REPORTS || SAVED_REPORTS.length === 0) return 0;
+  let updated = 0;
+  for (const saved of SAVED_REPORTS) {
+    if (!saved.inputs) continue;
+    try {
+      const result = calculateScores(saved.inputs, saved.age || '고교', saved.measuredVelo);
+      saved.scores = result;
+      updated++;
+    } catch (e) {
+      console.warn('재계산 실패:', saved.name, e);
+    }
+  }
+  if (updated > 0) {
+    persistSavedReports();
+    console.log(`✅ ${updated}개 저장된 리포트 알고리즘 재계산 완료`);
+  }
+  return updated;
 }
 
 function deleteSavedReport(id) {
   if (!confirm('이 리포트를 삭제할까요?')) return;
   SAVED_REPORTS = SAVED_REPORTS.filter(r => r.id !== id);
   persistSavedReports();
+  refreshPlayerSelector();
   // 현재 활성 뷰 다시 렌더
   const active = document.querySelector('.nav-tab.active')?.dataset.view;
   if (active === 'h1h2') renderH1H2View();
@@ -3872,6 +4081,9 @@ window.addEventListener('DOMContentLoaded', () => {
   setupDropZone('fitness-drop-zone', 'fitness');
   setupDropZone('mech-drop-zone', 'mechanics');
   loadSavedReports();
+  // 알고리즘 변경에 대응해 저장된 모든 리포트를 현재 calculateScores로 재계산
+  recomputeAllSavedReports();
+  refreshPlayerSelector();
 });
 </script>
 
