@@ -1,153 +1,61 @@
-# BBL Pitcher Integrated Report — 통합 분석 리포트 빌더
+# BBL Pitching Report — 신규 선수 리포트 (Phase 1)
 
-국민대학교 **BioMotion Baseball Lab (BBL)** 투수 통합 분석 리포트 자동 생성 사이트입니다.
+국민대학교 BBL Lab. (Baseball Biomechanics Lab.) 야구 바이오메카닉스 평가 도구.
+신규 투수의 체력·메카닉·제구 측정값을 입력하면 v29 코호트(고교 134명) 기준으로
+점수·예상 구속·잠재 구속·코칭 해설을 자동 산출하는 단일 HTML 웹앱입니다.
 
-* **분석 대상** · 투수 1명
-* **입력 데이터** · 선수 프로필 + 구속 + Uplift CSV 10개 + ForceDecks CSV 1개
-* **출력** · Report 7 형식의 인터랙티브 대시보드 (인쇄/PDF 지원)
+## 사용법
 
-## 📋 설계
+브라우저에서 [https://kkl0511.github.io/BBL_Pitching_Report1/](https://kkl0511.github.io/BBL_Pitching_Report1/)
+에 접속한 뒤,
 
-이 사이트는 두 시스템을 통합한 결과입니다:
+1. **선수 정보 + 연령군**: 이름·측정 일자 입력, 연령군(중학·고교·대학·프로) 선택
+2. **체력 + 제구 변수 입력**: 직접 폼 입력 또는 CSV 템플릿 다운로드 후 일괄 업로드
+3. **메카닉 변수 입력**: ✓ 표시된 11개 변수만 점수 산출 가능 (★ 표시는 Phase 2 예정)
+4. **리포트 생성** 버튼 → 종합 점수, 예상 구속, 강점·약점, 코칭 해설이 한 페이지에 출력
+5. 결과는 HTML 다운로드 또는 브라우저 인쇄(PDF 저장) 가능
 
-| 데이터 | 분석 로직 출처 |
-|--------|----------------|
-| Uplift CSV → 바이오메카닉스 (구속·제구) | `files` (BBLAnalysis) |
-| ForceDecks CSV → 체력 5대 변수 | 신규 (BBLFitness) |
-| 기대 구속 모델 (체력 vs 메카닉스) | Report 7 |
-| Archetype · CoreIssue · 강점·약점·플래그·훈련 | Report 7 + 신규 룰 |
-| 대시보드 UI | Report 7 |
+## 평가 체계
 
-## 🚀 사용법
+3 영역 × 6 카테고리 = 18 카테고리
 
-### 로컬에서 실행
+| 영역 | 카테고리 |
+|---|---|
+| 체력 (F1–F6) | 근력 / 절대파워 / 반응성 / 체격 / 체중당파워 / 복합폭발력 |
+| 메카닉 (C1–C6) | FC자세 / 하체드라이브 / 몸통출력 / 앞다리블록 / 시퀀싱 / 코킹 |
+| 제구 (P1–P6) | 릴리스점 / 팔슬롯 / 릴리스높이 / 타이밍 / Stride / 몸통기울기 |
 
-1. 이 폴더 전체를 다운로드합니다.
-2. `index.html`을 더블클릭하거나, 간단한 정적 서버를 띄워 엽니다:
-   ```bash
-   # 옵션 1: Python 내장 서버
-   python3 -m http.server 8000
-   # 옵션 2: Node http-server
-   npx http-server .
-   ```
-3. 브라우저에서 `http://localhost:8000` 접속.
+## 코호트 기준
 
-### GitHub Pages 배포
+- 고교 1년 투수 134명 × H1(Spring 2025) + H2(Fall 2025) = 268 측정
+- 다중 회귀 (Driveline 방법론 참조), 75/25 split, MAE + R² 검증
+- 종합 회귀:
+  - 체력 → 구속: PV = 0.1703 × F + 117.81 (R² = 0.166)
+  - 메카닉 → 구속: MV = 0.2882 × M + 111.47 (R² = 0.235)
 
-1. 이 폴더 전체를 GitHub 저장소에 **Public**으로 업로드.
-2. **Settings → Pages → Source: `main` branch / root** → Save.
-3. 약 1–2분 후 `https://<사용자명>.github.io/<저장소명>/`에서 접속 가능.
+## 연령군 스케일링
 
-## 📊 입력 데이터
+| 연령군 | 구속 보정 | 점수 보정 | 비고 |
+|---|---|---|---|
+| 중학 | −5 km/h | −10 | 고교 상위 50% 기준 |
+| 고교 | 0 | 0 | BBL 기준 |
+| 대학 | +5 km/h | +10 | 고교 상위 10% 대비 |
+| 프로 | +10 km/h | +20 | 대학 +5/+10 |
 
-### 1. 선수 프로필 (직접 입력)
+## 기술 스택
 
-* 이름, 영문 이름, 나이, 신장(cm), 체중(kg), 투구손
-* **최고 구속 (km/h)**, **평균 구속 (km/h)**
-* 측정 영상 URL (선택사항 — YouTube · Vimeo · mp4 직접 링크)
+단일 HTML 파일 — Tailwind CSS (CDN) + 순수 JavaScript.
+v29 134명 코호트 통계·회귀·보정값을 JSON으로 임베드 (`cohort_v29_export.json` 기반).
+서버·빌드 과정 없이 브라우저에서 바로 동작.
 
-### 2. Uplift CSV (10개 권장)
+## 데이터 보호
 
-Uplift Labs 마커리스 모션캡처 export 파일입니다. 각 파일이 1개의 투구 시행을 나타냅니다.
-`files`의 `BBLAnalysis` 모듈이 다음을 자동 추출:
+- 본 저장소에는 **익명화된 통계 분포만** 포함됩니다 (개별 선수 식별 정보 없음).
+- 코호트 원본 데이터(P001~P133 ↔ 실명 매핑)는 비공개입니다.
+- 사용자가 입력한 신규 선수 데이터는 브라우저 메모리 안에서만 처리되며 외부로 전송되지 않습니다.
+- `<meta name="robots" content="noindex, nofollow">`로 검색 엔진 색인을 차단합니다.
 
-* 분절 회전 속도 (peak pelvis · trunk · arm)
-* 분절 시퀀싱 (P→T lag, T→A lag, FC→BR)
-* 에너지 전달 (ETI P→T, ETI T→A)
-* Max ER (layback)
-* X-factor, stride length, knee flex, trunk tilt, arm slot
-* 기타 13개 fault flags
+## 라이선스
 
-10개의 trial은 시행간 SD/CV로 제구 일관성(5 Domain) 평가에 활용됩니다.
-
-### 3. ForceDecks CSV (1개)
-
-VALD ForceDecks (또는 동등한 포스플레이트) export 파일. 본 파서는 다음 두 형식을 모두 지원합니다:
-
-#### Long format (각 행 = 1개 시행)
-
-| Test Type | Concentric Peak Power (W) | Concentric Peak Power / BM (W/kg) | Jump Height (cm) | RSI Modified (m/s) | Peak Force (N) | Peak Force / BM (N/kg) |
-|-----------|---|---|---|---|---|---|
-| CMJ | 3816 | 48.3 | 38.2 | 0.49 | | |
-| CMJ | 3850 | 48.7 | 38.5 | 0.50 | | |
-| SJ  | 2299 | 29.1 | 35.0 | 0.27 | | |
-| IMTP | | | | | 1700 | 21.5 |
-| Grip | | | | | 50 | |
-
-* `Test Type` 컬럼으로 CMJ / SJ / IMTP / Grip을 식별합니다.
-* 컬럼명은 부분 일치로 인식 (예: "Peak Power", "PowerW", "concentric peak power" 모두 가능).
-* 단위는 컬럼명에서 자동 인식 (W vs W/kg, N vs N/kg, cm).
-
-#### Wide format (각 행이 한 세션의 종합 요약)
-
-| CMJ Peak Power | SJ Peak Power | IMTP Peak Force | ... |
-|----------------|---------------|-----------------|-----|
-| 3816 | 2299 | 1700 | ... |
-
-* 컬럼 prefix(`CMJ`, `SJ`, `IMTP`, `Grip`)로 테스트를 식별합니다.
-
-#### 수동 입력 모드
-
-CSV가 없거나 형식이 다른 경우, 입력 폼에서 **"수동 입력"** 토글을 선택하여 다음 값을 직접 입력할 수 있습니다:
-
-* CMJ · SJ 단위파워 (W/kg) 또는 절대파워 (W)
-* CMJ · SJ RSI-mod (m/s)
-* IMTP 절대 (N) 또는 단위 (N/kg)
-* EUR · 악력 (kg)
-
-비워둔 항목은 "미측정"으로 표시되며, 단위파워와 절대파워 중 하나만 입력해도 체중이 있으면 자동 변환됩니다.
-
-## 🧠 분석 결과
-
-리포트 대시보드는 다음 섹션으로 구성됩니다:
-
-1. **Overview** — Peak velocity · Max layback · ETI · CMJ 단위파워 KPI 카드
-2. **Core Issue** — 핵심 진단 한 줄 요약 + 강점/약점/체크포인트 카운트
-3. **Expected Velocity** — 체력 vs 메카닉스 기반 기대 구속 (Driveline 차용 모델, ±10 km/h cap)
-4. **구속 관련 체력** — 6축 레이더 차트 + 5대 측정값
-5. **구속 관련 메카닉스** — 에너지 전달 (ETI) · 시퀀싱 · 분절 회전 속도 · Max layback
-6. **제구 관련 메카닉스** — 5 Domain 등급 + 7대 요인 + 일관성 측정값
-7. **강점·약점** — 자동 도출 텍스트 리스트
-8. **체크 포인트** — HIGH/MEDIUM/LOW 등급 플래그
-9. **피지컬 트레이닝** — 진단 기반 4–12주 블록 처방
-10. **동작 교정 드릴** — D등급 요인별 셀프 드릴
-
-## 🛠 파일 구조
-
-```
-index.html              ← 메인 진입점
-input.css               ← 입력 페이지 스타일
-colors_and_type.css     ← 대시보드 색상·타이포 토큰
-dashboard.css           ← 대시보드 메인 스타일
-report.css              ← 리포트 인쇄 스타일
-
-analysis.js             ← BBLAnalysis (files에서 가져옴, 무수정)
-fitness.js              ← BBLFitness (신규: ForceDecks CSV 파서)
-data_builder.js         ← BBLDataBuilder (신규: 분석 결과 → 리포트 데이터)
-charts.jsx              ← Radar / Sequence / Angular / Energy 차트 컴포넌트
-dashboard.jsx           ← Report 7 대시보드 (window.BBLDashboardApp으로 export)
-app.jsx                 ← 입력 폼 + 라우터 (메인 앱)
-
-assets/
-  ├ logo-bbl.png
-  ├ logo-bbl.svg
-  └ max-layback.png
-```
-
-## ⚠️ 알려진 제한사항
-
-* **소표본 baseline**: 기대 구속 모델은 BBL 4명 평균(134.7 km/h)을 baseline으로 사용합니다. 약 600명 데이터셋 기반 v1.0 회귀 모델로 업그레이드 예정 (Report 7 v0.1 prototype 기준).
-* **strikePct·plateSdCm**: 직접 측정 불가 (Rapsodo 미연동) — 5 Domain 종합 등급 기반 추정값입니다 (DEMO 배지 표시).
-* **Head displacement (F6)**: Uplift export에서 직접 추출이 어려워 sway/getting-out fault rate로 대체 평가됩니다.
-* **단일 선수 모드**: 본 빌드는 1명의 선수 분석만 지원합니다. 비교 모드는 미사용.
-
-## 📚 출처
-
-* 측정 시스템: Uplift Labs · VALD ForceDecks · Rapsodo
-* 바이오메카닉스 분석: BBLAnalysis v2 (자체 구현, Ae 1992 / Yanai 2023 / Naito 2011 등 차용)
-* 기대 구속 모델: Driveline Baseball (2021) — *"Predicted Velocity Through Jump and Strength Testing"*
-* Elite reference: Fleisig 1999 · Crotin & Ramsey 2014 · Driveline 2024 · Stodden 2005
-
----
-
-© 2026 BioMotion Baseball Lab · Kookmin University · biomotion.kr
+연구·교육 목적 사용 한정. 상업적 재배포 금지.
+문의: kklee@kookmin.ac.kr (국민대학교 스포츠과학과)
