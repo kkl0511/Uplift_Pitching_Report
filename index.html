@@ -392,6 +392,13 @@
   .cmp-table .delta-pos { color: var(--good); }
   .cmp-table .delta-neg { color: var(--bad); }
   .cmp-table .delta-neu { color: var(--text-muted); }
+  /* 비교표 카테고리별 옅은 배경색 */
+  .cmp-table tr.area-fitness { background: rgba(96,165,250,0.05); }
+  .cmp-table tr.area-mech    { background: rgba(255,107,53,0.05); }
+  .cmp-table tr.area-ctrl    { background: rgba(192,132,252,0.05); }
+  .cmp-table tr.area-fitness:hover { background: rgba(96,165,250,0.10); }
+  .cmp-table tr.area-mech:hover    { background: rgba(255,107,53,0.10); }
+  .cmp-table tr.area-ctrl:hover    { background: rgba(192,132,252,0.10); }
 
   /* 저장된 리포트 카드 */
   .saved-report-card {
@@ -3285,40 +3292,9 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
       
       ${utilLine}
       
-      ${r.ceiling != null ? (() => {
-        const capped = r.theoretical_ceiling != null && r.theoretical_ceiling > r.ceiling + 0.5;
-        const capNote = capped
-          ? `<div class="text-[10px] text-[var(--text-muted)] mt-2 italic">⚠ 이론값 ${r.theoretical_ceiling.toFixed(1)} km/h 이나 ${r.age} 연령군 현실적 성장 한도(+${r.age_max_gain} km/h, elite ${r.age_elite_cap} km/h)로 보정됨</div>`
-          : '';
-        // 3가지 시나리오 (체력만/메카닉만/둘다)
-        const scenarios = [
-          { name: '체력만 100점',    val: r.ceiling_F100,  desc: '메카닉은 현재 유지', color: 'var(--fitness)' },
-          { name: '메카닉만 100점',  val: r.ceiling_M100,  desc: '체력은 현재 유지',   color: 'var(--accent)' },
-          { name: '체력+메카닉 100점', val: r.ceiling_FM100, desc: '둘 다 발달',        color: 'var(--good)' },
-        ].filter(s => s.val != null);
-        if (measuredVelo == null || scenarios.length === 0) {
-          return `<p class="text-sm leading-relaxed mb-3">
-            메카닉 점수를 100점까지 끌어올리면 <strong>${r.ceiling.toFixed(1)} km/h</strong>까지 도달 가능합니다 <span class="text-xs text-[var(--text-muted)]">(코호트 절대 회귀 기준 — 측정 구속 입력 시 더 정확)</span>.
-          </p>`;
-        }
-        return `
-          <div class="mb-3">
-            <div class="text-sm mb-2"><strong>📈 잠재 구속 시나리오</strong> — 측정 구속 <strong>${measuredVelo.toFixed(1)} km/h</strong> 기준</div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-              ${scenarios.map(s => {
-                const gain = s.val - measuredVelo;
-                return `
-                <div class="card p-3" style="background: var(--bg-elevated); border-left: 3px solid ${s.color};">
-                  <div class="mono text-[10px] text-[var(--text-muted)] uppercase tracking-wider">${s.name}</div>
-                  <div class="display text-2xl mt-1" style="color: ${s.color}">${s.val.toFixed(1)}<span class="text-xs ml-1 text-[var(--text-muted)]">km/h</span></div>
-                  <div class="text-[10px] mt-1" style="color: ${gain > 0 ? 'var(--good)' : 'var(--text-muted)'}">+${gain.toFixed(1)} km/h 성장</div>
-                  <div class="text-[10px] text-[var(--text-muted)] mt-1">${s.desc}</div>
-                </div>`;
-              }).join('')}
-            </div>
-            ${capNote}
-          </div>`;
-      })() : ''}
+      ${r.ceiling != null && measuredVelo == null ? `<p class="text-sm leading-relaxed mb-3">
+        메카닉 점수를 100점까지 끌어올리면 <strong>${r.ceiling.toFixed(1)} km/h</strong>까지 도달 가능합니다 <span class="text-xs text-[var(--text-muted)]">(코호트 절대 회귀 기준 — 측정 구속 입력 시 더 정확)</span>.
+      </p>` : ''}
       
       ${strengths.length ? `
       <div class="mt-4">
@@ -3365,12 +3341,50 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
 
   // 코칭 세션 (메카닉 결과 시각화 + 영상)
   const coachSession = renderCoachSessionHtml(r);
+  // 잠재 구속 시나리오 — 헤더 바로 아래
+  const ceilingScenarios = renderCeilingScenarioCard(r, measuredVelo);
 
   return header
+    + ceilingScenarios
     + `<div class="grid grid-cols-1 md:grid-cols-3 gap-4">` + sectionsHtml + `</div>`
     + coachSession
     + summary
     + downloadBtn;
+}
+
+// 잠재 구속 3가지 시나리오 카드 (헤더 바로 아래)
+function renderCeilingScenarioCard(r, measuredVelo) {
+  if (r.ceiling == null || measuredVelo == null) return '';
+  const scenarios = [
+    { name: '체력만 100점',     val: r.ceiling_F100,  desc: '메카닉은 현재 유지', color: 'var(--fitness)' },
+    { name: '메카닉만 100점',   val: r.ceiling_M100,  desc: '체력은 현재 유지',   color: 'var(--accent)' },
+    { name: '체력+메카닉 100점', val: r.ceiling_FM100, desc: '둘 다 100점 발달',  color: 'var(--good)' },
+  ].filter(s => s.val != null);
+  if (scenarios.length === 0) return '';
+  const capped = r.theoretical_ceiling != null && r.theoretical_ceiling > r.ceiling + 0.5;
+  const capNote = capped
+    ? `<div class="text-[10px] text-[var(--text-muted)] mt-2 italic">⚠ 이론값 ${r.theoretical_ceiling.toFixed(1)} km/h 이나 ${r.age} 연령군 현실적 성장 한도(+${r.age_max_gain} km/h, elite ${r.age_elite_cap} km/h)로 보정됨</div>`
+    : '';
+  return `
+    <div class="card p-5 mb-4" style="border-top: 2px solid var(--accent);">
+      <div class="flex justify-between items-end mb-3">
+        <div class="display text-base">📈 잠재 구속 시나리오</div>
+        <div class="text-xs text-[var(--text-muted)]">측정 구속 <strong class="mono text-[var(--text-primary)]">${measuredVelo.toFixed(1)} km/h</strong> 기준 — 발달 영역에 따른 도달 가능 구속</div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        ${scenarios.map(s => {
+          const gain = s.val - measuredVelo;
+          return `
+          <div class="card p-3" style="background: var(--bg-elevated); border-left: 3px solid ${s.color};">
+            <div class="mono text-[10px] text-[var(--text-muted)] uppercase tracking-wider">${s.name}</div>
+            <div class="display text-2xl mt-1" style="color: ${s.color}">${s.val.toFixed(1)}<span class="text-xs ml-1 text-[var(--text-muted)]">km/h</span></div>
+            <div class="text-[10px] mt-1" style="color: ${gain > 0 ? 'var(--good)' : 'var(--text-muted)'}">+${gain.toFixed(1)} km/h 성장</div>
+            <div class="text-[10px] text-[var(--text-muted)] mt-1">${s.desc}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      ${capNote}
+    </div>`;
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -3426,11 +3440,12 @@ function saveCurrentReport() {
   if (r) alert(`✅ 리포트 저장 완료: ${r.name}${r.date ? ' (' + r.date + ')' : ''}\n총 저장 ${SAVED_REPORTS.length}개`);
 }
 
-// 저장된 선수 dropdown 갱신
+// 저장된 선수 dropdown 갱신 — 이전 선택값 보존 (autoSave 후에도 selection 유지)
 function refreshPlayerSelector() {
   const sel = document.getElementById('saved-player-select');
   const wrap = document.getElementById('saved-player-selector');
   if (!sel || !wrap) return;
+  const prevValue = sel.value;
   if (SAVED_REPORTS.length === 0) {
     wrap.classList.add('hidden');
     return;
@@ -3442,6 +3457,10 @@ function refreshPlayerSelector() {
     .map(r => `<option value="${r.id}">${r.name} · ${r.age || '—'} · ${r.date || '날짜없음'}${r.measuredVelo != null ? ' · ' + r.measuredVelo + 'km/h' : ''}</option>`)
     .join('');
   sel.innerHTML = '<option value="">— 선택 안 함 (새로 입력) —</option>' + opts;
+  // 이전 선택값이 여전히 존재하면 복원 (autoSave 후 dropdown이 새로 그려져도 선택 유지)
+  if (prevValue && SAVED_REPORTS.find(r => r.id === prevValue)) {
+    sel.value = prevValue;
+  }
 }
 
 // 저장된 선수 데이터 복원 + 자동 리포트 생성
@@ -3498,11 +3517,21 @@ function loadSavedPlayer(id) {
 function deleteSelectedSavedPlayer() {
   const sel = document.getElementById('saved-player-select');
   if (!sel || !sel.value) {
-    alert('삭제할 선수를 선택해주세요.');
+    alert('삭제할 선수를 먼저 위 드롭다운에서 선택해주세요.');
     return;
   }
-  deleteSavedReport(sel.value);
-  sel.value = '';
+  const id = sel.value;
+  const saved = SAVED_REPORTS.find(r => r.id === id);
+  if (!saved) {
+    alert('선택한 선수를 찾을 수 없습니다.');
+    return;
+  }
+  if (!confirm(`정말 삭제하시겠어요?\n\n${saved.name} (${saved.age || '—'} · ${saved.date || '날짜없음'})`)) return;
+  SAVED_REPORTS = SAVED_REPORTS.filter(r => r.id !== id);
+  persistSavedReports();
+  sel.value = '';  // 선택 초기화
+  refreshPlayerSelector();
+  alert(`✅ 삭제 완료: ${saved.name}`);
 }
 
 // 알고리즘 변경 시 — 저장된 모든 리포트 자동 재계산
@@ -3757,11 +3786,11 @@ function renderComparisonHtml(reports, labels, prefix) {
       }).join('')}
     </div>`;
 
-  // 카테고리별 비교 표 — N개 칼럼 + Range
+  // 카테고리별 비교 표 — N개 칼럼 + Range, 영역별 옅은 배경색
   const allAreas = [
-    { name: '체력', cats: COHORT.fitness_cats },
-    { name: '메카닉', cats: COHORT.mechanics_cats },
-    { name: '제구', cats: COHORT.control_cats },
+    { name: '체력', cats: COHORT.fitness_cats, cls: 'area-fitness' },
+    { name: '메카닉', cats: COHORT.mechanics_cats, cls: 'area-mech' },
+    { name: '제구', cats: COHORT.control_cats, cls: 'area-ctrl' },
   ];
   const truncateLabel = (s) => s.length > 10 ? s.slice(0, 10) + '…' : s;
   const tableHtml = `
@@ -3788,7 +3817,7 @@ function renderComparisonHtml(reports, labels, prefix) {
               rangeOrDelta = `<span class="mono">${(Math.max(...validVals) - Math.min(...validVals)).toFixed(1)}</span>`;
             }
             const valCells = vals.map(v => `<td class="cmp-num" style="color:${scoreColor(v)}">${fmt(v)}</td>`).join('');
-            return `<tr>
+            return `<tr class="${area.cls}">
               <td class="text-[var(--text-muted)] text-xs">${area.name}</td>
               <td>${meta.name || catId}</td>
               ${valCells}
@@ -3799,7 +3828,155 @@ function renderComparisonHtml(reports, labels, prefix) {
       </table>
     </div>`;
 
-  return header + summaryRow + radarSection + tableHtml;
+  // 잠재 구속 비교 카드 — 3 시나리오 × N 선수
+  const ceilingCmp = renderCeilingComparisonCard(reports, labels);
+
+  // 총평 텍스트
+  const summaryText = generateComparisonSummary(reports, labels, prefix);
+
+  return header + summaryRow + ceilingCmp + radarSection + tableHtml + summaryText;
+}
+
+// 잠재 구속 비교 카드 — 3가지 시나리오 (F100, M100, FM100)
+function renderCeilingComparisonCard(reports, labels) {
+  const validReports = reports.filter(r => r.measuredVelo != null && r.scores.ceiling_FM100 != null);
+  if (validReports.length < 2) return '';
+  const fmt = (v) => v != null ? Number(v).toFixed(1) : '—';
+  const scenarios = [
+    { name: '체력만 100점',     key: 'ceiling_F100',  color: 'var(--fitness)' },
+    { name: '메카닉만 100점',   key: 'ceiling_M100',  color: 'var(--accent)' },
+    { name: '체력+메카닉 100점', key: 'ceiling_FM100', color: 'var(--good)' },
+  ];
+  return `
+    <div class="card p-4 mb-6">
+      <div class="display text-base mb-3">📈 잠재 구속 비교 — 3가지 시나리오</div>
+      <table class="cmp-table">
+        <thead><tr>
+          <th>시나리오</th>
+          ${reports.map((r, i) => `<th class="text-right" style="color:${_CMP_COLORS[i]}">${labels[i].length > 10 ? labels[i].slice(0,10)+'…' : labels[i]}<br><span class="text-[10px] text-[var(--text-muted)] font-normal">측정 ${r.measuredVelo != null ? r.measuredVelo.toFixed(1) : '—'} km/h</span></th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${scenarios.map(s => {
+            const vals = reports.map(r => r.scores[s.key]);
+            const cells = vals.map((v, i) => {
+              if (v == null) return '<td class="cmp-num">—</td>';
+              const measured = reports[i].measuredVelo;
+              const gain = measured != null ? v - measured : null;
+              const gainTxt = gain != null ? `<div class="text-[9px] text-[var(--text-muted)]">+${gain.toFixed(1)}</div>` : '';
+              return `<td class="cmp-num" style="color:${s.color}"><strong>${v.toFixed(1)}</strong> km/h${gainTxt}</td>`;
+            }).join('');
+            return `<tr>
+              <td><strong style="color:${s.color}">${s.name}</strong></td>
+              ${cells}
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+// 비교 총평 텍스트 — 자동 분석
+function generateComparisonSummary(reports, labels, prefix) {
+  if (reports.length < 2) return '';
+  const isHvsH = prefix === 'h1h2';
+
+  // 종합 점수 ranking
+  const score = (r, k) => r.scores[k];
+  const findLeader = (key) => {
+    const valid = reports.map((r, i) => ({ idx: i, v: score(r, key) })).filter(x => x.v != null);
+    if (valid.length < 2) return null;
+    valid.sort((a, b) => b.v - a.v);
+    return { leader: valid[0], laggard: valid[valid.length - 1], all: valid };
+  };
+  const findLeaderVelo = (key) => {
+    const valid = reports.map((r, i) => ({ idx: i, v: r[key] })).filter(x => x.v != null);
+    if (valid.length < 2) return null;
+    valid.sort((a, b) => b.v - a.v);
+    return { leader: valid[0], laggard: valid[valid.length - 1], all: valid };
+  };
+
+  const veloR = findLeaderVelo('measuredVelo');
+  const fitR  = findLeader('Fitness_Score');
+  const mechR = findLeader('Mechanics_Score');
+  const ctrlR = findLeader('Control_Score');
+  const ceilR = findLeader('ceiling');
+
+  // 카테고리별 가장 큰 차이
+  const allCats = [...COHORT.fitness_cats, ...COHORT.mechanics_cats, ...COHORT.control_cats];
+  let biggestGap = 0, biggestGapCat = null, biggestGapLeader = null;
+  for (const cat of allCats) {
+    const vals = reports.map((r, i) => ({ idx: i, v: r.scores.cat_scores?.[cat] })).filter(x => x.v != null);
+    if (vals.length < 2) continue;
+    const minV = Math.min(...vals.map(x => x.v));
+    const maxV = Math.max(...vals.map(x => x.v));
+    const gap = maxV - minV;
+    if (gap > biggestGap) {
+      biggestGap = gap;
+      biggestGapCat = cat;
+      biggestGapLeader = vals.find(x => x.v === maxV);
+    }
+  }
+
+  // 텍스트 생성
+  const lines = [];
+  if (isHvsH) {
+    // 1차 ↔ 2차 (시간 변화 관점)
+    if (veloR) {
+      const d = reports[1].measuredVelo - reports[0].measuredVelo;
+      const sign = d >= 0 ? '+' : '';
+      lines.push(`📅 측정 구속: ${reports[0].measuredVelo?.toFixed(1)} → ${reports[1].measuredVelo?.toFixed(1)} km/h (<strong>${sign}${d.toFixed(1)} km/h</strong>)`);
+    }
+    if (mechR) {
+      const d = reports[1].scores.Mechanics_Score - reports[0].scores.Mechanics_Score;
+      const sign = d >= 0 ? '+' : '';
+      lines.push(`💪 메카닉 종합: ${reports[0].scores.Mechanics_Score?.toFixed(1)} → ${reports[1].scores.Mechanics_Score?.toFixed(1)}점 (<strong>${sign}${d.toFixed(1)}점</strong>)`);
+    }
+    if (ceilR) {
+      const d = reports[1].scores.ceiling - reports[0].scores.ceiling;
+      const sign = d >= 0 ? '+' : '';
+      lines.push(`🚀 잠재 구속: ${reports[0].scores.ceiling?.toFixed(1)} → ${reports[1].scores.ceiling?.toFixed(1)} km/h (<strong>${sign}${d.toFixed(1)} km/h</strong>)`);
+    }
+    if (biggestGapCat && biggestGapLeader) {
+      const meta = CATEGORY_DETAILS[biggestGapCat] || {};
+      const dir = biggestGapLeader.idx === 1 ? '향상' : '하락';
+      lines.push(`🔍 가장 큰 변화: <strong>${meta.name || biggestGapCat}</strong> — ${biggestGap.toFixed(1)}점 ${dir}`);
+    }
+    return `
+      <div class="card p-4 mb-4" style="background: linear-gradient(135deg, rgba(74,222,128,0.04) 0%, rgba(96,165,250,0.04) 100%); border: 1px solid rgba(74,222,128,0.2);">
+        <div class="display text-base mb-3">📋 1차 ↔ 2차 종합 평가</div>
+        <ul class="list-none space-y-2 text-sm leading-relaxed">
+          ${lines.map(l => `<li>${l}</li>`).join('')}
+        </ul>
+      </div>`;
+  } else {
+    // 선수간 비교
+    if (veloR) {
+      lines.push(`⚡ 측정 구속 1위: <strong style="color:${_CMP_COLORS[veloR.leader.idx]}">${labels[veloR.leader.idx]}</strong> (${veloR.leader.v.toFixed(1)} km/h)${veloR.all.length >= 2 ? ` · 최저 ${labels[veloR.laggard.idx]} (${veloR.laggard.v.toFixed(1)} km/h, 차 ${(veloR.leader.v - veloR.laggard.v).toFixed(1)})` : ''}`);
+    }
+    if (fitR) {
+      lines.push(`💪 체력 1위: <strong style="color:${_CMP_COLORS[fitR.leader.idx]}">${labels[fitR.leader.idx]}</strong> (${fitR.leader.v.toFixed(1)}점)`);
+    }
+    if (mechR) {
+      lines.push(`🌀 메카닉 1위: <strong style="color:${_CMP_COLORS[mechR.leader.idx]}">${labels[mechR.leader.idx]}</strong> (${mechR.leader.v.toFixed(1)}점)`);
+    }
+    if (ctrlR) {
+      lines.push(`🎯 제구 1위: <strong style="color:${_CMP_COLORS[ctrlR.leader.idx]}">${labels[ctrlR.leader.idx]}</strong> (${ctrlR.leader.v.toFixed(1)}점)`);
+    }
+    if (ceilR) {
+      lines.push(`🚀 잠재 구속 1위: <strong style="color:${_CMP_COLORS[ceilR.leader.idx]}">${labels[ceilR.leader.idx]}</strong> (${ceilR.leader.v.toFixed(1)} km/h)`);
+    }
+    if (biggestGapCat && biggestGapLeader) {
+      const meta = CATEGORY_DETAILS[biggestGapCat] || {};
+      lines.push(`🔍 가장 큰 격차: <strong>${meta.name || biggestGapCat}</strong> (최대 ${biggestGap.toFixed(1)}점 차) — <strong style="color:${_CMP_COLORS[biggestGapLeader.idx]}">${labels[biggestGapLeader.idx]}</strong>가 우세`);
+    }
+    return `
+      <div class="card p-4 mb-4" style="background: linear-gradient(135deg, rgba(96,165,250,0.04) 0%, rgba(255,107,53,0.04) 100%); border: 1px solid rgba(96,165,250,0.2);">
+        <div class="display text-base mb-3">📋 선수간 비교 종합 평가</div>
+        <ul class="list-none space-y-2 text-sm leading-relaxed">
+          ${lines.map(l => `<li>${l}</li>`).join('')}
+        </ul>
+      </div>`;
+  }
 }
 
 // 비교용 레이더 — 한 차트에 N개 dataset overlay (최대 4명)
