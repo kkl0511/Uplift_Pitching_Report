@@ -55,26 +55,12 @@ window.COHORT = {
         "W/kg",
         1,
         "higher"
-      ],
-      [
-        "CMJ Concentric Impulse [N s]",
-        "CMJ 임펄스",
-        "N·s",
-        1,
-        "higher"
       ]
     ],
     "F3_Reactivity": [
       [
         "CMJ RSI-modified [m/s]",
         "CMJ RSI-mod",
-        "m/s",
-        2,
-        "higher"
-      ],
-      [
-        "SJ RSI-modified [m/s]",
-        "SJ RSI-mod",
         "m/s",
         2,
         "higher"
@@ -112,27 +98,6 @@ window.COHORT = {
     ],
     "C1_LowerBodyDrive": [
       [
-        "stride_norm_height",
-        "스트라이드 길이 (신장 비례)",
-        "비율",
-        1,
-        "higher"
-      ],
-      [
-        "stride_time_ms",
-        "스트라이드 시간 (KH→FC)",
-        "ms",
-        0,
-        "absolute"
-      ],
-      [
-        "drive_hip_ext_vel_max",
-        "뒷다리 hip 신전 속도",
-        "°/s",
-        0,
-        "higher"
-      ],
-      [
         "hip_ir_vel_max_drive",
         "뒷다리 hip 회전 속도",
         "°/s",
@@ -154,43 +119,7 @@ window.COHORT = {
         "°",
         0,
         "higher"
-      ],
-      [
-        "lead_knee_ext_vel_max",
-        "앞무릎 신전 속도",
-        "°/s",
-        0,
-        "higher"
-      ],
-      [
-        "com_decel_pct",
-        "몸 감속도 (Block 강도)",
-        "%",
-        0,
-        "higher"
-      ],
-      [
-        "lead_knee_amortization_ms",
-        "앞무릎 SSC 시간",
-        "ms",
-        0,
-        "higher"
-      ],
-      [
-        "lead_hip_flex_at_fc",
-        "앞 hip 굴곡 @ FC",
-        "°",
-        0,
-        "higher"
-      ],
-      [
-        "lead_hip_ext_vel_max",
-        "앞 hip 신전 속도",
-        "°/s",
-        0,
-        "higher"
-      ]
-    ],
+      ]],
     "C3_SeparationFormation": [
       [
         "trunk_rotation_at_fc",
@@ -209,13 +138,6 @@ window.COHORT = {
       [
         "peak_x_factor",
         "X-Factor 최대 (KH→FC)",
-        "°",
-        1,
-        "higher"
-      ],
-      [
-        "peak_torso_counter_rot",
-        "카운터 로테이션 최대",
         "°",
         1,
         "higher"
@@ -256,22 +178,7 @@ window.COHORT = {
         "ms",
         0,
         "absolute"
-      ],
-      [
-        "torso_side_bend_at_mer",
-        "측면 기울기 @ MER",
-        "°",
-        0,
-        "higher"
-      ],
-      [
-        "trunk_flex_vel_max",
-        "몸통 굴곡 속도 max",
-        "°/s",
-        0,
-        "higher"
-      ]
-    ],
+      ]],
     "C5_UpperBodyTransfer": [
       [
         "max_shoulder_ER_deg",
@@ -288,13 +195,6 @@ window.COHORT = {
         "higher"
       ],
       [
-        "arm_trunk_speedup",
-        "팔/몸통 전달 효율",
-        "비율",
-        2,
-        "higher"
-      ],
-      [
         "trunk_to_arm_lag_ms",
         "몸통→팔 시간차",
         "ms",
@@ -304,22 +204,8 @@ window.COHORT = {
     ],
     "C6_ReleaseAcceleration": [
       [
-        "peak_arm_av",
-        "팔 회전 속도 peak",
-        "°/s",
-        0,
-        "higher"
-      ],
-      [
         "elbow_ext_vel_max",
         "팔꿈치 신전 속도 max ⚠",
-        "°/s",
-        0,
-        "higher"
-      ],
-      [
-        "trunk_flex_vel_max",
-        "몸통 굴곡 속도 max",
         "°/s",
         0,
         "higher"
@@ -337,15 +223,7 @@ window.COHORT = {
         "m",
         2,
         "higher"
-      ],
-      [
-        "torso_rotation_at_br",
-        "몸통 회전 @ BR",
-        "°",
-        0,
-        "absolute"
-      ]
-    ],
+      ]],
     "P1_ReleaseConsistency": [
       [
         "wrist_3d_sd_cm",

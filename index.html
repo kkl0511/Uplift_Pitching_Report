@@ -436,7 +436,7 @@
       <div class="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">
         ⚡ <strong style="color:#fb923c;">키네틱 체인 기반 에너지 흐름·누수 분석</strong>
         <span style="color:#3a3d44;">·</span>
-        📚 <strong style="color:#60a5fa;">MLB·문헌 표준 기반 점수 산출</strong>
+        📚 <strong style="color:#60a5fa;">체력·메카닉 점수: MLB 평균 대비</strong>
         <span class="ml-2 mono" style="color:#4ade80;">산식 <span id="algo-version-stamp">v30.7</span></span>
         <span class="mono" style="color:var(--text-muted);">(<span id="algo-date-stamp">2026-05-03</span>)</span>
       </div>
@@ -654,7 +654,7 @@
 
 // ★ 알고리즘 버전 (2026-05-03) — 산식 변경 시 갱신
 //   저장된 리포트의 algorithm_version과 비교해 자동 재계산 + UI 알림
-const ALGORITHM_VERSION = 'v31.2';
+const ALGORITHM_VERSION = 'v31.4';
 const ALGORITHM_DATE    = '2026-05-03';
 
 let CURRENT_AGE = '고교';
@@ -1096,7 +1096,7 @@ const EXTRA_VAR_SCORING = {
   'CMJ Peak Power / BM [W/kg]':           { optimal: 60, sigma: 13 },         // W/kg — MLB elite 55~70
   'SJ Peak Power [W]':                    { optimal: 5000, sigma: 1300 },     // W — MLB elite ~4500-5800
   'SJ Peak Power / BM [W/kg]':            { optimal: 55, sigma: 13 },         // W/kg
-  'CMJ Concentric Impulse [N s]':         { optimal: 250, sigma: 50 },        // N·s — Lehman 2013
+  // ★ v31.3 CMJ Concentric Impulse 제거 — Peak Power와 정보 중복 (사용자 도메인 결정)
   'CMJ RSI-modified [m/s]':               { optimal: 0.55, sigma: 0.15 },     // m/s — Driveline elite 0.5~0.7
   'SJ RSI-modified [m/s]':                { optimal: 0.45, sigma: 0.13 },     // m/s
   'EUR':                                  { optimal: 1.20, sigma: 0.15 },     // ratio — 1.1~1.3 적정
@@ -1161,7 +1161,7 @@ const LITERATURE_OVERRIDE = new Set([
   'CMJ Peak Power / BM [W/kg]',
   'SJ Peak Power [W]',
   'SJ Peak Power / BM [W/kg]',
-  'CMJ Concentric Impulse [N s]',
+  // 'CMJ Concentric Impulse [N s]', ← v31.3 제거 (Peak Power 정보 중복)
   'CMJ RSI-modified [m/s]',
   'SJ RSI-modified [m/s]',
   'EUR',
@@ -5020,7 +5020,7 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
           <div class="display text-base mb-2" style="color: #4ade80;">💪 5단계 · 어떻게 개선할까</div>
           <div class="text-sm mb-3" style="color: var(--text-secondary);">
             발견된 ${faults_s5.length}개 결함 중 <strong>우선순위 ${Math.min(3, top3.length)}개</strong>를 집중 트레이닝 권장합니다.
-            <strong style="color:#60a5fa;">단기 향상 목표는 한국 고교 코호트 기반</strong>이며, 장기 목표는 카테고리 차트의 MLB·문헌 표준 점수입니다.
+            <strong style="color:#60a5fa;">단기 향상 목표는 한국 고교 코호트 기반</strong>이며, 장기 목표는 카테고리 차트의 MLB 평균 대비 점수입니다.
           </div>
           ${priorityRows}
           <div class="text-[11px] mt-2" style="color:var(--text-muted);">
@@ -5344,7 +5344,7 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
       <div class="card p-6">
         <div class="flex justify-between items-end mb-2">
           <div>
-            <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)]">MLB·문헌 표준 대비 발달도</div>
+            <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)]">MLB 평균 대비 점수</div>
             <div class="display text-xl mt-1" style="color: ${sec.color}">${sec.label}</div>
           </div>
           <div class="text-right">
@@ -5356,7 +5356,7 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
           측정 변수: <strong style="color: ${sectionRel?.color || 'var(--text-secondary)'};">${sectionCov.measured}/${sectionCov.total}</strong> (${sectionCov.pct}%) · 신뢰도 <strong style="color: ${sectionRel?.color || 'var(--text-secondary)'};">${sectionRel?.label || '—'}</strong>
           ${lowCoverage ? '<span style="color: #f97316; margin-left:6px;">⚠ 측정 부족 — 점수 참고용</span>' : ''}
         </div>` : ''}
-        <div class="text-[11px] text-[var(--text-muted)] mb-3 italic">※ 100점 = MLB elite 표준값. 80점+ = 한국 고1 elite 적정. 50점 = 발달 평균.</div>
+        <div class="text-[11px] text-[var(--text-muted)] mb-3 italic">※ 100점 = MLB 평균 표준값. 80점+ = 한국 고1 elite. 50점 = 발달 평균.</div>
         <div class="mb-4 relative" style="height: 240px;">
           <canvas id="${sec.radarId}"></canvas>
         </div>
@@ -5596,7 +5596,7 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
           return `<div class="card p-3 mt-2" style="background: var(--bg-elevated); border-radius:6px;">
             <div class="text-xs uppercase tracking-wider mb-1" style="color: var(--text-muted);">📍 한국 고교 코호트 percentile — 단기 향상 가이드</div>
             <div class="text-[10px] mb-2 italic" style="color: var(--text-muted);">
-              ※ 위 점수(MLB·문헌 표준)는 장기 목표 지표, 아래 percentile은 한국 고교 또래 대비 현재 위치 — 단기 향상의 현실적 출발점.
+              ※ 위 점수(MLB 평균 대비)는 장기 목표 지표, 아래 percentile은 한국 고교 또래 대비 현재 위치 — 단기 향상의 현실적 출발점.
             </div>
             ${fitRow}${mechRow}${ctrlRow}
             ${warnMsg}

@@ -1,68 +1,74 @@
-# BBL v31.2 — 결측 변수 점수 반영 제외 + 진단 표시
-**Build**: 2026-05-03 / **Patch**: v31.1 → v31.2
+# BBL v31.4 — 카테고리 변수 정리 + MLB 평균 대비 점수 명시
+**Build**: 2026-05-03 / **Patch**: v31.3 → v31.4 / **Type**: 변수 정리
 
 ---
 
-## 변경 요약
+## 변경 요약 (사용자 도메인 결정)
 
-### 1) 카테고리 결측률 50% 임계 → 점수 보류
+### 카테고리에서 제거된 변수 15개
 
-**Before**: 카테고리 변수 1개만 측정돼도 그 1개로 카테고리 점수 산출
-**After**:
-- 카테고리 변수 측정률 ≥ 50% → 정상 점수 산출
-- 측정률 < 50% → **점수 보류 (null)** + "측정 부족" 표시
+**체력** (1개):
+- SJ RSI-modified [m/s] (CMJ RSI와 정보 중복)
 
-→ 종합 점수(Fitness/Mechanics/Control) 산출 시 보류 카테고리는 자동 제외 (이미 `filter(s => s != null)` 작동).
+**메카닉** (14개):
+| 카테고리 | 제거 변수 |
+|---|---|
+| C1 (하체 드라이브) | stride_norm_height, stride_time_ms, drive_hip_ext_vel_max |
+| C2 (앞다리 블록) | lead_knee_ext_vel_max, com_decel_pct, lead_knee_amortization_ms, lead_hip_flex_at_fc, lead_hip_ext_vel_max |
+| C3 (분리 형성) | peak_torso_counter_rot |
+| C4 (트렁크 가속) | torso_side_bend_at_mer, trunk_flex_vel_max |
+| C5 (상지 코킹·전달) | arm_trunk_speedup |
+| C6 (릴리스 가속) | trunk_flex_vel_max(중복), peak_arm_av, torso_rotation_at_br |
 
-### 2) 카테고리별 결측 변수 진단 자동 표시
+### 카테고리별 변수 수 변화
 
-종합 평가 카드 하단에 "⚠ 측정 부족 카테고리 진단" 섹션 자동 추가:
-```
-⚠ 측정 부족 카테고리 진단 (추가 측정 권장)
+| 카테고리 | Before | After |
+|---|---|---|
+| F1_Strength | 2 | 2 |
+| F2_Power | 4 | 4 |
+| F3_Reactivity | 3 | 2 |
+| F4_Body | 3 | 3 |
+| **체력 합계** | **12** | **11** |
+| C1_LowerBodyDrive | 5 | 2 |
+| C2_FrontLegBlock | 6 | 1 |
+| C3_SeparationFormation | 6 | 5 |
+| C4_TrunkAcceleration | 5 | 3 |
+| C5_UpperBodyTransfer | 4 | 3 |
+| C6_ReleaseAcceleration | 6 | 3 |
+| **메카닉 합계** | **32** | **17** |
 
-[색상] C2 앞다리 블로킹 · 3/6 측정 (50%)
-   누락: 앞무릎 SSC 시간, 앞 hip 굴곡 @ FC, 앞 hip 신전 속도
+### 점수 라벨 명확화
 
-[색상] C5 상지 코킹·전달 · 1/4 측정 (25%) ⚠ 점수 보류
-   누락: 어깨 외회전 max (레이백), 팔꿈치 굽힘 @ FC, 팔/몸통 전달 효율
+**Before**: "MLB·문헌 표준 대비 발달도"
+**After**: **"MLB 평균 대비 점수"**
 
-※ 결측 50% 초과 카테고리는 점수 보류 (종합 점수 산출 시 자동 제외).
-```
-
-→ 사용자가 어떤 변수를 추가 측정하면 점수 신뢰도가 회복되는지 즉시 인지.
-
-### 3) 카테고리 메타데이터에 coverage 정보 저장
-
-`r.cat_scores[catId + '_coverage']` 객체에 측정/총/누락 변수 정보 저장:
-```javascript
-{ measured: 3, total: 6, pct: 50, missing: ['lead_knee_amortization_ms', 'lead_hip_flex_at_fc', 'lead_hip_ext_vel_max'] }
-```
-
-→ 결함 진단·코칭 우선순위 결정 시 결측 정보 활용 가능.
-
----
-
-## 정예준 케이스 — 예상 변화
-
-**Before (v31.1)**:
-- 메카닉 종합 59점 (12/27 변수 평균이지만 3/6 측정 카테고리도 포함 → 신뢰도 낮음)
-
-**After (v31.2)**:
-- C5_UpperBodyTransfer (4개 중 1개만 측정 = 25%) → 점수 보류
-- 메카닉 종합 = 측정률 50% 이상 카테고리 평균만 → 더 높은 신뢰도
-- 종합 평가에 "C5 점수 보류 — 누락: 어깨 외회전, 팔/몸통 전달 효율..." 명시
+각 위치별 변경:
+- 헤더 메시지: "체력·메카닉 점수: MLB 평균 대비"
+- 카테고리 차트 라벨: "MLB 평균 대비 점수"
+- 카테고리 차트 안내: "100점 = MLB 평균 표준값. 80점+ = 한국 고1 elite. 50점 = 발달 평균."
+- 종합 평가 percentile 행: "위 점수(MLB 평균 대비)는 장기 목표 지표..."
+- 5단계 헤더: "장기 목표는 카테고리 차트의 MLB 평균 대비 점수"
 
 ---
 
-## 변경 사항 (코드)
+## 변경 파일
 
-- `BBL_신규선수_리포트.html`
-  - `ALGORITHM_VERSION` v31.1 → v31.2
-  - `calculateScores`: 카테고리 변수 측정률 < 50% 시 점수 = null + skip 사유 저장
-  - `cat_scores[catId + '_coverage']` 메타데이터 자동 저장
-  - 종합 평가 카드: "⚠ 측정 부족 카테고리 진단" 섹션 자동 추가
-- `cohort_v29.js`: 변경 없음
+- `cohort_v29.js`:
+  - `category_vars`에서 15개 변수 제거
+  - 다른 stats 블록 (var_distributions 등)은 그대로 유지 — 점수 산출에 영향 없음
+- `BBL_신규선수_리포트.html`:
+  - `ALGORITHM_VERSION` v31.3 → v31.4
+  - 헤더 + 카테고리 차트 + 종합 평가 라벨에 "MLB 평균 대비" 명시
 - `kinetic_chain.gif`: 변경 없음
+
+---
+
+## 정예준 케이스 예상 변화
+
+**Before (v31.3)**: 메카닉 32개 변수 평균 (변수 다수가 결측)
+**After (v31.4)**: 메카닉 17개 변수 평균 (핵심 변수만)
+
+→ 메카닉 카테고리의 핵심 변수만 평가되어 결측 영향 감소 + 신뢰도 향상.
 
 ---
 
@@ -70,31 +76,31 @@
 
 GitHub Pages에 다음 3개 파일 덮어쓰기:
 1. `index.html`
-2. `cohort_v29.js` (변경 없음)
+2. `cohort_v29.js` (★ category_vars 변경됨)
 3. `kinetic_chain.gif` (변경 없음)
 
-→ Cmd+Shift+R → v31.2 확인
+→ Cmd+Shift+R → v31.4 확인
 
 ---
 
 ## 검증 권장 (배포 후)
 
-| 케이스 | 확인 |
-|---|---|
-| 정예준 (메카닉 일부 결측) | 종합 메카닉 점수가 측정률 ≥50% 카테고리만 평균 |
-| 측정 부족 카테고리 | 점수 보류 + 누락 변수 명시 |
-| 측정 풍부 케이스 | 모든 카테고리 점수 산출 (변경 없음) |
+- 카테고리 차트 라벨: "MLB 평균 대비 점수" 표시
+- 메카닉 변수 17개로 축소된 후 점수 변화
+- 결측 진단 카드 자동 갱신 (보류 카테고리 변화)
 
 ---
 
-## v31.0 → v31.2 누적
+## v31.0 → v31.4 누적
 
 | 버전 | 핵심 |
 |---|---|
 | v31.0 | MLB·문헌 표준 대비 점수 |
-| v31.1 | 점수(MLB) + 코칭(코호트) 명확 분리 |
-| **v31.2** | **결측 50% 초과 카테고리 점수 보류 + 진단 표시** |
+| v31.1 | 점수(MLB) + 코칭(코호트) 분리 |
+| v31.2 | 결측 50% 초과 카테고리 점수 보류 |
+| v31.3 | CMJ Impulse 제거 |
+| **v31.4** | **메카닉 14개 + 체력 1개 정리 + 점수 라벨 명시** |
 
 ---
 
-**END OF v31.2 PATCH NOTES**
+**END OF v31.4 PATCH NOTES**
