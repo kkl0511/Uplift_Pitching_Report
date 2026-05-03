@@ -13,13 +13,6 @@ window.COHORT = {
   "category_vars": {
     "F1_Strength": [
       [
-        "IMTP Peak Vertical Force [N]",
-        "IMTP 절대 수직력",
-        "N",
-        0,
-        "higher"
-      ],
-      [
         "IMTP Peak Vertical Force / BM [N/kg]",
         "IMTP/체중",
         "N/kg",
@@ -29,24 +22,10 @@ window.COHORT = {
     ],
     "F2_Power": [
       [
-        "CMJ Peak Power [W]",
-        "CMJ 절대파워",
-        "W",
-        0,
-        "higher"
-      ],
-      [
         "CMJ Peak Power / BM [W/kg]",
         "CMJ 단위파워",
         "W/kg",
         1,
-        "higher"
-      ],
-      [
-        "SJ Peak Power [W]",
-        "SJ 절대파워",
-        "W",
-        0,
         "higher"
       ],
       [
