@@ -202,28 +202,6 @@ window.COHORT = {
         "absolute"
       ]
     ],
-    "C6_ReleaseAcceleration": [
-      [
-        "elbow_ext_vel_max",
-        "팔꿈치 신전 속도 max ⚠",
-        "°/s",
-        0,
-        "higher"
-      ],
-      [
-        "arm_slot_mean_deg",
-        "Arm slot (팔 각도)",
-        "°",
-        0,
-        "higher"
-      ],
-      [
-        "release_height_m",
-        "릴리스 높이",
-        "m",
-        2,
-        "higher"
-      ]],
     "P1_ReleaseConsistency": [
       [
         "wrist_3d_sd_cm",
@@ -601,13 +579,6 @@ window.COHORT = {
       "phase": "P5 Throw",
       "method": "어깨 외회전 max (레이백) + 팔/몸통 전달 효율 + 몸통→팔 lag",
       "coaching": "몸통의 회전 에너지를 어깨로 정확히 받고, 팔로 정확히 넘겨라."
-    },
-    "C6_ReleaseAcceleration": {
-      "name": "팔 가속·릴리스",
-      "short_desc": "팔을 폭발적으로 가속해 공에 에너지 전달 (MER→BR)",
-      "phase": "P5 Ball Release",
-      "method": "팔 회전속도 peak + 팔꿈치 신전속도 + 릴리스 자세",
-      "coaching": "몸통 에너지로 팔을 가속하라 — 팔만 휘두르면 부상 위험."
     }
   },
   "var_distributions": {
@@ -8617,8 +8588,7 @@ window.COHORT = {
     "C2_FrontLegBlock",
     "C3_SeparationFormation",
     "C4_TrunkAcceleration",
-    "C5_UpperBodyTransfer",
-    "C6_ReleaseAcceleration"
+    "C5_UpperBodyTransfer"
   ],
   "control_cats": [
     "P1_ReleaseConsistency",
