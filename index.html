@@ -654,7 +654,7 @@
 
 // ★ 알고리즘 버전 (2026-05-03) — 산식 변경 시 갱신
 //   저장된 리포트의 algorithm_version과 비교해 자동 재계산 + UI 알림
-const ALGORITHM_VERSION = 'v31.1';
+const ALGORITHM_VERSION = 'v31.2';
 const ALGORITHM_DATE    = '2026-05-03';
 
 let CURRENT_AGE = '고교';
@@ -4429,6 +4429,7 @@ function calculateScores(input, age, measuredVelo) {
   for (const catId of allCats) {
     const vars = COHORT.category_vars[catId] || [];
     const scoresWithKeys = [];  // [{key, score}]
+    const missingKeys = [];
     for (const v of vars) {
       const [key, name, unit, dec, polarity] = v;
       const pol = polarity || 'higher';
@@ -4440,10 +4441,18 @@ function calculateScores(input, age, measuredVelo) {
         if (score != null) {
           allVarScores[key] = score;
           scoresWithKeys.push({ key, score });
+        } else {
+          missingKeys.push(key);
         }
+      } else {
+        missingKeys.push(key);
       }
     }
-    if (scoresWithKeys.length > 0) {
+    // ★ v31.2 결측률 50% 미만 카테고리는 점수 보류 (사용자 피드백)
+    const totalVars = vars.length;
+    const measuredVars = scoresWithKeys.length;
+    const coverage = totalVars > 0 ? measuredVars / totalVars : 0;
+    if (scoresWithKeys.length > 0 && coverage >= 0.5) {
       let avg;
       const weights = CATEGORY_WEIGHTS[catId];
       if (weights) {
@@ -4465,7 +4474,13 @@ function calculateScores(input, age, measuredVelo) {
       // 연령군 보정 적용
       avg = Math.max(0, Math.min(100, avg + adj.score_offset));
       catScores[catId] = Math.round(avg * 10) / 10;
+    } else if (coverage < 0.5 && totalVars > 0) {
+      // 결측률 50% 초과 → 점수 보류
+      catScores[catId] = null;
+      catScores[catId + '_skipped_reason'] = `측정 ${measuredVars}/${totalVars} (${Math.round(coverage*100)}%) — 결측 50% 초과로 점수 보류`;
     }
+    // 카테고리 변수별 측정/누락 정보 저장 (UI 진단 표시)
+    catScores[catId + '_coverage'] = { measured: measuredVars, total: totalVars, pct: Math.round(coverage * 100), missing: missingKeys };
   }
 
   // 1.5) Driveline 5각형 전용 변수도 점수 산출 (BBL 6각형 카테고리에 없는 변수들)
@@ -5544,6 +5559,40 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
           const warnMsg = lowAreas.length > 0
             ? `<div class="text-xs mt-2" style="color: #f97316;">⚠ ${lowAreas.join('·')} 영역 측정 변수 50% 미만 — 점수 신뢰도 낮음. 추가 변수 측정 권장.</div>`
             : '';
+          // ★ v31.2 카테고리별 결측 변수 진단 (사용자가 어떤 변수 추가 측정해야 하는지 즉시 인지)
+          const allCats = [...(COHORT.fitness_cats||[]), ...(COHORT.mechanics_cats||[]), ...(COHORT.control_cats||[])];
+          const skippedCats = allCats.filter(c => r.cat_scores[c] === null);
+          const missingDiagRows = [];
+          allCats.forEach(catId => {
+            const cov = r.cat_scores[catId + '_coverage'];
+            if (!cov || cov.pct >= 80) return;  // 80% 이상은 OK
+            const meta = COHORT.category_meta?.[catId] || {};
+            const colorByArea = (COHORT.fitness_cats||[]).includes(catId) ? '#60a5fa'
+                              : (COHORT.mechanics_cats||[]).includes(catId) ? '#ff6b35'
+                              : '#c084fc';
+            const skipped = r.cat_scores[catId] === null;
+            const missingNames = (cov.missing || []).slice(0, 4).map(k => {
+              const v = (COHORT.category_vars[catId] || []).find(x => x[0] === k);
+              return v ? v[1] : k;
+            });
+            const missingMore = (cov.missing || []).length > 4 ? ` 외 ${cov.missing.length - 4}개` : '';
+            missingDiagRows.push(`<div class="text-[11px] py-1" style="border-bottom: 1px dashed var(--border);">
+              <span style="color: ${colorByArea}; font-weight:600;">${meta.name || catId}</span>
+              <span style="color: var(--text-muted);"> · ${cov.measured}/${cov.total} 측정 (${cov.pct}%)</span>
+              ${skipped ? '<span style="color: #f97316; margin-left:4px;">⚠ 점수 보류</span>' : ''}
+              <div class="ml-2 mt-1" style="color: var(--text-muted);">누락: ${missingNames.join(', ')}${missingMore}</div>
+            </div>`);
+          });
+          const missingDiagHtml = missingDiagRows.length > 0
+            ? `<div class="card p-3 mt-2" style="background: rgba(249,115,22,0.05); border-left: 3px solid #f97316; border-radius:4px;">
+                <div class="text-xs uppercase tracking-wider mb-2" style="color: #f97316;">⚠ 측정 부족 카테고리 진단 (추가 측정 권장)</div>
+                ${missingDiagRows.join('')}
+                ${skippedCats.length > 0 ? `<div class="text-[11px] mt-2 italic" style="color: var(--text-muted);">
+                  ※ 결측 50% 초과 카테고리는 점수 보류 (종합 점수 산출 시 자동 제외).
+                </div>` : ''}
+              </div>`
+            : '';
+
           return `<div class="card p-3 mt-2" style="background: var(--bg-elevated); border-radius:6px;">
             <div class="text-xs uppercase tracking-wider mb-1" style="color: var(--text-muted);">📍 한국 고교 코호트 percentile — 단기 향상 가이드</div>
             <div class="text-[10px] mb-2 italic" style="color: var(--text-muted);">
@@ -5551,7 +5600,7 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
             </div>
             ${fitRow}${mechRow}${ctrlRow}
             ${warnMsg}
-          </div>`;
+          </div>${missingDiagHtml}`;
         })()}
         ${distLine}
       </div>
