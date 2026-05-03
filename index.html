@@ -649,7 +649,7 @@
 
 // ★ 알고리즘 버전 (2026-05-03) — 산식 변경 시 갱신
 //   저장된 리포트의 algorithm_version과 비교해 자동 재계산 + UI 알림
-const ALGORITHM_VERSION = 'v30.18.1';
+const ALGORITHM_VERSION = 'v30.18.2';
 const ALGORITHM_DATE    = '2026-05-03';
 
 let CURRENT_AGE = '고교';
@@ -1828,19 +1828,31 @@ function applyMultiTrialUplift(scalarsList) {
   };
 
   // ════════════════════════════════════════════════════════════════════
-  // ★ QC 필터 (v30.18 완화) — Uplift vs raw 이벤트 검출 차이가 큰 trial 제외
-  //   임계값: 300ms (기존 30ms는 너무 엄격, raw 검출 알고리즘 한계 고려)
-  //   정책: Uplift는 사전계산이라 신뢰 우선 — raw는 Uplift 누락 시 fallback만
-  //   30ms ~ 300ms 범위는 경고로만 표시 (trial 사용에는 영향 없음)
+  // ★ QC 필터 (v30.18.2 정책 재정립) — Uplift 유효성 기반 (raw mismatch는 경고만)
+  //   기존: raw vs Uplift 차이 >30ms (또는 300ms) → trial 제외
+  //   문제: raw 검출 알고리즘이 일부 케이스에서 ~1000ms 일찍 잡는 버그 → 모든 trial 제외 발생
+  //   해결: trial 제외는 Uplift 자체 biomechanical 유효성(KH<FC<BR)으로만 판단
+  //         raw vs Uplift 차이는 정보 표시만 (사용에 영향 없음)
   // ════════════════════════════════════════════════════════════════════
-  const QC_THRESHOLD_MS = 300;
-  const _qcExcluded = [];        // 제외된 trial 정보 (UI 표시용)
+  const QC_THRESHOLD_MS = 300;        // 경고용 임계값 (제외 X)
+  const _qcExcluded = [];              // 정보 표시용 (실제 제외 사유 별도)
+  const _qcInvalidOrder = [];          // Uplift 자체 invalid (KH≥FC or FC≥BR)
   const _scalarsAll = scalarsList;
   scalarsList = scalarsList.filter((s, i) => {
     const m = s._eventMeta; if (!m) return true;
     const fps = s.meta?.fps || 240;
-    const events = ['kh','fc','mer','br'];
-    for (const e of events) {
+    // ★ Uplift 이벤트 자체 biomechanical 유효성 체크 (KH < FC < BR 순서)
+    const upKh = m.kh?.uplift, upFc = m.fc?.uplift, upBr = m.br?.uplift;
+    if (upKh != null && upFc != null && upKh >= upFc) {
+      _qcInvalidOrder.push({ trialIndex: i+1, reason: `Uplift KH(${upKh}) ≥ FC(${upFc})` });
+      return false;
+    }
+    if (upFc != null && upBr != null && upFc >= upBr) {
+      _qcInvalidOrder.push({ trialIndex: i+1, reason: `Uplift FC(${upFc}) ≥ BR(${upBr})` });
+      return false;
+    }
+    // raw vs Uplift 차이는 경고 정보만 수집 (제외하지 않음)
+    for (const e of ['kh','fc','mer','br']) {
       const em = m[e];
       if (em && em.uplift != null && em.raw != null) {
         const diffMs = Math.abs(em.raw - em.uplift) / fps * 1000;
@@ -1853,30 +1865,16 @@ function applyMultiTrialUplift(scalarsList) {
             uplift: em.uplift,
             raw: em.raw,
           });
-          return false;
+          // 제외하지 않음 (Uplift 사용)
         }
       }
     }
     return true;
   });
-  // 만약 모든 trial이 제외되면 안전장치: 가장 작은 차이의 trial 1개만 남김
+  // 만약 모든 trial이 Uplift invalid로 제외되면 안전장치: 그래도 모두 사용 (분석 진행 우선)
   if (scalarsList.length === 0 && _scalarsAll.length > 0) {
-    console.warn('QC: 모든 trial 제외됨 → 가장 일치도 좋은 1개 trial만 사용');
-    let best = _scalarsAll[0], bestMaxDiff = Infinity;
-    for (const s of _scalarsAll) {
-      const m = s._eventMeta; if (!m) continue;
-      const fps = s.meta?.fps || 240;
-      let maxDiff = 0;
-      for (const e of ['kh','fc','mer','br']) {
-        const em = m[e];
-        if (em && em.uplift != null && em.raw != null) {
-          const d = Math.abs(em.raw - em.uplift) / fps * 1000;
-          if (d > maxDiff) maxDiff = d;
-        }
-      }
-      if (maxDiff < bestMaxDiff) { bestMaxDiff = maxDiff; best = s; }
-    }
-    scalarsList = [best];
+    console.warn('QC: 모든 trial Uplift 유효성 체크 실패 → 안전장치로 모든 trial 사용');
+    scalarsList = _scalarsAll;
   }
 
   const _trialN = {};   // ★ 변수별 사용 trial 수 (2026-05-03)
@@ -2000,8 +1998,9 @@ function applyMultiTrialUplift(scalarsList) {
   loaded['_num_trials_total'] = scalarsList.length;     // QC 통과한 trial 수
   loaded['_num_trials']       = scalarsList.length;     // 기존 호환
   loaded['_num_trials_uploaded'] = _scalarsAll.length;  // 업로드된 전체 (QC 전)
-  loaded['_qc_excluded']      = _qcExcluded;            // 제외 사유 리스트
-  loaded['_qc_threshold_ms']  = QC_THRESHOLD_MS;
+  loaded['_qc_excluded']        = _qcExcluded;            // raw mismatch 정보 (제외 X)
+  loaded['_qc_invalid_order']   = _qcInvalidOrder;        // 실제 제외 (Uplift biomech invalid)
+  loaded['_qc_threshold_ms']    = QC_THRESHOLD_MS;
 
   // ★ 이벤트 검출 일치도 집계 (2026-05-03) — Uplift vs raw 비교
   const eventNames = ['kh', 'fc', 'mer', 'br'];
@@ -2162,22 +2161,33 @@ function handleMultipleUpliftFiles(files) {
     hidePlayerSelector('mechanics');
 
     const handLabel = firstMeta.armSide === 'left' ? '좌투' : '우투';
-    // ★ QC 필터 결과 (2026-05-03) — 이벤트 불일치로 제외된 trial
-    const qcEx = loaded._qc_excluded || [];
-    const qcThresh = loaded._qc_threshold_ms || 30;
+    // ★ v30.18.2: QC 정책 변경 — raw vs Uplift 차이는 정보 표시만 (제외하지 않음)
+    const qcEx = loaded._qc_excluded || [];           // raw mismatch 정보
+    const qcInvalidOrder = loaded._qc_invalid_order || []; // 실제 제외 (Uplift biomech invalid)
+    const qcThresh = loaded._qc_threshold_ms || 300;
     const nUploaded = loaded._num_trials_uploaded || valid.length;
     const nUsed = loaded._num_trials_total || valid.length;
     let qcBanner = '';
-    if (qcEx.length > 0) {
-      const exList = qcEx.map(x =>
-        `<div style="font-size:10px;color:#fbbf24;padding-left:8px;">
-          • ${x.trialName} 제외: ${x.event} 차이 ${x.diffMs}ms (Uplift=${x.uplift.toFixed(0)}f, raw=${x.raw.toFixed(0)}f)
-        </div>`
+    // 실제 제외된 trial (Uplift biomech invalid)만 빨간 배너
+    if (qcInvalidOrder.length > 0) {
+      const orderList = qcInvalidOrder.map(x =>
+        `<div style="font-size:10px;color:#f87171;padding-left:8px;">• trial ${x.trialIndex} 제외: ${x.reason}</div>`
       ).join('');
-      qcBanner = `<div style="margin-top:6px;padding:6px 10px;background:rgba(251,191,36,0.08);border-left:2px solid #fbbf24;border-radius:3px;font-size:11px;">
-        <div style="color:#fbbf24;font-weight:600;margin-bottom:2px;">⚠️ QC 필터: ${qcEx.length}/${nUploaded} trial 제외 (이벤트 검출 차이 >${qcThresh}ms)</div>
-        ${exList}
-        <div style="color:#5f636b;font-size:10px;margin-top:3px;">분석에는 ${nUsed} trial만 사용됨. 임계값 조정은 코드 상단 QC_THRESHOLD_MS 상수.</div>
+      qcBanner += `<div style="margin-top:6px;padding:6px 10px;background:rgba(248,113,113,0.08);border-left:2px solid #f87171;border-radius:3px;font-size:11px;">
+        <div style="color:#f87171;font-weight:600;margin-bottom:2px;">❌ ${qcInvalidOrder.length} trial 제외 (Uplift 이벤트 순서 비정상)</div>
+        ${orderList}
+      </div>`;
+    }
+    // raw mismatch 정보 (참고용 — 제외 영향 없음)
+    if (qcEx.length > 0) {
+      const sampleList = qcEx.slice(0, 3).map(x =>
+        `<div style="font-size:10px;color:#5f636b;padding-left:8px;">• trial ${x.trialIndex} ${x.event} 차이 ${x.diffMs}ms</div>`
+      ).join('');
+      const more = qcEx.length > 3 ? `<div style="font-size:10px;color:#5f636b;padding-left:8px;">… 그 외 ${qcEx.length - 3}건</div>` : '';
+      qcBanner += `<div style="margin-top:6px;padding:6px 10px;background:rgba(96,165,250,0.05);border-left:2px solid #60a5fa;border-radius:3px;font-size:11px;">
+        <div style="color:#60a5fa;font-weight:600;margin-bottom:2px;">ℹ️ raw 자체 검출이 Uplift와 ${qcEx.length}건 차이 — Uplift 신뢰 사용 (분석 영향 없음)</div>
+        ${sampleList}${more}
+        <div style="color:#5f636b;font-size:10px;margin-top:3px;">v30.18.2: raw 알고리즘 한계로 일부 trial에서 검출 차이 — Uplift 사전계산 우선</div>
       </div>`;
     }
 
