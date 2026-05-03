@@ -381,13 +381,17 @@ const EXTRA_VAR_SCORING = {
   // C2 하체 드라이브
   // C3 몸통 파워
   'peak_x_factor':                { optimal: 50, sigma: 15, useAbs: true },                  // ° — HS 표준 + Driveline elite 기준 (Stodden 2001, Aguinaldo 2007). LITERATURE 우선
-  'max_trunk_twist_vel_dps':      { optimal: 950, sigma: 200 },                       // °/s — HS 평균 800, elite 950+ (Werner 2008, Wood-Smith 2019). LITERATURE 우선
-  'peak_pelvis_av':               { optimal: 550, sigma: 130 },                       // °/s — HS-pro 350~700, elite 550+ (Aguinaldo 2007)
-  'peak_pelvis_rot_vel':          { optimal: 550, sigma: 130 },                       // °/s — alias
-  'max_pelvis_rot_vel_dps':       { optimal: 550, sigma: 130 },                       // °/s — alias
-  // ★ 운동량 전달 효율 (2026-05-03 신규) — 정예준 같은 효율 타입 elite 평가
-  'arm_trunk_speedup':            { optimal: 1.88, sigma: 0.2 },                      // ratio — 20명 elite 표준 1.88 (v30.13 정밀화)
-  'pelvis_trunk_speedup':         { optimal: 1.5, sigma: 0.3 },                       // ratio — peak_trunk_av / peak_pelvis_av (참고용)
+  // ★ v31.47 Uplift Pro Range 표준 / v31.48 oneSided open_is_good (큰 값은 100점 cap)
+  //   회전 속도·전달율·레이백은 elite 이상도 부상 위험으로 직접 감점하지 않음 (KINETIC_FAULTS로 진단)
+  'max_trunk_twist_vel_dps':      { optimal: 855, sigma: 126, oneSided: 'open_is_good' },     // °/s — Uplift Pro 770~940
+  'peak_trunk_av':                { optimal: 855, sigma: 126, oneSided: 'open_is_good' },     // °/s — alias
+  'peak_pelvis_av':               { optimal: 512, sigma: 100, oneSided: 'open_is_good' },     // °/s — Uplift Pro 445~580
+  'peak_pelvis_rot_vel':          { optimal: 512, sigma: 100, oneSided: 'open_is_good' },     // °/s — alias
+  'max_pelvis_rot_vel_dps':       { optimal: 512, sigma: 100, oneSided: 'open_is_good' },     // °/s — alias
+  'peak_arm_av':                  { optimal: 1357, sigma: 182, oneSided: 'open_is_good' },    // °/s — Uplift Pro 1235~1480 (v31.47)
+  // ★ 운동량 전달 효율 — 정예준 같은 효율 타입 elite 평가
+  'arm_trunk_speedup':            { optimal: 1.88, sigma: 0.2, oneSided: 'open_is_good' },    // ratio — elite 1.88+
+  'pelvis_trunk_speedup':         { optimal: 1.55, sigma: 0.22, oneSided: 'open_is_good' },   // ratio — Uplift Pro 1.4~1.7
   // ★ 메카닉 각도/속도 — 문헌 기반 점수화 (2026-05-03 라운드 2)
   //   기존엔 코호트 percentile만 사용했으나, 문헌에 풍부한 standard 있는 변수들
   // ★ 2026-05-03 v30.11 후속 — 11명 elite 통계 검증 결과 반영
@@ -395,15 +399,16 @@ const EXTRA_VAR_SCORING = {
   //     너무 0 근처(Flying Open)도 너무 -100° 미만(과도한 비틀림)도 비효율
   //   hip_shoulder_sep_at_fc: optimal 0 (작을수록 좋음), Gaussian + useAbs
   //     elite 11명 통계: hip_sep H2 절대값 r=-0.539 (작을수록 ΔV 큼)
-  'trunk_rotation_at_fc':         { optimal: -67, sigma: 30 },                        // ° — v30.14: 우완(n=59) -67±33 + 좌완(n=157) 우완등가 -67±27, 통합 sigma 30
+  // ★ v31.46 one-sided: 더 닫힘(-67°보다 음수)은 100점 cap. Flying Open(양수 방향)만 감점
+  'trunk_rotation_at_fc':         { optimal: -67, sigma: 30, oneSided: 'closed_is_good' },
   'hip_shoulder_sep_at_fc':       { optimal: 21, sigma: 13 },                         // ° — v30.14: 우완 +19±15 + 좌완(부호 보정) +22±11 통합 표준
   // ★ hip_shoulder_sep_sd_deg 신규 (2026-05-03 v30.11) — trial 간 hip-sep 변동성
   //   메카닉 안정성 + 제구 일관성 양쪽에 영향. elite |Δ| r=-0.709 (★★★★★)
   'hip_shoulder_sep_sd_deg':      { optimal: 0, sigma: 8 },                           // ° — trial 간 SD, 작을수록 안정
-  'max_shoulder_ER_deg':          { optimal: 185, sigma: 12 },                        // ° — Driveline elite 175~200
+  'max_shoulder_ER_deg':          { optimal: 185, sigma: 12, oneSided: 'open_is_good' },  // ° — Driveline elite 175~200, ROM 큰 게 좋음
   'shoulder_h_abd_at_fc':         { optimal: 10, sigma: 15 },                         // ° — Driveline standard (수평 외전 약간 양수)
   'arm_slot_mean_deg':            { optimal: 45, sigma: 20 },                         // ° — High 3/4 (BBL HS 표준)
-  'trunk_flex_vel_max':           { optimal: 850, sigma: 200 },                       // °/s — Stodden 2001, Wood-Smith 2019
+  'trunk_flex_vel_max':           { optimal: 850, sigma: 200, oneSided: 'open_is_good' },  // °/s — Stodden 2001, Wood-Smith 2019
   'lead_knee_ext_vel_max':        { optimal: 750, sigma: 200 },                       // °/s — Driveline lead leg drive
   'com_decel_pct':                { optimal: 55, sigma: 15 },                         // % — Driveline Block phase (기존 min/max → Gaussian)
   'lead_knee_amortization_ms':    { optimal: 60, sigma: 30 },                         // ms — SSC 효율 (기존 min/max → Gaussian, 30~90ms 범위)
@@ -497,8 +502,10 @@ const LITERATURE_OVERRIDE = new Set([
   'shoulder_ir_vel_max',             // Driveline elite 4500+
   'peak_arm_av',                     // Pitching mechanics standard
   'stride_norm_height',              // Driveline standard 0.85-1.0
-  // ── 체력 변수 (v31.44: 체중당 + ROM 제거 — 코호트 n=234 percentile 사용) ──
-  // 절대값은 코호트 percentile로 한국 고교 또래 대비 평가 (LITERATURE에 안 넣음)
+  // ── 체력 변수 (v31.45 체중당 환원 + VALD 표준 Gaussian) ──
+  'IMTP Peak Vertical Force / BM [N/kg]',
+  'CMJ Peak Power / BM [W/kg]',
+  'SJ Peak Power / BM [W/kg]',
   'CMJ RSI-modified [m/s]',
   'SJ RSI-modified [m/s]',
   'EUR',
@@ -539,7 +546,7 @@ const PLAUSIBLE_RANGES = {
   // 'elbow_flexion_at_fp' 제거 (v31.25, 사용자 요청)
   'peak_torso_counter_rot':       { min: 0,   max: 90 },        // ° (절댓값)
   'arm_slot_mean_deg':            { min: 0,   max: 90 },        // °
-  'max_shoulder_ER_deg':          { min: 100, max: 200 },       // °
+  'max_shoulder_ER_deg':          { min: 100, max: 240 },       // °
   'shoulder_h_abd_at_fc':         { min: -30, max: 60 },        // °
   // ── 메카닉 속도
   'hip_ir_vel_max_drive':         { min: 50,  max: 1500 },      // °/s
@@ -570,8 +577,8 @@ const PLAUSIBLE_RANGES = {
 // 의미·산출·점수 해석·코칭·학술 근거 + (C 카테고리는) 변수별 설명
 // ════════════════════════════════════════════════════════════════════
 const CATEGORY_DETAILS = {
-  "F1_Strength": {"name":"근력","short_desc":"최대 수직력 (IMTP, N)","meaning":"폭발적 동작의 기반이 되는 최대 근력. IMTP로 측정. (★ v31.44: 체중당 측정 결측이 잦아 절대값으로 환원 — 한국 고교 또래 코호트 percentile 평가)","method":"IMTP Peak Vertical Force [N] 코호트 백분위 (n=234)","interpretation":[["75-100","근력 우수 — 폭발적 동작 기반 충분"],["50-75","평균 — 강화 여지 있음"],["25-50","근력 부족 — 보조 운동 우선"],["0-25","매우 부족 — 우선 보강 필요"]],"coaching":"데드리프트, 스쿼트, IMTP 트레이닝","reference":"Sakurai (2024), Driveline Strength Standards"},
-  "F2_Power": {"name":"파워","short_desc":"CMJ·SJ 절대 파워 (W)","meaning":"CMJ·SJ로 측정되는 폭발 출력. 구속과 가장 직접적 연관 체력 요소. (★ v31.44: 체중당 측정 결측이 잦아 절대값으로 환원 — 한국 고교 또래 코호트 percentile 평가)","method":"CMJ Peak Power [W], SJ Peak Power [W] 코호트 백분위 평균 (n=234)","interpretation":[["75-100","파워 우수 — 투구 폭발력 기반 충분"],["50-75","평균 — 플라이오메트릭 강화"],["25-50","파워 부족 — SSC 활용 훈련"],["0-25","매우 부족 — 점프 트레이닝 우선"]],"coaching":"점프 스쿼트, 박스 점프, 메디신볼 던지기, 올림픽 리프트","reference":"Lehman et al. (2013), Driveline KineticArm"},
+  "F1_Strength": {"name":"체중당 근력","short_desc":"체중 정규화 최대 근력 (N/kg)","meaning":"체중당 발휘 가능한 최대 수직력. 체격이 작아도 효율적 근력 발현이 가능한지 평가. (절대값은 체격 카테고리에서 이미 평가됨)","method":"IMTP Peak Vertical Force / BM (N/kg) — VALD Baseball 50th 36 N/kg, sigma 6 (Gaussian)","interpretation":[["75-100","체중당 근력 우수 — 폭발적 동작 기반 충분"],["50-75","평균 — 강화 여지 있음"],["25-50","체중당 근력 부족 — 보조 운동 우선"],["0-25","매우 부족 — 우선 보강 필요"]],"coaching":"데드리프트, 스쿼트, IMTP 트레이닝, 체구성 관리","reference":"VALD Baseball v2 (2024), Sakurai (2024), Driveline"},
+  "F2_Power": {"name":"체중당 파워","short_desc":"체중 정규화 폭발력 (W/kg)","meaning":"CMJ·SJ로 측정되는 체중당 폭발 출력. 구속과 가장 직접적 연관 체력 요소. 효율적 파워 발현 평가.","method":"CMJ Peak Power/BM (VALD 50th 60 W/kg) + SJ Peak Power/BM (VALD 50th 59 W/kg) Gaussian 평균","interpretation":[["75-100","체중당 파워 우수 — 투구 폭발력 기반 충분"],["50-75","평균 — 플라이오메트릭 강화"],["25-50","파워 부족 — SSC 활용 훈련"],["0-25","매우 부족 — 점프 트레이닝 우선"]],"coaching":"점프 스쿼트, 박스 점프, 메디신볼 던지기, 올림픽 리프트","reference":"VALD Baseball v2 (2024), Lehman (2013), Driveline KineticArm"},
   "F3_Reactivity": {"name":"반응성 (SSC)","short_desc":"신축단축주기 효율","meaning":"근육이 빠르게 늘어났다가 즉시 수축하는 SSC(Stretch-Shortening Cycle) 효율. 투구의 앞다리 블로킹·몸통 회전과 직결.","method":"CMJ/SJ RSI-modified와 EUR (CMJ/SJ 비율)의 백분위 평균","interpretation":[["75-100","SSC 활용 우수 — 효율적 에너지 전달"],["50-75","평균적 SSC, 반응성 향상 여지"],["25-50","SSC 효율 낮음 — concentric만 의존"],["0-25","SSC 매우 낮음 — 단순 근력→반응적 전환 훈련"]],"coaching":"드롭 점프, 데모스 짧은 접지 시간 점프, 플라이오메트릭","reference":"McMahon (2017), Komi (2003)"},
   "F4_Body": {"name":"체격","short_desc":"신체 구성","meaning":"구속과 관련된 신체 크기. 신장은 릴리스 높이·레버 길이, 체중은 운동량과 관련.","method":"신장·체중·BMI의 백분위 평균","interpretation":[["—","신체 크기는 직접 향상 어려움 — 다른 카테고리에 더 집중"],["","체중 증가는 근육량·체지방 비율 함께 고려"]],"coaching":"영양 섭취, 근육량 증가 (체지방 < 15%)","reference":"Werner et al. (2008)"},
   // F5_Flexibility 제거 (v31.44 사용자 요청)

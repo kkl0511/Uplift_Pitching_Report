@@ -655,7 +655,7 @@
 
 // ★ 알고리즘 버전 (2026-05-03) — 산식 변경 시 갱신
 //   저장된 리포트의 algorithm_version과 비교해 자동 재계산 + UI 알림
-const ALGORITHM_VERSION = 'v31.44';
+const ALGORITHM_VERSION = 'v31.48';
 const ALGORITHM_DATE    = '2026-05-03';
 
 let CURRENT_AGE = '고교';
@@ -781,8 +781,12 @@ function isImplausible(varKey, value) {
   if (value == null || isNaN(value)) return false;
   const p = PLAUSIBLE_RANGES[varKey];
   if (!p) return false;
-  if (p.min != null && value < p.min) return true;
-  if (p.max != null && value > p.max) return true;
+  // ★ v31.46 useAbs 변수는 절댓값으로 체크 (좌투수 raw 부호 차이 흡수)
+  //   예: peak_x_factor 좌투수 raw -40.4° → |40.4| = 40.4°가 PLAUSIBLE 범위 안인지 체크
+  const scoring = (typeof EXTRA_VAR_SCORING !== 'undefined') ? EXTRA_VAR_SCORING[varKey] : null;
+  const v = (scoring && scoring.useAbs) ? Math.abs(value) : value;
+  if (p.min != null && v < p.min) return true;
+  if (p.max != null && v > p.max) return true;
   return false;
 }
 
@@ -803,6 +807,12 @@ function percentileOfCohort(varKey, value, polarity) {
     const x = modeTarget || EXTRA_VAR_SCORING[varKey];
     let v = x.useAbs ? Math.abs(value) : value;
     if (x.optimal != null) {
+      // ★ v31.46 one-sided Gaussian 지원
+      //   oneSided: 'closed_is_good' — optimal보다 더 음수(닫힘) 방향은 100점 cap (예: trunk_rotation_at_fc)
+      //   oneSided: 'open_is_good'   — optimal보다 더 양수(열림) 방향은 100점 cap
+      //   기본 (양방향) — 표준 Gaussian
+      if (x.oneSided === 'closed_is_good' && v <= x.optimal) return 100;
+      if (x.oneSided === 'open_is_good'   && v >= x.optimal) return 100;
       return Math.round(100 * Math.exp(-((v - x.optimal) ** 2) / (2 * x.sigma * x.sigma)));
     }
     if (x.min != null && x.max != null) {
