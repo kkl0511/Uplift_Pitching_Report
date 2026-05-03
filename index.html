@@ -436,9 +436,12 @@
       <div class="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">
         ⚡ <strong style="color:#fb923c;">키네틱 체인 기반 에너지 흐름·누수 분석</strong>
         <span style="color:#3a3d44;">·</span>
-        📊 <strong style="color:#60a5fa;">고교 투수 400명 구속 향상 데이터 기반</strong>
+        📚 <strong style="color:#60a5fa;">MLB·문헌 표준 기반 점수 산출</strong>
         <span class="ml-2 mono" style="color:#4ade80;">산식 <span id="algo-version-stamp">v30.7</span></span>
         <span class="mono" style="color:var(--text-muted);">(<span id="algo-date-stamp">2026-05-03</span>)</span>
+      </div>
+      <div class="text-[10px] text-[var(--text-muted)] mt-1">
+        Driveline R&D · Werner 2008 · Wood-Smith 2019 · Aguinaldo 2007 · Stodden 2001 · MLB Combine
       </div>
     </div>
     <div class="text-xs text-[var(--text-muted)] flex items-center gap-3">
@@ -651,7 +654,7 @@
 
 // ★ 알고리즘 버전 (2026-05-03) — 산식 변경 시 갱신
 //   저장된 리포트의 algorithm_version과 비교해 자동 재계산 + UI 알림
-const ALGORITHM_VERSION = 'v30.35';
+const ALGORITHM_VERSION = 'v31.1';
 const ALGORITHM_DATE    = '2026-05-03';
 
 let CURRENT_AGE = '고교';
@@ -1084,6 +1087,22 @@ const EXTRA_VAR_SCORING = {
   'drive_hip_ext_vel_max':        { optimal: 600, sigma: 200 },                // °/s — drive leg hip 신전 peak
   'lead_hip_flex_at_fc':          { optimal: 80, sigma: 20 },                  // ° — lead hip 굴곡 (정상 자세)
   'lead_hip_ext_vel_max':         { optimal: 700, sigma: 200 },                // °/s — lead leg hip 신전 peak (FC→BR)
+  // ★ v31.0 체력 변수 — MLB R&D / Driveline / NSCA 표준 기반 (sigma 넓게 — 한국 고1 발달 적정 평가)
+  //   참고: Driveline R&D, Lehman 2013, Karpov 2016, MLB Combine 2022
+  //   optimal = MLB elite 평균, sigma는 한국 고1 elite도 70~80점 받도록 설정
+  'IMTP Peak Vertical Force [N]':         { optimal: 3500, sigma: 1000 },     // N — MLB elite ~3500-4500
+  'IMTP Peak Vertical Force / BM [N/kg]': { optimal: 45, sigma: 12 },         // N/kg — MLB elite 40~55
+  'CMJ Peak Power [W]':                   { optimal: 5500, sigma: 1300 },     // W — MLB elite ~5000-6500
+  'CMJ Peak Power / BM [W/kg]':           { optimal: 60, sigma: 13 },         // W/kg — MLB elite 55~70
+  'SJ Peak Power [W]':                    { optimal: 5000, sigma: 1300 },     // W — MLB elite ~4500-5800
+  'SJ Peak Power / BM [W/kg]':            { optimal: 55, sigma: 13 },         // W/kg
+  'CMJ Concentric Impulse [N s]':         { optimal: 250, sigma: 50 },        // N·s — Lehman 2013
+  'CMJ RSI-modified [m/s]':               { optimal: 0.55, sigma: 0.15 },     // m/s — Driveline elite 0.5~0.7
+  'SJ RSI-modified [m/s]':                { optimal: 0.45, sigma: 0.13 },     // m/s
+  'EUR':                                  { optimal: 1.20, sigma: 0.15 },     // ratio — 1.1~1.3 적정
+  'Height[M]':                            { optimal: 1.85, sigma: 0.10 },     // m — MLB pitcher 평균 1.88
+  'Weight[KG]':                           { optimal: 90, sigma: 12 },         // kg — MLB pitcher 평균 95
+  'BMI':                                  { optimal: 25, sigma: 3.5 },        // — MLB pitcher 평균 26
 };
 
 // ★ LITERATURE_OVERRIDE (2026-05-03) — 외부 표준 데이터(연구 문헌)가 풍부한 변수
@@ -1125,6 +1144,30 @@ const LITERATURE_OVERRIDE = new Set([
   'drive_hip_ext_vel_max',
   'lead_hip_flex_at_fc',
   'lead_hip_ext_vel_max',
+  // ★ v31.0 점수 시스템 전환 — MLB/문헌 표준 기반 (코호트 의존 제거)
+  'lead_knee_ext_change_fc_to_br',  // Driveline lead leg block
+  'peak_torso_counter_rot',          // Wood-Smith 2019
+  'torso_side_bend_at_mer',          // Wood-Smith 2019
+  'torso_rotation_at_br',            // Driveline elite
+  'elbow_flexion_at_fp',             // Werner 2008
+  'elbow_ext_vel_max',               // Driveline elite 2400-2700
+  'shoulder_ir_vel_max',             // Driveline elite 4500+
+  'peak_arm_av',                     // Pitching mechanics standard
+  'stride_norm_height',              // Driveline standard 0.85-1.0
+  // ── 체력 변수 (MLB R&D 기반 표준) ──
+  'IMTP Peak Vertical Force [N]',
+  'IMTP Peak Vertical Force / BM [N/kg]',
+  'CMJ Peak Power [W]',
+  'CMJ Peak Power / BM [W/kg]',
+  'SJ Peak Power [W]',
+  'SJ Peak Power / BM [W/kg]',
+  'CMJ Concentric Impulse [N s]',
+  'CMJ RSI-modified [m/s]',
+  'SJ RSI-modified [m/s]',
+  'EUR',
+  'Height[M]',
+  'Weight[KG]',
+  'BMI',
 ]);
 
 // ════════════════════════════════════════════════════════════════════
@@ -4439,10 +4482,39 @@ function calculateScores(input, age, measuredVelo) {
   const fitCatScores = COHORT.fitness_cats.map(c => catScores[c]).filter(s => s != null);
   const mechCatScores = COHORT.mechanics_cats.map(c => catScores[c]).filter(s => s != null);
   const ctrlCatScores = COHORT.control_cats.map(c => catScores[c]).filter(s => s != null);
-  
+
   const Fitness_Score = fitCatScores.length ? Math.round(fitCatScores.reduce((a,b)=>a+b,0)/fitCatScores.length * 10) / 10 : null;
   const Mechanics_Score = mechCatScores.length ? Math.round(mechCatScores.reduce((a,b)=>a+b,0)/mechCatScores.length * 10) / 10 : null;
   const Control_Score = ctrlCatScores.length ? Math.round(ctrlCatScores.reduce((a,b)=>a+b,0)/ctrlCatScores.length * 10) / 10 : null;
+
+  // ★ v30.36 결측치 신뢰도 — 영역별 입력 변수 비율 계산
+  //   사용자 통찰: 결측치 많은 카테고리의 점수는 신뢰성 낮음 → 시각적 경고 + 신뢰도 표시
+  const computeCoverage = (cats) => {
+    let total = 0, measured = 0;
+    for (const cat of cats) {
+      const vars = COHORT.category_vars[cat] || [];
+      total += vars.length;
+      for (const v of vars) {
+        if (allVarScores[v[0]] != null) measured++;
+      }
+    }
+    return total > 0 ? { measured, total, pct: Math.round(measured / total * 100) } : null;
+  };
+  const Fitness_Coverage   = computeCoverage(COHORT.fitness_cats);
+  const Mechanics_Coverage = computeCoverage(COHORT.mechanics_cats);
+  const Control_Coverage   = computeCoverage(COHORT.control_cats);
+
+  // 신뢰도 등급
+  const reliabilityGrade = (pct) => {
+    if (pct == null) return null;
+    if (pct >= 80) return { label: '높음', color: '#4ade80' };
+    if (pct >= 50) return { label: '중간', color: '#fbbf24' };
+    if (pct >= 30) return { label: '낮음', color: '#f97316' };
+    return { label: '매우 낮음', color: '#dc2626' };
+  };
+  const Fitness_Reliability   = Fitness_Coverage   ? reliabilityGrade(Fitness_Coverage.pct)   : null;
+  const Mechanics_Reliability = Mechanics_Coverage ? reliabilityGrade(Mechanics_Coverage.pct) : null;
+  const Control_Reliability   = Control_Coverage   ? reliabilityGrade(Control_Coverage.pct)   : null;
   
   // 3) 회귀로 PV, MV 계산 (연령군 구속 보정 포함)
   // ★ v30.20 옵션 D: cohort_v29.js의 regression 직접 사용 (하드코딩 제거)
@@ -4551,6 +4623,8 @@ function calculateScores(input, age, measuredVelo) {
     var_scores: allVarScores,
     cat_scores: catScores,
     Fitness_Score, Mechanics_Score, Control_Score,
+    Fitness_Coverage, Mechanics_Coverage, Control_Coverage,
+    Fitness_Reliability, Mechanics_Reliability, Control_Reliability,
     PV_predicted: PV,
     MV_predicted: MV,
     ceiling,
@@ -4860,6 +4934,54 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
         1: '하체 드라이브', 2: '앞다리 블록', 3: '분리 형성',
         4: '트렁크 가속', 5: '상지 코킹·전달', 6: '릴리스 가속'
       };
+      // ★ v31.1 결함별 코호트 변수 매핑 (한국 고1 단기 향상 가이드)
+      const FAULT_COHORT_VAR = {
+        'WeakDrive': 'max_cog_velo',
+        'SlowDriveHip': 'drive_hip_ext_vel_max',
+        'ShortStride': 'stride_norm_height',
+        'LeadKneeCollapse': 'lead_knee_ext_change_fc_to_br',
+        'SoftBlock': 'com_decel_pct',
+        'LateBlock': 'lead_knee_amortization_ms',
+        'FlyingOpen': 'trunk_rotation_at_fc',
+        'InsufficientCounterRot': 'peak_torso_counter_rot',
+        'OpenFrontSide': 'shoulder_h_abd_at_fc',
+        'LateTrunkRotation': 'pelvis_to_trunk_lag_ms',
+        'PelvisTrunkDisconnect': 'pelvis_to_trunk_lag_ms',
+        'InsufficientLayback': 'max_shoulder_ER_deg',
+        'TrunkArmDisconnect': 'arm_trunk_speedup',
+        'ElbowOverload': 'elbow_ext_vel_max',
+        'ElbowWatchList': 'elbow_ext_vel_max',
+        'TrunkFallingForward': 'trunk_forward_tilt_at_br',
+      };
+      const cohortInputs = CURRENT_INPUT.mechanics || {};
+
+      const buildCohortCompare = (f) => {
+        const varKey = FAULT_COHORT_VAR[f.id];
+        if (!varKey) return '';
+        const myVal = cohortInputs[varKey];
+        const stats = COHORT.var_distributions?.[varKey];
+        if (myVal == null || !stats) return '';
+        const median = stats.median;
+        const q75 = stats.q75;
+        const q25 = stats.q25;
+        const unit = (varKey.includes('_ms')) ? ' ms'
+                   : (varKey.includes('_dps') || varKey.includes('_vel')) ? ' °/s'
+                   : (varKey.includes('cog_velo')) ? ' m/s'
+                   : (varKey.includes('decel_pct')) ? ' %'
+                   : (varKey.includes('norm_height') || varKey.includes('speedup')) ? ''
+                   : '°';
+        const fmt = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(2));
+        return `<div class="text-xs mt-2 p-2" style="background:rgba(96,165,250,0.06); border-left:3px solid #60a5fa; border-radius:3px;">
+          <strong style="color:#60a5fa;">📍 한국 고교 코호트 비교 (단기 향상 가이드)</strong>
+          <div class="ml-1 mt-1">
+            본인 <strong>${fmt(myVal)}${unit}</strong> · 또래 평균 <strong>${fmt(median)}${unit}</strong> · 코호트 상위 25% <strong>${fmt(q75)}${unit}</strong>
+          </div>
+          <div class="ml-1 mt-1" style="color: var(--text-muted);">
+            → 단기 목표: 또래 상위 25% 진입 (${fmt(q75)}${unit})
+          </div>
+        </div>`;
+      };
+
       const priorityRows = top3.map((f, i) => {
         const c = sevColorS5[f.severity] || '#888';
         return `<div class="card p-3 mb-2" style="border-left: 4px solid ${c}; background: ${c}05;">
@@ -4871,7 +4993,8 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
           <div class="text-xs mb-1" style="color: var(--text-secondary);">
             <strong>코칭 방향:</strong> ${f.coaching}
           </div>
-          ${f.drills && f.drills.length ? `<div class="text-xs" style="color:var(--text-secondary);">
+          ${buildCohortCompare(f)}
+          ${f.drills && f.drills.length ? `<div class="text-xs mt-2" style="color:var(--text-secondary);">
             <strong style="color:#4ade80;">💪 추천 드릴:</strong>
             <div class="ml-4 mt-1">${f.drills.map((d, di) => `${di+1}) ${d}`).join('<br/>')}</div>
           </div>` : ''}
@@ -4882,11 +5005,11 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
           <div class="display text-base mb-2" style="color: #4ade80;">💪 5단계 · 어떻게 개선할까</div>
           <div class="text-sm mb-3" style="color: var(--text-secondary);">
             발견된 ${faults_s5.length}개 결함 중 <strong>우선순위 ${Math.min(3, top3.length)}개</strong>를 집중 트레이닝 권장합니다.
-            아래 드릴은 코칭 진단에 따라 자동 추천됐습니다.
+            <strong style="color:#60a5fa;">단기 향상 목표는 한국 고교 코호트 기반</strong>이며, 장기 목표는 카테고리 차트의 MLB·문헌 표준 점수입니다.
           </div>
           ${priorityRows}
           <div class="text-[11px] mt-2" style="color:var(--text-muted);">
-            ※ 카테고리별 세부 점수 + 추가 운동은 아래 메카닉·체력·제구 섹션에서 확인.
+            ※ 코호트 평균/상위 25% 수치는 BBL 데이터베이스 기준. 카테고리별 세부 점수는 위 메카닉·체력·제구 섹션 참조.
           </div>
         </div>`;
     }
@@ -4976,14 +5099,16 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
           <div class="display text-2xl mt-1 text-[var(--text-muted)]">미입력</div>
         </div>`}
         <div>
-          <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)]">체력 현재 수준</div>
+          <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)]">체력 기준 구속</div>
           <div class="display text-3xl mt-1" style="color: var(--fitness)">${r.PV_predicted?.toFixed(1) ?? '—'}<span class="text-sm ml-1" style="color: var(--text-muted)">km/h</span></div>
-          <div class="text-xs text-[var(--text-muted)] mt-1">잠재력 ${r.ceiling_F100?.toFixed(1) ?? '—'} km/h 까지 발전 여지</div>
+          <div class="display text-xs mt-2" style="color: var(--text-muted)">잠재력</div>
+          <div class="display text-2xl" style="color: var(--fitness); opacity: 0.8;">${r.ceiling_F100?.toFixed(1) ?? '—'}<span class="text-sm ml-1" style="color: var(--text-muted)">km/h</span></div>
         </div>
         <div>
-          <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)]">메카닉 현재 수준</div>
+          <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)]">메카닉 기준 구속</div>
           <div class="display text-3xl mt-1" style="color: var(--accent)">${r.MV_predicted?.toFixed(1) ?? '—'}<span class="text-sm ml-1" style="color: var(--text-muted)">km/h</span></div>
-          <div class="text-xs text-[var(--text-muted)] mt-1">잠재력 ${r.ceiling_M100?.toFixed(1) ?? '—'} km/h 까지 발전 여지</div>
+          <div class="display text-xs mt-2" style="color: var(--text-muted)">잠재력</div>
+          <div class="display text-2xl" style="color: var(--accent); opacity: 0.8;">${r.ceiling_M100?.toFixed(1) ?? '—'}<span class="text-sm ml-1" style="color: var(--text-muted)">km/h</span></div>
         </div>
         <div>
           <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)]">잠재 구속 (FM100)</div>
@@ -5192,19 +5317,31 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
       return renderCategoryAccordion(catId, r.var_scores || {}, catScore);
     }).join('');
 
+    // ★ v30.36 신뢰도 정보
+    const sectionCov = sec.key === 'Fitness_Score' ? r.Fitness_Coverage
+                     : sec.key === 'Mechanics_Score' ? r.Mechanics_Coverage
+                     : r.Control_Coverage;
+    const sectionRel = sec.key === 'Fitness_Score' ? r.Fitness_Reliability
+                     : sec.key === 'Mechanics_Score' ? r.Mechanics_Reliability
+                     : r.Control_Reliability;
+    const lowCoverage = sectionCov && sectionCov.pct < 50;
     return `
       <div class="card p-6">
         <div class="flex justify-between items-end mb-2">
           <div>
-            <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)]">${r.age} 또래 대비 내 수준</div>
+            <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)]">MLB·문헌 표준 대비 발달도</div>
             <div class="display text-xl mt-1" style="color: ${sec.color}">${sec.label}</div>
           </div>
           <div class="text-right">
-            <div class="display text-4xl" style="color: ${scoreColor(score)}">${Math.round(score)}</div>
-            <div class="text-[10px] text-[var(--text-muted)] mono uppercase">/100 percentile</div>
+            <div class="display text-4xl" style="color: ${lowCoverage ? 'var(--text-muted)' : scoreColor(score)}">${Math.round(score)}</div>
+            <div class="text-[10px] text-[var(--text-muted)] mono uppercase">/100</div>
           </div>
         </div>
-        <div class="text-[11px] text-[var(--text-muted)] mb-3 italic">※ 같은 ${r.age} 코호트 중앙값 = 50점, 상위권 = 70점+</div>
+        ${sectionCov ? `<div class="text-[11px] mb-1" style="color: var(--text-muted);">
+          측정 변수: <strong style="color: ${sectionRel?.color || 'var(--text-secondary)'};">${sectionCov.measured}/${sectionCov.total}</strong> (${sectionCov.pct}%) · 신뢰도 <strong style="color: ${sectionRel?.color || 'var(--text-secondary)'};">${sectionRel?.label || '—'}</strong>
+          ${lowCoverage ? '<span style="color: #f97316; margin-left:6px;">⚠ 측정 부족 — 점수 참고용</span>' : ''}
+        </div>` : ''}
+        <div class="text-[11px] text-[var(--text-muted)] mb-3 italic">※ 100점 = MLB elite 표준값. 80점+ = 한국 고1 elite 적정. 50점 = 발달 평균.</div>
         <div class="mb-4 relative" style="height: 240px;">
           <canvas id="${sec.radarId}"></canvas>
         </div>
@@ -5351,6 +5488,9 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
           헤더 카드의 <strong>현재 수준(km/h)</strong>은 체력·메카닉 기준 추정 구속이며,
           참고용 <strong>percentile 점수</strong>(체력 ${r.Fitness_Score}·메카닉 ${r.Mechanics_Score}점)는 또래 코호트 내 상대 위치로
           코칭 진단·결함 식별에 활용됩니다.
+          ${(r.Mechanics_Coverage && r.Mechanics_Coverage.pct < 50) ? `
+            <br/><strong style="color:#f97316;">⚠ 메카닉 변수 측정 비율 ${r.Mechanics_Coverage.pct}% — 측정 변수 부족으로 메카닉 점수의 신뢰도가 낮습니다. 추가 측정 후 재평가 권장.</strong>
+          ` : ''}
         </div>
       </div>`;
   }
@@ -5374,8 +5514,45 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
         <p class="text-[11px] text-[var(--text-muted)] italic">
           ※ 잠재 구속은 본 시점의 체력·메카닉이 100점 발달했을 때 도달 가능한 구속을 의미하며,
           향후 신체 성장(신장·근력)·트레이닝·메카닉 정착에 따라 잠재 구속 자체도 더 높아질 수 있습니다.
-          참고용 코호트 percentile 점수 (체력 ${r.Fitness_Score ?? '—'} · 메카닉 ${r.Mechanics_Score ?? '—'} · 제구 ${r.Control_Score ?? '—'})는 결함 식별·코칭 진단에 활용됩니다.
         </p>
+
+        ${(() => {
+          // ★ v30.36 결측치 신뢰도 표시 — 영역별 입력 변수 비율 + 점수 신뢰도 등급
+          const buildRow = (label, score, cov, rel, color) => {
+            if (cov == null || score == null) return '';
+            const lowAlert = cov.pct < 50;
+            return `<div class="flex items-center justify-between py-1.5" style="border-bottom: 1px dashed var(--border);">
+              <span style="width:80px; color:${color}; font-weight:600;">${label}</span>
+              <span style="width:50px; text-align:right;">
+                <strong style="color:${lowAlert ? 'var(--text-muted)' : color}; font-size:14px;">${score}점</strong>
+              </span>
+              <span class="text-xs" style="width:130px; text-align:right; color:var(--text-secondary);">
+                ${cov.measured}/${cov.total} 변수 측정 (${cov.pct}%)
+              </span>
+              <span class="text-xs" style="width:90px; text-align:right;">
+                <span style="color:${rel.color}; font-weight:600;">신뢰도 ${rel.label}</span>
+              </span>
+            </div>`;
+          };
+          const fitRow = buildRow('체력', r.Fitness_Score, r.Fitness_Coverage, r.Fitness_Reliability, 'var(--fitness)');
+          const mechRow = buildRow('메카닉', r.Mechanics_Score, r.Mechanics_Coverage, r.Mechanics_Reliability, 'var(--accent)');
+          const ctrlRow = buildRow('제구', r.Control_Score, r.Control_Coverage, r.Control_Reliability, 'var(--control)');
+          const lowAreas = [];
+          if (r.Fitness_Coverage && r.Fitness_Coverage.pct < 50) lowAreas.push('체력');
+          if (r.Mechanics_Coverage && r.Mechanics_Coverage.pct < 50) lowAreas.push('메카닉');
+          if (r.Control_Coverage && r.Control_Coverage.pct < 50) lowAreas.push('제구');
+          const warnMsg = lowAreas.length > 0
+            ? `<div class="text-xs mt-2" style="color: #f97316;">⚠ ${lowAreas.join('·')} 영역 측정 변수 50% 미만 — 점수 신뢰도 낮음. 추가 변수 측정 권장.</div>`
+            : '';
+          return `<div class="card p-3 mt-2" style="background: var(--bg-elevated); border-radius:6px;">
+            <div class="text-xs uppercase tracking-wider mb-1" style="color: var(--text-muted);">📍 한국 고교 코호트 percentile — 단기 향상 가이드</div>
+            <div class="text-[10px] mb-2 italic" style="color: var(--text-muted);">
+              ※ 위 점수(MLB·문헌 표준)는 장기 목표 지표, 아래 percentile은 한국 고교 또래 대비 현재 위치 — 단기 향상의 현실적 출발점.
+            </div>
+            ${fitRow}${mechRow}${ctrlRow}
+            ${warnMsg}
+          </div>`;
+        })()}
         ${distLine}
       </div>
 
