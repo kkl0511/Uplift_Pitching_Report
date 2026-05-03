@@ -649,7 +649,7 @@
 
 // ★ 알고리즘 버전 (2026-05-03) — 산식 변경 시 갱신
 //   저장된 리포트의 algorithm_version과 비교해 자동 재계산 + UI 알림
-const ALGORITHM_VERSION = 'v30.16.2';
+const ALGORITHM_VERSION = 'v30.17';
 const ALGORITHM_DATE    = '2026-05-03';
 
 let CURRENT_AGE = '고교';
@@ -4336,7 +4336,13 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
     .filter(c => c.score != null)
     .sort((a,b) => a.score - b.score)[0];
   
-  // 활용도 한 줄 (잔차)
+  // ★ v30.17 Phase 4: 모드별 코칭 메시지 (Mode A/B 분기)
+  const _armSide_p4 = CURRENT_INPUT._armSide || 'right';
+  const _mode_p4 = getPlayerMode(_armSide_p4, measuredVelo);
+  const _threshold_p4 = _armSide_p4 === 'left' ? 135 : 140;
+  const _handLabel_p4 = _armSide_p4 === 'left' ? '좌투' : '우투';
+
+  // 활용도 한 줄 (잔차) — 모드별 표현
   let utilLine = '';
   if (fitRes != null && mechRes != null) {
     const fitWord = fitRes >= 5 ? '효율 우수' : fitRes >= 1 ? '효율 양호' : fitRes >= -1 ? '평균적' : fitRes >= -5 ? '능력 미발휘' : '잠재력 잠금';
@@ -4346,6 +4352,36 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
       <strong>신체 능력</strong>으로 보면 <strong>${r.PV_predicted?.toFixed(1)} km/h</strong>를 던질 만한 선수인데, 실제로는 <strong>${fitRes >= 0 ? '+' : ''}${fitRes.toFixed(1)} km/h</strong> ${fitRes >= 0 ? '더 잘' : '덜'} 던지고 있습니다 (${fitWord}).
       <strong>투구 메카닉</strong>으로 보면 <strong>${r.MV_predicted?.toFixed(1)} km/h</strong>가 예상되는데, 실제로는 <strong>${mechRes >= 0 ? '+' : ''}${mechRes.toFixed(1)} km/h</strong> ${mechRes >= 0 ? '더 잘' : '덜'} 던지고 있습니다 (${mechWord}).
     </div>`;
+  }
+
+  // ★ Phase 4: 모드별 핵심 코칭 콜아웃 (utilLine보다 위)
+  let modeCoachingHtml = '';
+  if (measuredVelo != null) {
+    if (_mode_p4 === 'sub_elite') {
+      // Mode A: Elite gap + 우선 보강 영역
+      const eliteGap = _threshold_p4 - measuredVelo;
+      const lowestMechName = lowestMech ? (COHORT.category_meta[lowestMech.id]?.name || lowestMech.id) : '메카닉 전반';
+      const lowestMechScore = lowestMech ? Math.round(lowestMech.score) : null;
+      modeCoachingHtml = `<div class="summary-callout" style="border-left:4px solid #2563eb; background: rgba(37,99,235,0.08); padding:12px 16px; margin:12px 0;">
+        <div class="text-sm font-semibold mb-1" style="color:#2563eb;">🚀 Sub-elite 발전 단계 (Mode A) — ${_handLabel_p4} elite 임계값까지</div>
+        <div class="text-sm">
+          현재 <strong>${measuredVelo} km/h</strong> → <strong>${_threshold_p4} km/h</strong>(${_handLabel_p4} elite) 도달까지 <strong style="color:#f59e0b;">+${eliteGap.toFixed(1)} km/h</strong> 필요.
+          ${lowestMechScore != null ? ` 우선 보강 영역 — <strong>${lowestMechName}</strong> (${lowestMechScore}점). 이 카테고리를 elite 평균(70+)으로 끌어올리면 큰 폭의 구속 향상 기대.` : ''}
+        </div>
+      </div>`;
+    } else {
+      // Mode B: Elite 정착 + 미세조정 영역
+      const aboveThreshold = measuredVelo - _threshold_p4;
+      const lowestMechName = lowestMech ? (COHORT.category_meta[lowestMech.id]?.name || lowestMech.id) : '메카닉 전반';
+      const lowestMechScore = lowestMech ? Math.round(lowestMech.score) : null;
+      modeCoachingHtml = `<div class="summary-callout" style="border-left:4px solid #7c3aed; background: rgba(124,58,237,0.08); padding:12px 16px; margin:12px 0;">
+        <div class="text-sm font-semibold mb-1" style="color:#7c3aed;">⭐ Elite 정착 단계 (Mode B) — ${_handLabel_p4} elite 안에서 미세조정</div>
+        <div class="text-sm">
+          ${_handLabel_p4} elite 임계 ${_threshold_p4} km/h를 <strong>+${aboveThreshold.toFixed(1)} km/h</strong> 초과 (현재 ${measuredVelo} km/h).
+          ${lowestMechScore != null ? ` 미세조정 영역 — <strong>${lowestMechName}</strong> (${lowestMechScore}점). 안정성·일관성·trial SD 감소가 추가 향상 핵심.` : ''}
+        </div>
+      </div>`;
+    }
   }
   
   // 헤더 — 5칸 직관 (측정 구속 / 체력 PV / 메카닉 MV / 잠재 / 활용도)
@@ -4700,6 +4736,7 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
       </p>
 
       ${distLine}
+      ${modeCoachingHtml}
       ${utilLine}
       ${scenarioAnalysis}
 
@@ -4709,18 +4746,18 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
 
       ${strengths.length ? `
       <div class="mt-4">
-        <div class="text-sm font-bold mb-2">✅ 이 선수의 강점 (70점 이상)</div>
+        <div class="text-sm font-bold mb-2">${_mode_p4 === 'elite' ? '✨ 안정 영역 (70점 이상)' : '💪 Elite-ready 강점 (70점 이상)'}</div>
         <ul class="list-none pl-0 space-y-1">
           ${strengths.map(s => {
             const meta = COHORT.category_meta[s.id] || {};
             return `<li class="text-sm"><span class="text-[var(--good)]">●</span> <strong>${meta.name}</strong> (${s.area} ${Math.round(s.score)}점) — ${meta.short_desc || ''}</li>`;
           }).join('')}
         </ul>
-      </div>` : `<div class="mt-4 text-sm text-[var(--text-muted)] italic">⚠ 70점 이상 강점 카테고리 없음 — 전반적 발달이 우선 필요</div>`}
+      </div>` : `<div class="mt-4 text-sm text-[var(--text-muted)] italic">⚠ 70점 이상 ${_mode_p4 === 'elite' ? '안정' : '강점'} 카테고리 없음 — 전반적 발달이 우선 필요</div>`}
 
       ${weaknesses.length ? `
       <div class="mt-4">
-        <div class="text-sm font-bold mb-2">⚠️ 보강이 필요한 영역 (40점 미만)</div>
+        <div class="text-sm font-bold mb-2">${_mode_p4 === 'elite' ? '🔍 변동성 주의 영역 (40점 미만)' : '🔧 보강 우선 영역 (40점 미만)'}</div>
         <ul class="list-none pl-0 space-y-1">
           ${weaknesses.map(s => {
             const meta = COHORT.category_meta[s.id] || {};
