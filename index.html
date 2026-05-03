@@ -649,7 +649,7 @@
 
 // ★ 알고리즘 버전 (2026-05-03) — 산식 변경 시 갱신
 //   저장된 리포트의 algorithm_version과 비교해 자동 재계산 + UI 알림
-const ALGORITHM_VERSION = 'v30.18.2';
+const ALGORITHM_VERSION = 'v30.18.3';
 const ALGORITHM_DATE    = '2026-05-03';
 
 let CURRENT_AGE = '고교';
@@ -5426,18 +5426,35 @@ function renderComparisonHtml(reports, labels, prefix) {
   const headerCols = N <= 2 ? 'md:grid-cols-2' : (N === 3 ? 'md:grid-cols-3' : 'md:grid-cols-4');
   const header = `
     <div class="grid grid-cols-1 ${headerCols} gap-3 mb-4">
-      ${reports.map((r, i) => `
+      ${reports.map((r, i) => {
+        // ★ v30.18.3: 비교 뷰 모드 뱃지 (좌투/우투 + Mode A/B)
+        const armSide = r.armSide || (r.inputs && r.inputs._armSide) || 'right';
+        const mode = (typeof getPlayerMode === 'function')
+          ? getPlayerMode(armSide, r.measuredVelo)
+          : (r.measuredVelo >= (armSide === 'left' ? 135 : 140) ? 'elite' : 'sub_elite');
+        const handLabel = armSide === 'left' ? '좌투' : '우투';
+        const modeColor = mode === 'elite' ? '#7c3aed' : '#2563eb';
+        const modeBg = mode === 'elite' ? '#ede9fe' : '#dbeafe';
+        const modeIcon = mode === 'elite' ? '⭐' : '🚀';
+        const modeShort = mode === 'elite' ? 'Mode B' : 'Mode A';
+        return `
         <div class="card p-3" style="border: 2px solid ${_CMP_COLORS[i]};">
           <div class="mono text-[10px] text-[var(--text-muted)]">${labels[i]}</div>
           <div class="display text-base mt-1" style="color: ${_CMP_COLORS[i]}">${r.name}</div>
           <div class="text-[10px] text-[var(--text-muted)] mt-1">${r.age || '—'} · ${r.date || '날짜 없음'}</div>
+          <div class="mt-1.5">
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold" style="background:${modeBg}; color:${modeColor}; border:1px solid ${modeColor};">
+              <span>${modeIcon}</span><span>${handLabel}</span><span style="opacity:0.5;">·</span><span>${modeShort}</span>
+            </span>
+          </div>
           <div class="grid grid-cols-4 gap-1 mt-2 text-center">
             <div><div class="text-[9px] text-[var(--text-muted)]">측정</div><div class="mono text-xs font-bold">${r.measuredVelo != null ? r.measuredVelo.toFixed(1) : '—'}</div></div>
             <div><div class="text-[9px] text-[var(--text-muted)]">체력</div><div class="mono text-xs font-bold" style="color:${scoreColor(r.scores.Fitness_Score)}">${r.scores.Fitness_Score ?? '—'}</div></div>
             <div><div class="text-[9px] text-[var(--text-muted)]">메카닉</div><div class="mono text-xs font-bold" style="color:${scoreColor(r.scores.Mechanics_Score)}">${r.scores.Mechanics_Score ?? '—'}</div></div>
             <div><div class="text-[9px] text-[var(--text-muted)]">제구</div><div class="mono text-xs font-bold" style="color:${scoreColor(r.scores.Control_Score)}">${r.scores.Control_Score ?? '—'}</div></div>
           </div>
-        </div>`).join('')}
+        </div>`;
+      }).join('')}
     </div>`;
 
   // 종합 메트릭 한 줄 — N=2면 Δ, N>=3이면 max-min range + leader
