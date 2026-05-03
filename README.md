@@ -133,6 +133,12 @@
 
 ## 변경 이력
 
+### 2026-05-03 v30.16 — Phase 3: 좌·우완 회귀 분리 + 뱃지 가독성
+- **회귀 좌·우완 분기**: 좌완은 PV/MV 예측에서 -3 km/h offset (우완 144 vs 좌완 141 ceiling)
+- **잠재 구속 cap 분리**: 우완 152 / 좌완 149 (고교 기준), 다른 연령군도 -3 km/h 자동 적용
+- **모드 뱃지 가독성**: text-[10px] mono → text-sm font-semibold, 진한 색·둥근 pill 배지로 가독성 ↑
+- **자동 분기**: CURRENT_ARM_SIDE 기반 — 좌완은 더 보수적 잠재구속, 우완은 그대로
+
 ### 2026-05-03 v30.15 — Phase 2: handedness × mode 4-cell 점수제
 - **자동 모드 분류**: MaxV 기반 — 우완 ≥140 km/h / 좌완 ≥135 km/h → Elite (Mode B), 미달 → Sub-elite (Mode A)
 - **4-cell trunk_rot@FC target** (216 trial 데이터 기반):
