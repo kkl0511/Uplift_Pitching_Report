@@ -654,7 +654,7 @@
 
 // ★ 알고리즘 버전 (2026-05-03) — 산식 변경 시 갱신
 //   저장된 리포트의 algorithm_version과 비교해 자동 재계산 + UI 알림
-const ALGORITHM_VERSION = 'v31.11';
+const ALGORITHM_VERSION = 'v31.12';
 const ALGORITHM_DATE    = '2026-05-03';
 
 let CURRENT_AGE = '고교';
@@ -1609,10 +1609,18 @@ function extractScalarsFromUplift(parsed) {
 
   // BR: peak arm rotational velocity (절대값) in [FC+5, FC+50]
   //   peak arm AV가 BR과 거의 동시 또는 직전에 발생
+  // ★ v31.12 throwing arm 자동 검출 — 양 팔 비교
   const detectBR = (fcFrame) => {
     if (fcFrame == null) return null;
     const fcRow = frameMap[fcFrame]; if (fcRow == null) return null;
-    return _argExtreme(armSide + '_arm_rotational_velocity_with_respect_to_ground', fcRow + 5, fcRow + 50, 'absMax');
+    const lArmF = _argExtreme('left_arm_rotational_velocity_with_respect_to_ground',  fcRow + 5, fcRow + 50, 'absMax');
+    const rArmF = _argExtreme('right_arm_rotational_velocity_with_respect_to_ground', fcRow + 5, fcRow + 50, 'absMax');
+    // 두 팔 중 abs velocity가 더 큰 시점 선택
+    const ci_l = idx['left_arm_rotational_velocity_with_respect_to_ground'];
+    const ci_r = idx['right_arm_rotational_velocity_with_respect_to_ground'];
+    const lVal = (lArmF != null && ci_l != null) ? Math.abs(parseFloat(rows[frameMap[lArmF]][ci_l]) || 0) : 0;
+    const rVal = (rArmF != null && ci_r != null) ? Math.abs(parseFloat(rows[frameMap[rArmF]][ci_r]) || 0) : 0;
+    return lVal >= rVal ? lArmF : rArmF;
   };
 
   // peak rotational velocity 검출 (시퀀스 lag 용) — 윈도우 보수적 fallback (2026-05-03)
@@ -1645,13 +1653,9 @@ function extractScalarsFromUplift(parsed) {
     br:  upEvents.br  != null ? upEvents.br  : rawBR,
     mer: upEvents.mer != null ? upEvents.mer : rawMER,
   };
-  // ★ v31.11 Peak 검출 윈도우 보수적 강화 + 음수 lag 자동 보정
-  //   박명균·오승현 좌완 케이스 (음수 lag) 자동 해결
-  //   pelvis peak: [KH, MER]
-  //   trunk peak:  [FC, MER+10]   (이전 +5 → +10로 약간 완화)
-  //   arm peak:    [MER+3, BR+10] (이전 [MER, BR+30] → 더 보수적 — 와인드업 완전 차단)
-  //   Uplift 사전계산 컬럼은 무시 — 항상 detectPeakRotVel로 직접 산출 (Uplift 부정확 케이스 방어)
-  const armVelCol = armSide + '_arm_rotational_velocity_with_respect_to_ground';
+  // ★ v31.12 throwing arm 자동 검출 + windowed peak detection
+  //   사용자 가설: Uplift 좌완 데이터에서 left_arm이 글러브 손이고 throwing arm이 right_arm일 가능성
+  //   해결: 양 팔의 max angular velocity 비교 → 큰 쪽이 throwing arm
 
   // pelvis peak: [KH, MER]
   const _pelvisLo = rawKH ?? events.fc;
@@ -1663,15 +1667,33 @@ function extractScalarsFromUplift(parsed) {
   const _trunkHi = (events.mer != null) ? events.mer + 10 : (events.br ?? rawBR);
   events.peakTrunk = detectPeakRotVel('trunk_rotational_velocity_with_respect_to_ground', _trunkLo, _trunkHi);
 
-  // arm peak: [MER+3, BR+10] — 가속 phase만 (와인드업·셋업·MER 직전 후방향 회전 차단)
+  // arm peak: throwing arm 자동 검출 (handedness 컨벤션 의존 X)
   const _armLo = (events.mer != null) ? events.mer + 3 : (events.fc ?? rawFC);
   const _armHi = (events.br != null) ? events.br + 10 : rawBR;
+  // 양 팔의 max abs velocity 비교
+  const _getMaxAbsInWin = (col, lo, hi) => {
+    const ci = idx[col]; if (ci == null) return 0;
+    const loRow = frameMap[lo]; const hiRow = frameMap[hi];
+    if (loRow == null || hiRow == null) return 0;
+    let mx = 0;
+    for (let i = loRow; i <= hiRow; i++) {
+      const v = parseFloat(rows[i][ci]);
+      if (!isNaN(v) && Math.abs(v) > mx) mx = Math.abs(v);
+    }
+    return mx;
+  };
+  const _leftMaxAv  = _getMaxAbsInWin('left_arm_rotational_velocity_with_respect_to_ground',  _armLo, _armHi);
+  const _rightMaxAv = _getMaxAbsInWin('right_arm_rotational_velocity_with_respect_to_ground', _armLo, _armHi);
+  // 큰 쪽이 throwing arm
+  const _throwingArmDetected = _leftMaxAv >= _rightMaxAv ? 'left' : 'right';
+  const armVelCol = _throwingArmDetected + '_arm_rotational_velocity_with_respect_to_ground';
+  if (_throwingArmDetected !== armSide) {
+    console.warn(`⚠ Throwing arm detected (${_throwingArmDetected}, max ${Math.max(_leftMaxAv,_rightMaxAv).toFixed(0)}°/s) differs from handedness label (${armSide}). Using detected.`);
+  }
   events.peakArm = detectPeakRotVel(armVelCol, _armLo, _armHi);
 
   // ★ v31.11 음수 lag 자동 보정 — 시퀀싱 정합성 강제 (proximal-to-distal)
-  // arm peak가 trunk peak보다 일찍 → 윈도우 더 좁혀 재검출
   if (events.peakArm != null && events.peakTrunk != null && events.peakArm < events.peakTrunk + 5) {
-    // arm peak를 [trunkPeak+5, BR+10]에서 다시 찾기
     const _armLo2 = events.peakTrunk + 5;
     const _armHi2 = (events.br != null) ? events.br + 10 : rawBR;
     if (_armLo2 < _armHi2) {
@@ -1679,7 +1701,6 @@ function extractScalarsFromUplift(parsed) {
       if (retried != null) events.peakArm = retried;
     }
   }
-  // trunk peak가 pelvis peak보다 일찍 → 동일 보정
   if (events.peakTrunk != null && events.peakPelvis != null && events.peakTrunk < events.peakPelvis + 5) {
     const _trunkLo2 = events.peakPelvis + 5;
     const _trunkHi2 = (events.mer != null) ? events.mer + 10 : (events.br ?? rawBR);
@@ -1809,9 +1830,10 @@ function extractScalarsFromUplift(parsed) {
   if (_winFrom != null && _winTo != null) {
     out.peak_pelvis_av = colMaxAbsBetween('pelvis_rotational_velocity_with_respect_to_ground', _winFrom, _winTo);
     out.peak_trunk_av  = colMaxAbsBetween('trunk_rotational_velocity_with_respect_to_ground',  _winFrom, _winTo);
-    const armVelCol = armSide === 'left' ? 'left_arm_rotational_velocity_with_respect_to_ground'
-                                          : 'right_arm_rotational_velocity_with_respect_to_ground';
-    out.peak_arm_av = colMaxAbsBetween(armVelCol, _winFrom, _winTo);
+    // ★ v31.12 throwing arm 자동 검출 — 양 팔 비교 후 큰 쪽 사용
+    const _armL_av = colMaxAbsBetween('left_arm_rotational_velocity_with_respect_to_ground',  _winFrom, _winTo) || 0;
+    const _armR_av = colMaxAbsBetween('right_arm_rotational_velocity_with_respect_to_ground', _winFrom, _winTo) || 0;
+    out.peak_arm_av = Math.max(_armL_av, _armR_av);
     // ★ arm_trunk_speedup (2026-05-03) — 몸통→팔 에너지 전달 효율
     //   ratio = peak_arm_av / peak_trunk_av. elite 1.8~2.2 (정예준 1.97 → 매우 효율적)
     if (out.peak_trunk_av != null && out.peak_trunk_av > 0 && out.peak_arm_av != null) {
