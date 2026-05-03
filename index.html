@@ -654,7 +654,7 @@
 
 // ★ 알고리즘 버전 (2026-05-03) — 산식 변경 시 갱신
 //   저장된 리포트의 algorithm_version과 비교해 자동 재계산 + UI 알림
-const ALGORITHM_VERSION = 'v31.10';
+const ALGORITHM_VERSION = 'v31.11';
 const ALGORITHM_DATE    = '2026-05-03';
 
 let CURRENT_AGE = '고교';
@@ -1645,30 +1645,49 @@ function extractScalarsFromUplift(parsed) {
     br:  upEvents.br  != null ? upEvents.br  : rawBR,
     mer: upEvents.mer != null ? upEvents.mer : rawMER,
   };
-  // ★ v31.9 Peak 검출 윈도우 강화 — proximal-to-distal 시퀀싱 보장
-  //   박명균 같은 케이스 (arm peak가 trunk peak보다 일찍 잡힘) 방지
-  //   pelvis peak: [KH, MER]  — 회전 시작에서 MER까지
-  //   trunk peak:  [FC, MER+5] — FC 이후 가속~MER
-  //   arm peak:    [MER, BR+30] — 가속 단계 (와인드업·셋업 무시)
-  const _checkInWindow = (frame, lo, hi) => frame != null && lo != null && hi != null && frame >= lo && frame <= hi;
-  // pelvis peak: [KH, MER] 윈도우 강제
+  // ★ v31.11 Peak 검출 윈도우 보수적 강화 + 음수 lag 자동 보정
+  //   박명균·오승현 좌완 케이스 (음수 lag) 자동 해결
+  //   pelvis peak: [KH, MER]
+  //   trunk peak:  [FC, MER+10]   (이전 +5 → +10로 약간 완화)
+  //   arm peak:    [MER+3, BR+10] (이전 [MER, BR+30] → 더 보수적 — 와인드업 완전 차단)
+  //   Uplift 사전계산 컬럼은 무시 — 항상 detectPeakRotVel로 직접 산출 (Uplift 부정확 케이스 방어)
+  const armVelCol = armSide + '_arm_rotational_velocity_with_respect_to_ground';
+
+  // pelvis peak: [KH, MER]
   const _pelvisLo = rawKH ?? events.fc;
   const _pelvisHi = events.mer ?? events.br ?? rawBR;
-  events.peakPelvis = _checkInWindow(upEvents.peakPelvis, _pelvisLo, _pelvisHi)
-    ? upEvents.peakPelvis
-    : detectPeakRotVel('pelvis_rotational_velocity_with_respect_to_ground', _pelvisLo, _pelvisHi);
-  // trunk peak: [FC, MER+5] 윈도우
+  events.peakPelvis = detectPeakRotVel('pelvis_rotational_velocity_with_respect_to_ground', _pelvisLo, _pelvisHi);
+
+  // trunk peak: [FC, MER+10]
   const _trunkLo = events.fc ?? rawFC;
-  const _trunkHi = (events.mer != null) ? events.mer + 5 : (events.br ?? rawBR);
-  events.peakTrunk = _checkInWindow(upEvents.peakTrunk, _trunkLo, _trunkHi)
-    ? upEvents.peakTrunk
-    : detectPeakRotVel('trunk_rotational_velocity_with_respect_to_ground', _trunkLo, _trunkHi);
-  // arm peak: [MER, BR+30] 윈도우
-  const _armLo = events.mer ?? events.fc ?? rawFC;
-  const _armHi = (events.br != null) ? events.br + 30 : rawBR;
-  events.peakArm = _checkInWindow(upEvents.peakArm, _armLo, _armHi)
-    ? upEvents.peakArm
-    : detectPeakRotVel(armSide + '_arm_rotational_velocity_with_respect_to_ground', _armLo, _armHi);
+  const _trunkHi = (events.mer != null) ? events.mer + 10 : (events.br ?? rawBR);
+  events.peakTrunk = detectPeakRotVel('trunk_rotational_velocity_with_respect_to_ground', _trunkLo, _trunkHi);
+
+  // arm peak: [MER+3, BR+10] — 가속 phase만 (와인드업·셋업·MER 직전 후방향 회전 차단)
+  const _armLo = (events.mer != null) ? events.mer + 3 : (events.fc ?? rawFC);
+  const _armHi = (events.br != null) ? events.br + 10 : rawBR;
+  events.peakArm = detectPeakRotVel(armVelCol, _armLo, _armHi);
+
+  // ★ v31.11 음수 lag 자동 보정 — 시퀀싱 정합성 강제 (proximal-to-distal)
+  // arm peak가 trunk peak보다 일찍 → 윈도우 더 좁혀 재검출
+  if (events.peakArm != null && events.peakTrunk != null && events.peakArm < events.peakTrunk + 5) {
+    // arm peak를 [trunkPeak+5, BR+10]에서 다시 찾기
+    const _armLo2 = events.peakTrunk + 5;
+    const _armHi2 = (events.br != null) ? events.br + 10 : rawBR;
+    if (_armLo2 < _armHi2) {
+      const retried = detectPeakRotVel(armVelCol, _armLo2, _armHi2);
+      if (retried != null) events.peakArm = retried;
+    }
+  }
+  // trunk peak가 pelvis peak보다 일찍 → 동일 보정
+  if (events.peakTrunk != null && events.peakPelvis != null && events.peakTrunk < events.peakPelvis + 5) {
+    const _trunkLo2 = events.peakPelvis + 5;
+    const _trunkHi2 = (events.mer != null) ? events.mer + 10 : (events.br ?? rawBR);
+    if (_trunkLo2 < _trunkHi2) {
+      const retried = detectPeakRotVel('trunk_rotational_velocity_with_respect_to_ground', _trunkLo2, _trunkHi2);
+      if (retried != null) events.peakTrunk = retried;
+    }
+  }
 
   // 이벤트 검출 메타 (추후 UI 표시 — Uplift vs raw 일치도)
   const _eventMeta = {

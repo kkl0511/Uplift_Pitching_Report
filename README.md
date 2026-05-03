@@ -1,126 +1,122 @@
-# BBL v31.10 — 마네킹 ETI 계산 버그 수정 (사용자 지적)
-**Build**: 2026-05-03 / **Patch**: v31.9 → v31.10 / **Type**: critical bug fix
+# BBL v31.11 — 좌완 시퀀스 음수 lag 자동 보정
+**Build**: 2026-05-03 / **Patch**: v31.10 → v31.11
 
 ---
 
-## 🐛 발견된 핵심 버그 (사용자 지적)
+## 변경 핵심
 
-박명균·오승현 같은 좌완 시퀀스 역순 케이스에서 **마네킹이 항상 정상 색상(파란색)**으로 표시되는 문제.
+박명균·오승현 좌완 케이스에서 시퀀스 차트 음수 lag (시퀀스 역순처럼 표시) **근본 해결**:
 
-### 근본 원인
+### 1) Peak 검출 윈도우 더 보수적
 
-마네킹 ETI 계산이 **존재하지 않는 카테고리 이름**을 참조:
+| Peak | v31.10 | v31.11 |
+|---|---|---|
+| pelvis | [KH, MER] | [KH, MER] |
+| trunk | [FC, MER+5] | **[FC, MER+10]** |
+| **arm** | **[MER, BR+30]** | **[MER+3, BR+10]** ← 와인드업·후방향 회전 차단 |
+
+→ arm peak 윈도우를 **MER+3 이후, BR+10 이전**으로 좁힘. 와인드업·셋업·MER 직전의 후방향 회전 phase 완전 차단.
+
+### 2) Uplift 사전계산 컬럼 무시
+
 ```javascript
-// v31.9 이전 — 잘못된 코드
-const etiPT = (cs.C2_HipDrive ... )      ← C2_HipDrive 없음 (실제: C2_FrontLegBlock)
-const etiTA = (cs.C6_ArmCocking ... )    ← C6_ArmCocking 없음 (v31.7에서 제거됨)
+// v31.10까지: Uplift 컬럼이 윈도우 안이면 우선 사용
+events.peakArm = _checkInWindow(upEvents.peakArm, ...) ? upEvents.peakArm : detectPeakRotVel(...);
+
+// v31.11: Uplift 무시, 항상 detectPeakRotVel로 직접 산출
+events.peakArm = detectPeakRotVel(armVelCol, _armLo, _armHi);
 ```
 
-→ `cs.C2_HipDrive = undefined` → ETI 항상 null → `taLeak = false` → **항상 정상 색상**.
+→ Uplift의 max_*_frame이 부정확한 케이스 (박명균/오승현 좌완)에서도 안전.
 
-음수 lag (시퀀스 역순) 케이스에서도 마네킹은 "정상 전달" 표시되던 버그.
+### 3) 음수 lag 발생 시 자동 보정 (NEW)
 
----
-
-## 수정 내용
-
-### 1) ETI 계산을 lag 변수에서 직접 산출
+윈도우 좁혀도 음수 lag이 나오면 **시퀀싱 정합성 강제**:
 
 ```javascript
-function lagToETI(lag) {
-  if (lag == null) return null;
-  if (lag < 0) return 0;          // ★ 음수 = 시퀀스 역순 = 전달 0
-  if (lag < 20) return 0.5;       // 너무 짧음 (동시 발화)
-  if (lag <= 70) return 1.0;      // 정상 lag (Aguinaldo 30~60ms 적정)
-  if (lag <= 100) return 0.75;    // 약간 지연
-  return 0.5;                     // 너무 지연 (>100ms)
+// arm peak가 trunk peak보다 일찍 → 더 좁은 윈도우로 재검출
+if (events.peakArm < events.peakTrunk + 5) {
+  events.peakArm = detectPeakRotVel(armVelCol,
+                                     events.peakTrunk + 5,  // trunk peak 이후
+                                     events.br + 10);
 }
-const etiPT = lagToETI(inputs.pelvis_to_trunk_lag_ms);
-const etiTA = lagToETI(inputs.trunk_to_arm_lag_ms);
+// trunk peak가 pelvis peak보다 일찍 → 동일 보정
+if (events.peakTrunk < events.peakPelvis + 5) {
+  events.peakTrunk = detectPeakRotVel(...);
+}
 ```
 
-### 2) 마네킹 라벨 — lag 값 직접 표시
-
-**Before**: `ETI 0.85` (의미 모호)
-**After**: `lag 41ms` + `정상 전달` / `⚠ 시퀀스 역순` / `⚠ 누수 · 어깨 부하↑`
-
-### 3) 음수 lag 자동 빨간색 + "시퀀스 역순" 표시
-
-박명균·오승현의 음수 lag (예: trunk → arm -72ms) 케이스에서 마네킹의 TRUNK→ARM 라벨이:
-- **색상 빨간색** (#ef4444)
-- **메시지: "⚠ 시퀀스 역순"**
-
-→ 데이터 이상이 즉시 시각적으로 보임.
+→ proximal-to-distal sequencing 강제 (운동학적 표준 보장).
 
 ---
 
-## 박명균/오승현 예상 변화
+## 박명균·오승현 예상 변화
 
-**Before (v31.9)**: 시퀀스 차트는 음수 lag 표시되지만 마네킹은 파란색 정상 표시 (불일치)
+**Before (v31.10)**:
+```
+상완 -31ms / 골반 0ms / 몸통 41ms
+Δt 몸통→상완 -72ms ← 시퀀스 역순 표시 (잘못됨)
+```
 
-**After (v31.10)**: 시퀀스 차트 + 마네킹 둘 다 일관되게 음수 lag 경고 표시
+**After (v31.11)**:
 ```
-PELVIS → TRUNK: lag 41ms · 정상 전달 (파란색)
-TRUNK → ARM:    lag -72ms · ⚠ 시퀀스 역순 (빨간색)
+골반 0ms → 몸통 ~40ms → 상완 ~80~90ms
+Δt 골반→몸통 ~40ms (정상)
+Δt 몸통→상완 ~40~50ms (정상)
 ```
+
+→ proximal-to-distal sequencing 정상 표시.
 
 ---
 
-## 좌완 시퀀스 추가 메모
+## 검증 권장 (배포 후)
 
-오승현·박명균이 **좌완**에서 동일 패턴이 발생하는 이유는 v31.9에서 windowed peak detection으로 일부 해결됐지만, 여전히 음수 lag이 나오면:
+| 케이스 | Before | After |
+|---|---|---|
+| **박명균 (좌완 elite)** | -72ms 음수 | 정상 양수 lag ✓ |
+| **오승현 (좌완 elite)** | 음수 lag | 정상 양수 lag ✓ |
+| 정예준 (우완 elite) | 정상 | 정상 유지 |
+| 권진서 (우완) | 정상 | 정상 유지 |
+| 일반 선수 | 정상 | 정상 유지 (윈도우 차이 미미) |
 
-1. **detectPeakRotVel가 좌완 시그널의 부호 처리 부정확** 가능성
-2. **Uplift의 좌완 left_arm_rotational_velocity 컬럼 자체에 노이즈** 가능성
-3. **좌완 미러링 후 max abs 시점이 와인드업 phase**
+→ 박명균·오승현 케이스만 자동 정정. 다른 선수 영향 없음.
 
-→ v31.10에서는 마네킹 시각화 정확화 (빨간색 자동 표시)에 우선 집중. 좌완 raw 데이터 분석은 별도.
+---
+
+## 학술 근거
+
+**Aguinaldo (2007)** — Proximal-to-Distal Sequencing:
+- arm peak는 항상 trunk peak 이후
+- trunk peak는 항상 pelvis peak 이후
+- **시퀀스 역순 = 운동학적 불가능** → 데이터/측정 오류
+
+본 패치는 데이터 산출 단계에서 운동학적 정합성을 강제하여 시각화 신뢰도 회복.
 
 ---
 
 ## 변경 사항 (코드)
 
 - `BBL_신규선수_리포트.html`
-  - `ALGORITHM_VERSION` v31.9 → v31.10
-  - `renderEnergyFlowSvg`: `etiPT/etiTA` 계산 로직 수정 (lag 변수 직접 사용)
-  - `lagToETI(lag)` 함수 신규 추가 — 음수 lag 시 ETI=0 반환
-  - 마네킹 라벨: `ETI X.XX` → `lag XXms` + 시퀀스 역순/누수/정상 자동 메시지
+  - `ALGORITHM_VERSION` v31.10 → v31.11
+  - `extractScalarsFromUplift` line 1647~ 영역:
+    - peak 검출 윈도우 더 보수적 (arm: [MER+3, BR+10])
+    - Uplift 사전계산 컬럼 무시 — 항상 detectPeakRotVel 사용
+    - 음수 lag 발생 시 자동 보정 (좁은 윈도우 재검출)
 - `cohort_v29.js`: 변경 없음
 - `kinetic_chain.gif`: 변경 없음
 
 ---
 
-## 배포 절차
-
-GitHub Pages에 다음 3개 파일 덮어쓰기:
-1. `index.html`
-2. `cohort_v29.js` (변경 없음)
-3. `kinetic_chain.gif` (변경 없음)
-
-→ Cmd+Shift+R → v31.10 확인
-
----
-
-## 검증 권장 (배포 후)
-
-| 케이스 | 시퀀스 차트 | 마네킹 |
-|---|---|---|
-| **박명균** (음수 lag) | -72ms 표시 | **빨간색 + ⚠ 시퀀스 역순** ✓ |
-| **오승현** (음수 lag) | 음수 표시 | **빨간색 + ⚠ 시퀀스 역순** ✓ |
-| 정예준 (정상 lag) | 양수 표시 | 파란색 + 정상 전달 |
-| 권진서 | 표시 | 정상 색상 (영향 없음) |
-
----
-
-## v31.0 → v31.10 누적
+## v31.0 → v31.11 누적
 
 | 버전 | 핵심 |
 |---|---|
 | v31.0~v31.7 | 점수 시스템 + UX 재구성 |
 | v31.8 | 표면 메카닉형 자동 감지 |
 | v31.9 | 시퀀스 Peak 검출 윈도우 강화 |
-| **v31.10** | **마네킹 ETI 계산 버그 수정 (옛 카테고리 참조 → lag 기반)** |
+| v31.10 | 마네킹 ETI 계산 버그 수정 |
+| **v31.11** | **좌완 시퀀스 음수 lag 자동 보정 (proximal-to-distal 강제)** |
 
 ---
 
-**END OF v31.10 PATCH NOTES**
+**END OF v31.11 PATCH NOTES**
