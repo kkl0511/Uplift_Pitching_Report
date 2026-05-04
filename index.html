@@ -653,10 +653,13 @@
 // ════════════════════════════════════════════════════════════════════
 // COHORT 데이터는 외부 파일 cohort_v29.js에서 로드 (window.COHORT)
 
-// ★ 알고리즘 버전 (2026-05-03) — 산식 변경 시 갱신
+// ★ 알고리즘 버전 (2026-05-04) — 산식 변경 시 갱신
 //   저장된 리포트의 algorithm_version과 비교해 자동 재계산 + UI 알림
-const ALGORITHM_VERSION = 'v31.48';
-const ALGORITHM_DATE    = '2026-05-03';
+//   v32.0 — 134명 코호트 효과크기 반영 + IPS(향상 잠재력 점수) 도입
+//   v32.1 — F1_Strength에 악력(Grip Strength) 통합 (cross d=+1.18)
+//   v32.2 — C5 가중치 절충 (1.5 → 1.0): Driveline literature와 134코호트 d=+0.09 사이 절충
+const ALGORITHM_VERSION = 'v32.2';
+const ALGORITHM_DATE    = '2026-05-04';
 
 let CURRENT_AGE = '고교';
 let CURRENT_INPUT = { fitness: {}, mechanics: {} };
@@ -2134,6 +2137,7 @@ function handleMultipleUpliftFiles(files) {
             'SJ Peak Power [W]', 'SJ Peak Power / BM [W/kg]', 'SJ RSI-modified [m/s]',
             'EUR',
             'IMTP Peak Vertical Force [N]', 'IMTP Peak Vertical Force / BM [N/kg]',
+            'Grip Strength',  // ★ v32.1 — 악력 추가 (134명 코호트 cross d=+1.18 Large)
             // ROM 변수 제거 (v31.44 F5_Flexibility 카테고리 제거)
           ];
           let filledCount = 0;
@@ -4095,7 +4099,13 @@ function renderDrivelineCategoryAccordion(dvCat, catScore, varScores) {
 // ★ v30.22 키네틱 체인 6단계 카테고리 가중치 (Step B)
 //   각 단계의 핵심 변인에 큰 가중치, 보조 변인에 작은 가중치
 //   사용자 통찰 반영: 회전속도/lag도 핵심 (단, 우리 직접 산출 변인 강조)
+// ★ v32.1 (2026-05-04) F1_Strength 가중치 신설
+//   IMTP/BM (cross d=+0.98) + Grip Strength (cross d=+1.18) 둘 다 Large effect
 const CATEGORY_WEIGHTS = {
+  F1_Strength: {             // 근력 — IMTP + 악력 (둘 다 Large effect)
+    'IMTP Peak Vertical Force / BM [N/kg]': 1.00,  // cross d=+0.98 (Large)
+    'Grip Strength':                          1.00, // cross d=+1.18 (Large)
+  },
   C1_LowerBodyDrive: {       // 단계 1 — 하체 드라이브 (KH→FC)
     'stride_norm_height':      0.50,
     'stride_time_ms':          0.50,
@@ -4120,9 +4130,9 @@ const CATEGORY_WEIGHTS = {
     'max_pelvis_rot_vel_dps':     0.80,  // ★ 골반 회전 속도 (optimal 550°/s, Aguinaldo)
     'pelvis_to_trunk_lag_ms':     0.80,  // ★ 골반→몸통 lag (optimal 45ms)
   },
-  C4_TrunkAcceleration: {    // 단계 4 — 몸통 에너지 발현 (v31.37 2변수)
-    'max_trunk_twist_vel_dps':  1.00,  // ★ 몸통 회전 속도 (optimal 950°/s, Werner 2008)
-    'trunk_flex_vel_max':       0.80,  // ★ 몸통 굴곡 속도 FC→BR (optimal 850°/s, Stodden 2001)
+  C4_TrunkAcceleration: {    // 단계 4 — 몸통 에너지 발현 (v31.37 2변수, v32.0 가중치 갱신)
+    'max_trunk_twist_vel_dps':  1.00,  // ★ 몸통 회전 속도 (optimal 950°/s, Werner 2008; cohort cross d=+0.90)
+    'trunk_flex_vel_max':       1.00,  // ★ v32.0 0.80 → 1.00: cohort long d=+0.96 (단일 최강 향상 변수)
   },
   C5_UpperBodyTransfer: {    // 단계 5 — 팔 에너지 (v31.38 4변수)
     'max_shoulder_ER_deg':    1.00,  // ★ 레이백 (Driveline elite 175~200°)
@@ -4238,12 +4248,14 @@ function calculateScores(input, age, measuredVelo) {
   // ★ v31.42 메카닉 카테고리 가중치 — 학술 근거 단일 회귀 r 기반 (Werner 2008, Wood-Smith 2019, Driveline)
   //   C4 몸통 회전 속도 r≈0.61 (단일 최강) / C5 레이백·전달 r≈0.50 / C3 로딩 r≈0.40
   //   C2 앞다리 버팀·C1 하체 추진은 토대(foundation) — 직접 r 낮음
+  // ★ v32.2 (2026-05-04) C5 절충 — 134명 코호트에서 cross d=+0.09 (MER ~190° 천장 효과)
+  //   문헌(r≈0.50)과 자체 코호트(d≈0) 사이 절충값 1.0 채택
   const MECHANICS_CAT_WEIGHTS = {
     C1_LowerBodyDrive:       0.8,
     C2_FrontLegBlock:        1.0,
     C3_SeparationFormation:  1.0,
     C4_TrunkAcceleration:    1.5,
-    C5_UpperBodyTransfer:    1.5,
+    C5_UpperBodyTransfer:    1.0,  // ★ v32.2 1.5 → 1.0 (절충)
   };
   // ★ v31.43 제구 카테고리 가중치 — Whiteley 2018, Driveline Pitch Design
   //   P1 릴리스 점(3D SD) = 제구 가장 직접적 단일 지표 / P4 타이밍 = proper sequence + MER→BR SD
@@ -4413,6 +4425,15 @@ function calculateScores(input, age, measuredVelo) {
     if (theoreticalCeiling != null) theoreticalCeiling = Math.round(theoreticalCeiling * 10) / 10;
   }
 
+  // ★ v32.0 IPS 계산용 raw 입력 저장 (trunk_flex_vel_max 등)
+  const _raw_inputs = {};
+  const _ipsRawKeys = ['trunk_flex_vel_max', 'max_trunk_twist_vel_dps', 'max_cog_velo'];
+  for (const k of _ipsRawKeys) {
+    let val = input.fitness?.[k];
+    if (val == null) val = input.mechanics?.[k];
+    if (val != null) _raw_inputs[k] = val;
+  }
+
   return {
     age, adj,
     var_scores: allVarScores,
@@ -4430,7 +4451,148 @@ function calculateScores(input, age, measuredVelo) {
     age_max_gain: maxGain,
     age_elite_cap: eliteCap,
     measuredVelo,
+    _raw_inputs,            // ★ v32.0 IPS 계산용
   };
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ★ v32.0 IPS — Improvement Potential Score (향상 잠재력 점수)
+//   H1·H2 두 시점 측정값이 모두 있을 때만 산출.
+//   134명 코호트 종단(Improver vs Non-improver) 효과크기 기반 가중 z-score 합.
+//
+//   가중치 (효과크기 d 비례):
+//     0.40 × Z(Δtrunk_flex_vel_max)        — long d=+0.96 (단일 최강)
+//     0.30 × Z(ΔC4_TrunkAcceleration_score) — long d=+0.63
+//     0.20 × Z(ΔMechanics_Score)            — long d=+0.57
+//     0.10 × Z(ΔC1_LowerBodyDrive_score)    — long d=+0.45
+//
+//   Z(Δ) = (Δ − cohort_Δ_mean) / cohort_Δ_sd
+//   IPS = 50 + 20 × weighted_Z  (clip 0~100)
+//   해석: ≥70 급성장형 / 50~70 정상 / 30~50 주의 / <30 정체 위험
+//
+//   Phase 1: cohort_v29.js delta_distributions 잠정값 사용
+//   Phase 2: 134명 페어드 raw 분포로 갱신 + 다중회귀 가중치 재학습
+// ════════════════════════════════════════════════════════════════════
+const IPS_WEIGHTS = {
+  trunk_flex_vel_max:        0.40,
+  C4_TrunkAcceleration:      0.30,
+  Mechanics_Score:           0.20,
+  C1_LowerBodyDrive:         0.10,
+};
+
+function _zOfDelta(key, delta) {
+  const dist = (window.COHORT && COHORT.delta_distributions) ? COHORT.delta_distributions[key] : null;
+  if (!dist || dist.sd == null || dist.sd <= 0 || delta == null) return null;
+  return (delta - (dist.mean || 0)) / dist.sd;
+}
+
+function calculateIPS(h1, h2) {
+  if (!h1 || !h2) return null;
+  const deltas = {
+    trunk_flex_vel_max: null,
+    C4_TrunkAcceleration: (h1.cat_scores?.C4_TrunkAcceleration != null && h2.cat_scores?.C4_TrunkAcceleration != null)
+      ? h2.cat_scores.C4_TrunkAcceleration - h1.cat_scores.C4_TrunkAcceleration : null,
+    Mechanics_Score: (h1.Mechanics_Score != null && h2.Mechanics_Score != null)
+      ? h2.Mechanics_Score - h1.Mechanics_Score : null,
+    C1_LowerBodyDrive: (h1.cat_scores?.C1_LowerBodyDrive != null && h2.cat_scores?.C1_LowerBodyDrive != null)
+      ? h2.cat_scores.C1_LowerBodyDrive - h1.cat_scores.C1_LowerBodyDrive : null,
+  };
+  if (h1._raw_inputs && h2._raw_inputs) {
+    const r1 = h1._raw_inputs.trunk_flex_vel_max;
+    const r2 = h2._raw_inputs.trunk_flex_vel_max;
+    if (r1 != null && r2 != null) deltas.trunk_flex_vel_max = r2 - r1;
+  }
+  let weightedZ = 0, totalWeight = 0;
+  const components = {};
+  for (const key of Object.keys(IPS_WEIGHTS)) {
+    const z = _zOfDelta(key, deltas[key]);
+    if (z == null) continue;
+    const clippedZ = Math.max(-3, Math.min(3, z));
+    weightedZ += clippedZ * IPS_WEIGHTS[key];
+    totalWeight += IPS_WEIGHTS[key];
+    components[key] = { delta: deltas[key], z: Math.round(z * 100) / 100, weight: IPS_WEIGHTS[key] };
+  }
+  if (totalWeight < 0.4) return null;
+  const normalizedZ = weightedZ / totalWeight;
+  const score = Math.max(0, Math.min(100, Math.round((50 + 20 * normalizedZ) * 10) / 10));
+  let label, color;
+  if (score >= 70)      { label = '급성장형';     color = '#4ade80'; }
+  else if (score >= 50) { label = '정상 발달';    color = '#60a5fa'; }
+  else if (score >= 30) { label = '주의';         color = '#fbbf24'; }
+  else                  { label = '정체 위험';    color = '#f87171'; }
+  return {
+    score, label, color, components,
+    coverage: totalWeight,
+    note: totalWeight < 1.0 ? `부분 측정 (가중치 ${Math.round(totalWeight*100)}% 활용)` : null,
+  };
+}
+
+function renderIPSCard(r1, r2) {
+  const extract = (r) => {
+    const s = r?.scores || r?.result || r?.calc || r;
+    if (!s) return null;
+    if (!s._raw_inputs && r?.inputs) {
+      const raw = {};
+      for (const k of ['trunk_flex_vel_max', 'max_trunk_twist_vel_dps', 'max_cog_velo']) {
+        let v = r.inputs.fitness?.[k];
+        if (v == null) v = r.inputs.mechanics?.[k];
+        if (v != null) raw[k] = v;
+      }
+      s._raw_inputs = raw;
+    }
+    return s;
+  };
+  const h1 = extract(r1);
+  const h2 = extract(r2);
+  const ips = calculateIPS(h1, h2);
+  if (!ips) {
+    return `<div style="background:rgba(15,17,21,0.6);border:1px dashed #334155;border-radius:8px;padding:12px 16px;margin-bottom:12px;color:#94a3b8;font-size:12px;">
+      <strong style="color:#cbd5e1;">📈 향상 잠재력 점수 (IPS):</strong> 두 시점 데이터로 산출 불가 — trunk_flex_vel_max·C4·메카닉·C1 중 측정된 항목 부족
+    </div>`;
+  }
+  const compRows = Object.entries(ips.components).map(([key, c]) => {
+    const dispKey = ({
+      trunk_flex_vel_max: '몸통 굴곡 속도 (°/s)',
+      C4_TrunkAcceleration: 'C4 몸통 가속',
+      Mechanics_Score: '메카닉 종합',
+      C1_LowerBodyDrive: 'C1 하체 드라이브',
+    })[key] || key;
+    const sign = c.delta >= 0 ? '+' : '';
+    const deltaStr = key === 'trunk_flex_vel_max' ? `${sign}${(c.delta||0).toFixed(0)} °/s` : `${sign}${(c.delta||0).toFixed(1)}점`;
+    const zColor = c.z >= 0.5 ? '#4ade80' : (c.z <= -0.5 ? '#f87171' : '#94a3b8');
+    return `<tr>
+      <td style="padding:4px 8px;color:#cbd5e1;">${dispKey}</td>
+      <td style="padding:4px 8px;text-align:right;font-family:monospace;color:#e2e8f0;">${deltaStr}</td>
+      <td style="padding:4px 8px;text-align:right;font-family:monospace;color:${zColor};">z=${c.z>=0?'+':''}${c.z.toFixed(2)}</td>
+      <td style="padding:4px 8px;text-align:right;font-size:11px;color:#94a3b8;">w=${c.weight.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+  const noteHtml = ips.note ? `<div style="font-size:11px;color:#fbbf24;margin-top:4px;">⚠ ${ips.note}</div>` : '';
+  return `<div style="background:linear-gradient(135deg,rgba(15,17,21,0.85),rgba(20,30,45,0.85));border:1px solid ${ips.color};border-radius:10px;padding:14px 18px;margin-bottom:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <div>
+        <div style="font-size:13px;color:#94a3b8;font-weight:600;">📈 향상 잠재력 점수 (IPS) · v32.0</div>
+        <div style="font-size:10px;color:#64748b;margin-top:2px;">H1→H2 변화량 기반 · 134명 코호트 종단 효과크기 가중</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:32px;font-weight:800;color:${ips.color};line-height:1;">${ips.score.toFixed(1)}</div>
+        <div style="font-size:13px;font-weight:700;color:${ips.color};margin-top:2px;">${ips.label}</div>
+      </div>
+    </div>
+    <table style="width:100%;margin-top:10px;font-size:12px;border-collapse:collapse;">
+      <thead><tr style="border-bottom:1px solid #334155;color:#64748b;font-size:11px;">
+        <th style="padding:4px 8px;text-align:left;font-weight:500;">기여 항목</th>
+        <th style="padding:4px 8px;text-align:right;font-weight:500;">Δ (H2−H1)</th>
+        <th style="padding:4px 8px;text-align:right;font-weight:500;">z-score</th>
+        <th style="padding:4px 8px;text-align:right;font-weight:500;">가중치</th>
+      </tr></thead>
+      <tbody>${compRows}</tbody>
+    </table>
+    ${noteHtml}
+    <div style="font-size:10px;color:#64748b;margin-top:6px;line-height:1.4;">
+      해석 — 70+ 급성장형 / 50~70 정상 / 30~50 주의 / &lt;30 정체 위험. Phase 1 잠정 코호트 분포 사용.
+    </div>
+  </div>`;
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -6038,7 +6200,9 @@ function renderH1H2Comparison() {
   const r1 = SAVED_REPORTS.find(r => r.id === r1Id);
   const r2 = SAVED_REPORTS.find(r => r.id === r2Id);
   if (!r1 || !r2) return;
-  document.getElementById('h1h2-result').innerHTML = renderComparisonHtml([r1, r2], ['1차', '2차'], 'h1h2');
+  // ★ v32.0 IPS 카드 + 기존 비교 표
+  const ipsHtml = (typeof renderIPSCard === 'function') ? renderIPSCard(r1, r2) : '';
+  document.getElementById('h1h2-result').innerHTML = ipsHtml + renderComparisonHtml([r1, r2], ['1차', '2차'], 'h1h2');
   setTimeout(() => renderComparisonRadars('h1h2', [r1, r2], ['1차', '2차']), 30);
 }
 

@@ -1,5 +1,69 @@
+# BBL v32.2 — index.html 통합 + C5 가중치 절충
+**Build**: 2026-05-04 / **Patch**: v32.1 → v32.2 / **Type**: 메인 파일 통합 + 가중치 조정
+
+---
+
+## v32.2 변경 (메인 파일 통합)
+
+### 배경
+v32.0/v32.1 변경사항이 잘못된 파일(`BBL_신규선수_리포트.html`)에 적용되어 있었음을 git 이력으로 확인:
+- 2026-05-04 19:18 사용자가 `BBL_신규선수_리포트.html`을 명시적으로 삭제 (commit `8d32dc7`)
+- 2026-05-04 19:32 v32.1 작업물로 의도치 않게 부활 (commit `160d538`)
+- → **`index.html`이 진짜 메인 파일**, 다른 파일은 레거시
+
+### 변경 사항
+
+**1. index.html (메인 파일)**:
+- `ALGORITHM_VERSION` v31.48 → **v32.2**
+- v32.0/v32.1 변경사항 모두 이식:
+  - `CATEGORY_WEIGHTS.F1_Strength` 신설 (IMTP/BM·Grip 둘 다 1.00)
+  - `CATEGORY_WEIGHTS.C4_TrunkAcceleration.trunk_flex_vel_max` 0.80 → **1.00** (cohort long d=+0.96)
+  - `IPS_WEIGHTS`, `calculateIPS()`, `renderIPSCard()` 신규
+  - `calculateScores()` 결과에 `_raw_inputs` 포함
+  - `renderH1H2Comparison`에 IPS 카드 통합
+  - `FITNESS_KEYS_FROM_MASTER`에 `'Grip Strength'` 추가
+- C5 가중치 절충 (사용자 결정):
+  - `MECHANICS_CAT_WEIGHTS.C5_UpperBodyTransfer` 1.5 → **1.0**
+  - 근거: Driveline literature(r≈0.50) ↔ 134코호트(d=+0.09 천장 효과) 절충
+
+**2. cohort_v29.js (변경 없음)**:
+- v32.1에서 추가한 Grip Strength 분포·delta_distributions 그대로 유지
+- index.html과 BBL_신규선수_리포트.html 양쪽에서 호환
+
+**3. BBL_신규선수_리포트.html (레거시 정리 필요)**:
+- 사용자 원 의도(2026-05-04 19:18 삭제)에 따라 GitHub에서 **수동 삭제 권장**
+- 작업 폴더에는 참고용으로 남김
+
+### 보존된 index.html 기존 가중치 (v31.48에서 유지)
+사용자가 학술 근거(Werner, Wood-Smith, Driveline) 기반으로 설정한 기존 가중치는 그대로 유지:
+
+| 카테고리 | 유지 값 | 근거 |
+|---|---:|---|
+| MECHANICS_CAT_WEIGHTS | C1=0.8, C2=1.0, C3=1.0, C4=1.5 | 기존 (literature) |
+| FITNESS_CAT_WEIGHTS | F1=1.0, F2=2.0, F3=1.0, F4=0.3 | 기존 (v31.39) |
+| CONTROL_CAT_WEIGHTS | P1=1.5, P4=1.2, 나머지 1.0 | 기존 (v31.43) |
+| C2_FrontLegBlock 내부 | knee 유지=1.0, knee 신전속도=0.2 | 기존 (v31.33 도메인 인사이트) |
+| C3_SeparationFormation 내부 | peak_x_factor=1.0, max_pelvis_rot=0.8 등 | 기존 (v31.36) |
+
+→ 134코호트 d 분석은 위 항목들을 **부분 검증**(C4 1.5는 일치). 충돌 항목은 C5 한 곳뿐, 절충안 반영.
+
+### 검증
+```
+JS syntax: ✅ index.html, cohort_v29.js 모두 통과
+변경 위치 확인:
+  ALGORITHM_VERSION = 'v32.2' (line 661)
+  C5_UpperBodyTransfer: 1.0 (line 4258)
+  F1_Strength CATEGORY_WEIGHTS (line 4105)
+  calculateIPS / renderIPSCard (line 4489, 4530)
+  Grip Strength FITNESS_KEYS_FROM_MASTER (line 2140)
+```
+
+---
+
 # BBL v32.1 — 악력(Grip Strength) F1_Strength 통합
 **Build**: 2026-05-04 / **Patch**: v32.0 → v32.1 / **Type**: 변수 추가
+
+> ⚠ v32.1은 잘못된 파일(BBL_신규선수_리포트.html)에 적용된 것으로 후속 v32.2에서 index.html로 이식됨. 아래 내용은 변경 의도 기록용.
 
 ---
 
@@ -188,14 +252,15 @@ Synthetic input sanity check:
 
 ---
 
-## v31.12 → v32.1 누적
+## v31.12 → v32.2 누적
 
 | 버전 | 핵심 |
 |---|---|
 | v31.12 | throwing arm 자동 검출 |
-| v31.13~v31.24 | UX·임계 fine-tune |
-| v32.0 | 134명 코호트 효과크기 기반 카테고리 가중치 + IPS 신설 |
-| **v32.1** | **악력(Grip Strength) F1_Strength 통합 (cross d=+1.18 Large)** |
+| v31.13~v31.48 | UX·임계 fine-tune, 카테고리별 가중치 정교화 (literature 기반) |
+| v32.0 | 134명 코호트 효과크기 기반 카테고리 가중치 + IPS 신설 (잘못된 파일 적용) |
+| v32.1 | 악력(Grip Strength) F1_Strength 통합 (잘못된 파일 적용) |
+| **v32.2** | **index.html로 통합 + C5 가중치 절충 (1.5 → 1.0)** |
 
 ---
 
