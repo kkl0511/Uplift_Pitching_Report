@@ -658,7 +658,8 @@
 //   v32.0 — 134명 코호트 효과크기 반영 + IPS(향상 잠재력 점수) 도입
 //   v32.1 — F1_Strength에 악력(Grip Strength) 통합 (cross d=+1.18)
 //   v32.2 — C5 가중치 절충 (1.5 → 1.0): Driveline literature와 134코호트 d=+0.09 사이 절충
-const ALGORITHM_VERSION = 'v32.2';
+//   v32.3 — IPS "부분 측정" 경고 FP 비교 버그 수정 (0.9999... < 1.0 → 999 임계)
+const ALGORITHM_VERSION = 'v32.3';
 const ALGORITHM_DATE    = '2026-05-04';
 
 let CURRENT_AGE = '고교';
@@ -4520,10 +4521,12 @@ function calculateIPS(h1, h2) {
   else if (score >= 50) { label = '정상 발달';    color = '#60a5fa'; }
   else if (score >= 30) { label = '주의';         color = '#fbbf24'; }
   else                  { label = '정체 위험';    color = '#f87171'; }
+  // ★ v32.3 FP tolerance — 0.40+0.30+0.20+0.10이 정확히 1.0이 안 되는 문제
+  const isPartial = totalWeight < 0.999;
   return {
     score, label, color, components,
     coverage: totalWeight,
-    note: totalWeight < 1.0 ? `부분 측정 (가중치 ${Math.round(totalWeight*100)}% 활용)` : null,
+    note: isPartial ? `부분 측정 (가중치 ${Math.round(totalWeight*100)}% 활용)` : null,
   };
 }
 

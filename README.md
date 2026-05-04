@@ -1,3 +1,31 @@
+# BBL v32.3 — IPS 부분측정 경고 FP 버그 수정
+**Build**: 2026-05-04 / **Patch**: v32.2 → v32.3 / **Type**: 버그 픽스
+
+---
+
+## v32.3 변경
+배포 후 첫 검증에서 발견된 사소한 부동소수점 비교 버그 수정.
+
+### 문제
+IPS 카드의 "⚠ 부분 측정" 경고가 4개 항목 모두 측정됐는데도 잘못 표시됨.
+```
+0.40 + 0.30 + 0.20 + 0.10 = 0.9999999999999999  (JavaScript FP arithmetic)
+조건: totalWeight < 1.0 → true (잘못)
+```
+
+### 수정
+```js
+// 이전 (v32.2):
+note: totalWeight < 1.0 ? `부분 측정 ...` : null
+// 이후 (v32.3):
+const isPartial = totalWeight < 0.999;  // FP tolerance
+note: isPartial ? ... : null
+```
+
+수학적 결과는 v32.2와 동일 — UI 경고 표시 로직만 수정.
+
+---
+
 # BBL v32.2 — index.html 통합 + C5 가중치 절충
 **Build**: 2026-05-04 / **Patch**: v32.1 → v32.2 / **Type**: 메인 파일 통합 + 가중치 조정
 
