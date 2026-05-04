@@ -1,3 +1,60 @@
+# BBL v32.8 — 음수 lag 해석 정정 (검출 오류로 처리)
+**Build**: 2026-05-04 / **Patch**: v32.7 → v32.8 / **Type**: 정정
+
+---
+
+## v32.8 변경 (v32.7 정정)
+
+### v32.7의 잘못된 해석
+v32.7에서 음수 lag을 "발달 단계 미성숙 시퀀스"로 표시. 사용자(국민대 스포츠과학과 교수) 지적: **"음수가 될 수 없어"**.
+
+### Biomechanical 정정
+proximal-to-distal sequencing 원칙상 **pelvis peak → trunk peak → arm peak** 순서는 발달 단계 미성숙으로도 위반되지 않음. 음수 lag = peak detection 오류.
+
+### v32.8 처리
+```javascript
+const detectionErrorPT = pToT < 0;
+const detectionErrorTA = tToA < 0;
+const pToTAdj = Math.abs(pToT);    // magnitude 표시용 보정
+const tToAAdj = Math.abs(tToA);
+// 차트는 abs 값으로 정상 렌더 (좌완도 차트 표시됨)
+// 차트 아래 "🚨 이벤트 검출 오류 의심" 명확한 경고 + 원본 lag 값 + 재업로드/윈도우 점검 권장
+```
+
+차트는 항상 렌더 (좌완 누락 문제 해결 유지), 음수 케이스는 명시적으로 detection 오류임을 알림.
+
+### 변경 파일
+- `index.html`: ALGORITHM_VERSION v32.7 → v32.8, immatureNote → detectionErrorNote
+
+---
+
+# BBL v32.7 — 숫자 포매팅 + 좌완 시퀀스 차트 복구
+**Build**: 2026-05-04 / **Patch**: v32.6 → v32.7 / **Type**: UX 픽스 두 건
+
+---
+
+## v32.7 변경 (사용자 발견 두 건)
+
+### 1. narrative 점수차 소수점 1자리 통일 (FP 정밀도)
+**문제**: "+19.200000000000003점" 같은 부동소수점 출력
+**원인**: `mechS - fitS = 88.9 - 69.7 = 19.200000000000003` (JS FP 정밀도)
+**수정**:
+```javascript
+const diffRaw = mechS - fitS;
+const diff = +diffRaw.toFixed(1);  // 19.2로 정규화
+```
+
+### 2. 좌완 키네틱 시퀀스 차트 누락 수정 (오승현·박명균)
+**문제**: 좌완 발달 단계 선수의 시퀀스 차트가 안 보임
+**원인**: v31.13에서 음수 lag(`pToT < 0 || tToA < 0`)을 측정 오류로 간주하고 차트 차단, 경고 메시지로 대체
+**진단**: v31.12 throwing arm 자동 검출 후엔 음수 lag이 진짜 발달 단계 미성숙 시퀀스 (메모리 원칙)
+**수정**: 음수 lag도 차트 정상 렌더, 차트 범위 확장, "발달 단계 미성숙 시퀀스" 안내문 차트 아래 추가
+
+### 변경 파일
+- `index.html`: ALGORITHM_VERSION v32.6 → v32.7, narrative diff toFixed(1), 시퀀스 차트 차단 로직 제거
+
+---
+
 # BBL v32.6 — 비교표 칼럼 정렬 수정 (UI)
 **Build**: 2026-05-04 / **Patch**: v32.5 → v32.6 / **Type**: UI 정렬 픽스
 
@@ -453,7 +510,9 @@ Synthetic input sanity check:
 | v32.3 | IPS 부분측정 경고 FP 비교 버그 수정 |
 | v32.4 | F2_Power(CMJ·SJ /BM) percentile 산식 전환 |
 | v32.5 | "more is better" 변수 10개 추가 percentile 전환 |
-| **v32.6** | **비교표 칼럼 정렬 수정 (UI 픽스)** |
+| v32.6 | 비교표 칼럼 정렬 수정 (UI 픽스) |
+| v32.7 | 숫자 FP 포매팅 + 좌완 시퀀스 차트 복구 |
+| **v32.8** | **음수 lag 해석 정정 (발달 미성숙→이벤트 검출 오류)** |
 
 ---
 

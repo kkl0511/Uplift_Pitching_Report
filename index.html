@@ -672,7 +672,10 @@
 //   v32.5 — "more is better" 변수 10개 추가 percentile 전환 (IMTP/BM, RSI×2, EUR,
 //           회전속도 3개, lead_knee_ext_vel_max, Height, Weight). 16개 분포 미보유 변수는 Phase 2.
 //   v32.6 — 비교표 칼럼 정렬 수정 (헤더 우측 정렬 + tabular-nums 자릿수 정렬)
-const ALGORITHM_VERSION = 'v32.6';
+//   v32.7 — narrative 점수차 소수점 1자리 통일 (FP 정밀도) + 좌완 시퀀스 차트 누락 수정
+//   v32.8 — v32.7 음수 lag "발달 미성숙" 해석 정정. lag은 biomechanically 항상 양수 →
+//           음수 = 이벤트 검출 오류. abs() 보정 + 검출 오류 경고로 변경
+const ALGORITHM_VERSION = 'v32.8';
 const ALGORITHM_DATE    = '2026-05-04';
 
 let CURRENT_AGE = '고교';
@@ -3455,31 +3458,26 @@ function renderKinematicSequenceSvg(r) {
   if (pToT == null || tToA == null) {
     return `<div class="text-xs text-[var(--text-muted)] py-6 text-center border border-dashed border-[var(--border)] rounded">시퀀스 lag 데이터가 없어 시각화 불가 (Uplift CSV 업로드 필요)</div>`;
   }
-  // ★ v31.13 음수 lag 감지 — 운동학적 불가능 → 재계산 권장 메시지
-  if (pToT < 0 || tToA < 0) {
-    return `<div class="card p-4 my-3" style="border: 2px solid #f97316; background: rgba(249,115,22,0.08);">
-      <div class="display text-sm mb-2" style="color: #f97316;">⚠ 시퀀스 lag 데이터 이상 감지</div>
-      <div class="text-xs leading-relaxed" style="color: var(--text-secondary);">
-        측정된 시퀀스 lag이 <strong>음수</strong>입니다 (pelvis→trunk: ${pToT.toFixed(0)}ms, trunk→arm: ${tToA.toFixed(0)}ms).
-        이는 운동학적으로 불가능한 값으로 (proximal-to-distal sequencing 위반),
-        <strong>저장된 리포트가 v31.11 이전 산식으로 산출된 결과</strong>일 가능성이 높습니다.
-        <br/><br/>
-        <strong>해결 방법</strong>:
-        <ol class="list-decimal list-inside ml-2 mt-1">
-          <li>좌측 상단 버전이 <strong>v31.13</strong>인지 확인</li>
-          <li>raw Trial CSV (Uplift 측정 파일)를 <strong>다시 드래그앤드롭</strong> → 새 산식으로 재계산</li>
-          <li>해결 안 되면: DevTools (Cmd+Option+I) → Application → Local Storage → 모두 삭제 후 페이지 새로고침</li>
-        </ol>
-      </div>
-    </div>`;
-  }
+  // ★ v32.8 (2026-05-04) — 음수 lag = 이벤트 검출 오류 (biomechanically 불가능)
+  //   proximal-to-distal sequencing 원칙: pelvis → trunk → arm peak 순서 절대
+  //   음수 lag이 나오면 peak detection 윈도우 또는 throwing arm 분기 문제
+  //   처리: abs()로 magnitude 표시 + 차트 아래 검출 오류 경고
+  //   v32.7 "발달 미성숙" 해석은 잘못 — 정정
+  const detectionErrorPT = pToT < 0;
+  const detectionErrorTA = tToA < 0;
+  const pToTAdj = Math.abs(pToT);
+  const tToAAdj = Math.abs(tToA);
   const pelvisMs = 0;
-  const trunkMs  = pelvisMs + Math.round(pToT);
-  const armMs    = trunkMs  + Math.round(tToA);
-  const g1 = Math.round(pToT), g2 = Math.round(tToA);
+  const trunkMs  = pelvisMs + Math.round(pToTAdj);
+  const armMs    = trunkMs  + Math.round(tToAAdj);
+  const g1 = Math.round(pToTAdj), g2 = Math.round(tToAAdj);
+  const hasDetectionError = detectionErrorPT || detectionErrorTA;
 
   const uid = 'seq' + Math.random().toString(36).slice(2, 8);
-  const tMin = -30, tMax = Math.max(150, armMs + 30);
+  // ★ v32.7 차트 범위 — 음수 lag 케이스에도 모든 peak 포함되도록 확장
+  const allMs = [pelvisMs, trunkMs, armMs];
+  const tMin = Math.min(-30, ...allMs.map(m => m - 30));
+  const tMax = Math.max(150, ...allMs.map(m => m + 30));
   const w = 800, h = 320;
   const padL = 24, padR = 24, padT = 30, padB = 90;
   const plotW = w - padL - padR;
@@ -3561,10 +3559,24 @@ function renderKinematicSequenceSvg(r) {
       </g>`;
   }).join('');
 
-  // 시간 눈금
-  const ticks = [-30, 0, 30, 60, 90, 120, 150, 180].filter(t => t <= tMax).map(t =>
-    `<line x1="${toX(t)}" x2="${toX(t)}" y1="${padT}" y2="${padT + plotH}" stroke="#1e293b" stroke-width="1" stroke-dasharray="2 4"/>`
-  ).join('');
+  // 시간 눈금 — ★ v32.7: 음수 tMin 케이스 대응 (좌완 발달 미성숙 선수)
+  const ticks = [-180, -150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150, 180]
+    .filter(t => t >= tMin && t <= tMax)
+    .map(t => `<line x1="${toX(t)}" x2="${toX(t)}" y1="${padT}" y2="${padT + plotH}" stroke="#1e293b" stroke-width="1" stroke-dasharray="2 4"/>`)
+    .join('');
+
+  // ★ v32.8 — 음수 lag 검출 시 magnitude로 보정한 결과를 차트에 표시 + 명확한 검출 오류 경고
+  //   biomechanically lag은 항상 양수 (proximal-to-distal). 음수 = 이벤트 검출 오류
+  const detectionErrorParts = [];
+  if (detectionErrorPT) detectionErrorParts.push(`pelvis→trunk 원본 ${pToT.toFixed(0)}ms`);
+  if (detectionErrorTA) detectionErrorParts.push(`trunk→arm 원본 ${tToA.toFixed(0)}ms`);
+  const immatureNoteHtml = hasDetectionError
+    ? `<div class="text-[11px]" style="color:#f87171;margin-top:6px;line-height:1.5;">
+         🚨 <strong>이벤트 검출 오류 의심</strong> — ${detectionErrorParts.join(', ')} (음수 lag은 운동학적으로 불가능).
+         차트의 lag 값은 절댓값으로 보정되어 표시됩니다. 정확한 시퀀스 분석을 위해 raw Trial CSV를 재업로드해
+         새 산식(${ALGORITHM_VERSION})으로 재계산하시거나, peak detection 윈도우 점검이 필요합니다.
+       </div>`
+    : '';
 
   return `
     <div class="card p-3" style="background: #0a1322;">
@@ -3592,6 +3604,7 @@ function renderKinematicSequenceSvg(r) {
         ${dtBars}
         <text x="${padL + 6}" y="${padT + 14}" fill="#64748b" font-size="9" font-family="Inter">↑ 정규화 회전 속도 (이상 lag 30~60 ms 영역 음영)</text>
       </svg>
+      ${immatureNoteHtml}
     </div>`;
 }
 
@@ -4905,7 +4918,9 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
   try {
     const fitS = r.Fitness_Score, mechS = r.Mechanics_Score;
     if (fitS != null && mechS != null) {
-      const diff = mechS - fitS;
+      // ★ v32.7 FP 정밀도 — toFixed(1)로 소수점 1자리 통일 (예: +19.200000000000003 → +19.2)
+      const diffRaw = mechS - fitS;
+      const diff = +diffRaw.toFixed(1);
       const eliteThr = (CURRENT_INPUT._armSide === 'left') ? 135 : 140;
       const inputs = CURRENT_INPUT.mechanics || {};
 
