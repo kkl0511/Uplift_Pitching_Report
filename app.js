@@ -241,7 +241,9 @@ function percentileOfCohort(varKey, value, polarity) {
   if (!sorted || sorted.length < 30) return null;
   
   if (polarity === 'absolute') {
-    // 절대값 기준 (좌투/우투 혼재 대응)
+    // ★ v33.7 (2026-05-05) — 'absolute' = "절댓값 작을수록 좋음" 의미로 통일
+    //   Phase 3 lag 변수(stride_to_pelvis_lag_ms, x_factor_to_peak_pelvis_lag_ms)는
+    //   0에 가까울수록 양호 (양/음 모두 비효율) → 점수 반전 필요
     const absSorted = sorted.map(v => Math.abs(v)).sort((a,b) => a-b);
     const absVal = Math.abs(value);
     let rank = 0;
@@ -249,7 +251,8 @@ function percentileOfCohort(varKey, value, polarity) {
       if (absSorted[i] <= absVal) rank++;
       else break;
     }
-    return Math.round(100 * rank / absSorted.length);
+    // 절댓값이 작을수록 좋음 → percentile 반전 (rank 작으면 점수 높음)
+    return Math.round(100 * (1 - rank / absSorted.length));
   }
   
   let rank = 0;
@@ -1236,6 +1239,106 @@ function extractScalarsFromUplift(parsed) {
     out.wrist_x_at_br = valAt(events.br, wPrefix + '_x');
     out.wrist_y_at_br = valAt(events.br, wPrefix + '_y');
     out.wrist_z_at_br = valAt(events.br, wPrefix + '_z');
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // ★ Phase 3 (v33.6, 2026-05-05) — Output(출력) vs Transfer(전달) 7변수
+  //   Python (extract_uplift_scalars.py) 1:1 포팅. 변경 시 두 곳 동시.
+  //   throwingArm = _throwingArmDetected (자동검출 결과)
+  // ════════════════════════════════════════════════════════════════════
+  const throwingArm = _throwingArmDetected;
+
+  // BR ± 2 frame 중앙차분 3D speed 헬퍼 (median for stability)
+  const _3d_speed_at_br = (jc3dPrefix) => {
+    if (events.br == null) return null;
+    const cx = idx[jc3dPrefix + '_x'], cy = idx[jc3dPrefix + '_y'], cz = idx[jc3dPrefix + '_z'];
+    if (cx == null || cy == null || cz == null) return null;
+    const dt = 1.0 / fps;
+    const speeds = [];
+    for (const offset of [-2, -1, 0, 1, 2]) {
+      const f1 = events.br + offset - 1;
+      const f2 = events.br + offset + 1;
+      const ri1 = frameMap[f1], ri2 = frameMap[f2];
+      if (ri1 == null || ri2 == null) continue;
+      const x1 = parseFloat(rows[ri1][cx]), y1 = parseFloat(rows[ri1][cy]), z1 = parseFloat(rows[ri1][cz]);
+      const x2 = parseFloat(rows[ri2][cx]), y2 = parseFloat(rows[ri2][cy]), z2 = parseFloat(rows[ri2][cz]);
+      if (isNaN(x1)||isNaN(y1)||isNaN(z1)||isNaN(x2)||isNaN(y2)||isNaN(z2)) continue;
+      const dx = x2-x1, dy = y2-y1, dz = z2-z1;
+      speeds.push(Math.sqrt(dx*dx + dy*dy + dz*dz) / (2*dt));
+    }
+    if (speeds.length === 0) return null;
+    speeds.sort((a,b)=>a-b);
+    return speeds[Math.floor(speeds.length/2)];  // median
+  };
+
+  // forearm_length (elbow_jc → wrist_jc 3D distance at BR) — 공통 사용
+  let forearm_length = null;
+  if (events.br != null) {
+    const ePre = throwingArm + '_elbow_jc_3d';
+    const wPre = throwingArm + '_wrist_jc_3d';
+    const ex = valAt(events.br, ePre+'_x'), ey = valAt(events.br, ePre+'_y'), ez = valAt(events.br, ePre+'_z');
+    const wx = valAt(events.br, wPre+'_x'), wy = valAt(events.br, wPre+'_y'), wz = valAt(events.br, wPre+'_z');
+    if (ex!=null && ey!=null && ez!=null && wx!=null && wy!=null && wz!=null) {
+      forearm_length = Math.sqrt((wx-ex)**2 + (wy-ey)**2 + (wz-ez)**2);
+      out.forearm_length_m = forearm_length;
+    }
+  }
+
+  // ── 1) wrist_release_speed (m/s) ★ 출력 통합 결과 (ball release proxy) ──
+  const _wrist_speed = _3d_speed_at_br(throwingArm + '_wrist_jc_3d');
+  if (_wrist_speed != null) out.wrist_release_speed = _wrist_speed;
+
+  // ── 2) elbow_to_wrist_speedup (ratio) ★ 전달 — 마지막 whip 효율 ──
+  if (out.wrist_release_speed != null) {
+    const elbow_speed = _3d_speed_at_br(throwingArm + '_elbow_jc_3d');
+    if (elbow_speed != null && elbow_speed > 0.1) {
+      out.elbow_to_wrist_speedup = out.wrist_release_speed / elbow_speed;
+    }
+  }
+
+  // ── 3) angular_chain_amplification (ratio) ★ 전달 — 골반→팔 증폭률 ──
+  if (out.peak_arm_av != null && out.peak_pelvis_av != null && out.peak_pelvis_av > 0) {
+    out.angular_chain_amplification = out.peak_arm_av / out.peak_pelvis_av;
+  }
+
+  // ── 4) elbow_valgus_torque_proxy (Nm proxy) ★ 부상 — UCL stress proxy ──
+  //   T proxy = 0.5 × m_forearm × L² × ω². m_forearm = 1.6 kg (HS 인구평균)
+  if (out.shoulder_ir_vel_max != null && forearm_length != null && forearm_length > 0) {
+    const omega_rad = out.shoulder_ir_vel_max * Math.PI / 180.0;
+    const m_forearm = 1.6;
+    out.elbow_valgus_torque_proxy = 0.5 * m_forearm * forearm_length * forearm_length * (omega_rad * omega_rad);
+  }
+
+  // ── 5) stride_to_pelvis_lag_ms ★ 전달 — FC → peakPelvis 시간차 ──
+  if (events.fc != null && events.peakPelvis != null) {
+    out.stride_to_pelvis_lag_ms = (events.peakPelvis - events.fc) / fps * 1000;
+  }
+
+  // ── 6) x_factor_to_peak_pelvis_lag_ms ★ 전달 — X-factor max → peakPelvis ──
+  if (events.kh != null && events.fc != null && events.peakPelvis != null) {
+    const colA = (armSide === 'left') ? 'trunk_global_rotation' : 'pelvis_global_rotation';
+    const colB = (armSide === 'left') ? 'pelvis_global_rotation' : 'trunk_global_rotation';
+    const cA = idx[colA], cB = idx[colB];
+    if (cA != null && cB != null) {
+      let bestXf = null, bestFrame = null;
+      for (let f = events.kh; f <= events.fc + 5; f++) {
+        const ri = frameMap[f]; if (ri == null) continue;
+        const a = parseFloat(rows[ri][cA]), b = parseFloat(rows[ri][cB]);
+        if (isNaN(a) || isNaN(b)) continue;
+        const xf = a - b;
+        if (bestXf == null || xf > bestXf) { bestXf = xf; bestFrame = f; }
+      }
+      if (bestFrame != null) {
+        out.x_factor_to_peak_pelvis_lag_ms = (events.peakPelvis - bestFrame) / fps * 1000;
+      }
+    }
+  }
+
+  // ── 7) knee_varus_max_drive (deg) ★ 부상 — drive 다리 무릎 외반 max ──
+  if (events.kh != null && events.fc != null) {
+    const driveSide = (armSide === 'left') ? 'left' : 'right';
+    const v = colMaxAbsBetween(driveSide + '_knee_varus', events.kh, events.fc);
+    if (v != null) out.knee_varus_max_drive = v;
   }
 
   return out;
@@ -4119,6 +4222,8 @@ function generateReport() {
   area.classList.remove('hidden');
   // DOM에 캔버스가 박힌 후 레이더 차트 렌더 + 동영상 드롭존 초기화
   renderRadarCharts();
+  // ★ Phase 3 v33.7 — 출력 vs 전달 사분면 차트
+  renderOutputTransferChart(result);
   setupCoachVideoDropZone();
   // 자동 저장 (같은 name+date+age면 update, 아니면 add)
   autoSaveReport(true);
@@ -4126,6 +4231,226 @@ function generateReport() {
 }
 
 // ── 레이더 차트 (Chart.js) ─────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════
+// ★ Phase 3 (v33.7, 2026-05-05) — Output(출력) vs Transfer(전달) 사분면 다이어그램
+//   X축: wrist_release_speed percentile (출력 통합)
+//   Y축: angular_chain_amplification percentile (전달 통합)
+//   색상: elbow_valgus_torque_proxy percentile (부상 위험)
+//   사분면: ① elite / ② 낭비형 / ③ 효율형 / ④ 발달
+// ════════════════════════════════════════════════════════════════════
+
+// 사분면 분류 + 코칭 메시지
+function getQuadrantCoaching(outPct, trPct, injPct) {
+  if (outPct == null || trPct == null) return null;
+  const highOut = outPct >= 50;
+  const highTr = trPct >= 50;
+  const highInj = (injPct != null && injPct >= 80);  // 부상 percentile 높음 = 위험
+
+  let q, label, color, msg, priority;
+  if (highOut && highTr) {
+    q = 1; label = '① Elite (출력↑ 전달↑)'; color = '#4ade80';
+    msg = '출력과 전달 효율 모두 코호트 상위. 현재 메카닉을 유지하면서 정교화에 집중. 부상 위험 모니터링 + 투구량 관리 우선.';
+    priority = '유지·정교화';
+  } else if (highOut && !highTr) {
+    q = 2; label = '② 낭비형 (출력↑ 전달↓)'; color = '#fb923c';
+    msg = '출력은 코호트 상위지만 전달 효율이 평균 이하. 만들어진 출력이 공으로 충분히 전달되지 않고 손실. 시퀀싱 타이밍·X-factor 활용·키네틱 체인 증폭률 점검 필요. 코칭 효과가 가장 큰 유형.';
+    priority = '★ 전달 최적화 (코칭 효과 가장 큼)';
+  } else if (!highOut && highTr) {
+    q = 3; label = '③ 효율형 (출력↓ 전달↑)'; color = '#60a5fa';
+    msg = '전달 효율은 좋지만 출력 자체가 부족. 메카닉은 양호하니 체력(파워·근력) 보강으로 출력 끌어올리면 즉시 구속 향상.';
+    priority = '체력(F1·F2·F3) 보강';
+  } else {
+    q = 4; label = '④ 발달 단계 (출력↓ 전달↓)'; color = '#94a3b8';
+    msg = '출력·전달 모두 평균 미만. 발달 단계. 체력 기반(파워·SSC) + 메카닉 시퀀싱 동시 향상이 필요. 단계적 접근 권장.';
+    priority = '체력 + 시퀀싱 기초 동시 향상';
+  }
+  let injBlock = '';
+  if (highInj) {
+    injBlock = ` <strong style="color:#f87171">⚠ 부상 위험 신호</strong>: elbow valgus torque proxy가 코호트 상위 ${100-Math.round(injPct)}%로 UCL stress 모니터링 필요.`;
+  }
+  return { quadrant: q, label, color, message: msg + injBlock, priority };
+}
+
+// 사분면 카드 본문 HTML 생성
+function renderOutputTransferCardInner(r) {
+  // 통합 지표 percentile 산출 (cohort 기반)
+  const m = r.mechanics || {};
+  const outRaw = m.wrist_release_speed;
+  const trRaw  = m.angular_chain_amplification;
+  const injRaw = m.elbow_valgus_torque_proxy;
+
+  const outPct = outRaw != null ? percentileOfCohort('wrist_release_speed', outRaw, 'higher') : null;
+  const trPct  = trRaw  != null ? percentileOfCohort('angular_chain_amplification', trRaw, 'higher') : null;
+  // injury는 lower better라 polarity 'lower' (낮을수록 좋음 → 큰 값 = 낮은 percentile = 부상 위험)
+  // 부상 진단용으로는 raw rank percentile (높을수록 위험) 사용. 그래서 직접 산출
+  let injRankPct = null;
+  if (injRaw != null && COHORT.var_sorted_lookup.elbow_valgus_torque_proxy) {
+    const arr = COHORT.var_sorted_lookup.elbow_valgus_torque_proxy;
+    let rank = 0;
+    for (let i = 0; i < arr.length; i++) { if (arr[i] <= injRaw) rank++; else break; }
+    injRankPct = Math.round(100 * rank / arr.length);
+  }
+
+  const coach = getQuadrantCoaching(outPct, trPct, injRankPct);
+
+  if (outPct == null || trPct == null) {
+    return `
+      <div class="display text-xl mb-2" style="color: #fb923c">출력 vs 전달 진단</div>
+      <div class="text-sm text-[var(--text-muted)] py-8 text-center">
+        wrist_release_speed 또는 angular_chain_amplification 산출 실패 — Uplift CSV 업로드 필요
+      </div>`;
+  }
+
+  const formatPct = p => p != null ? Math.round(p) : '—';
+  const ovTLabel = coach ? coach.label : '—';
+  const ovTColor = coach ? coach.color : '#94a3b8';
+
+  // 카드 헤더 + 메시지 + 차트 + 세부 변수 표
+  return `
+    <div class="flex justify-between items-end mb-3">
+      <div>
+        <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)]">DIAGNOSIS · v33.7</div>
+        <div class="display text-xl mt-1" style="color: #fb923c">출력 vs 전달 분리 진단</div>
+      </div>
+      <div class="text-right">
+        <div class="display text-sm" style="color: ${ovTColor}; font-weight:600">${ovTLabel}</div>
+        <div class="text-[10px] text-[var(--text-muted)] mono uppercase mt-1">우선순위: ${coach ? coach.priority : '—'}</div>
+      </div>
+    </div>
+    <div class="text-sm leading-relaxed mb-4 p-3 rounded" style="background:var(--bg-elevated); border-left:3px solid ${ovTColor}">
+      ${coach ? coach.message : ''}
+    </div>
+    <div class="mb-4 relative" style="height: 320px;">
+      <canvas id="output-transfer-chart"></canvas>
+    </div>
+    <details class="mt-2">
+      <summary class="text-xs cursor-pointer text-[var(--text-muted)]">세부 통합 지표 (Phase 3 산출)</summary>
+      <div class="mt-2 text-xs">
+        <table class="w-full" style="border-collapse:collapse">
+          <thead><tr style="border-bottom:1px solid var(--border)">
+            <th class="text-left py-1">카테고리</th><th class="text-left py-1">통합 지표</th>
+            <th class="text-right py-1">raw</th><th class="text-right py-1">percentile</th>
+          </tr></thead>
+          <tbody>
+            <tr><td class="py-1">출력</td><td>wrist_release_speed (m/s)</td><td class="text-right mono">${outRaw != null ? outRaw.toFixed(2) : '—'}</td><td class="text-right mono" style="color:#4ade80">${formatPct(outPct)}pt</td></tr>
+            <tr><td class="py-1">전달</td><td>angular_chain_amplification</td><td class="text-right mono">${trRaw != null ? trRaw.toFixed(2) : '—'}</td><td class="text-right mono" style="color:#4ade80">${formatPct(trPct)}pt</td></tr>
+            <tr><td class="py-1">부상</td><td>elbow_valgus_torque_proxy (Nm)</td><td class="text-right mono">${injRaw != null ? injRaw.toFixed(0) : '—'}</td><td class="text-right mono" style="color:${injRankPct >= 80 ? '#f87171' : '#94a3b8'}">코호트 ${formatPct(injRankPct)}pt</td></tr>
+          </tbody>
+        </table>
+        <div class="mt-2 text-[10px] text-[var(--text-muted)]">
+          ※ 부상 percentile은 raw rank (높을수록 위험). 80pt+ 시 모니터링 권고. 절대 토크값 아닌 ranking proxy.
+        </div>
+      </div>
+    </details>`;
+}
+
+// Chart.js scatter로 사분면 다이어그램 렌더 (renderRadarCharts와 동일 패턴)
+let _OUTPUT_TRANSFER_CHART = null;
+function renderOutputTransferChart(r) {
+  if (typeof Chart === 'undefined') return;
+  const canvas = document.getElementById('output-transfer-chart');
+  if (!canvas) return;
+  if (_OUTPUT_TRANSFER_CHART) {
+    try { _OUTPUT_TRANSFER_CHART.destroy(); } catch(e) {}
+  }
+  const m = r.mechanics || {};
+  const outRaw = m.wrist_release_speed;
+  const trRaw  = m.angular_chain_amplification;
+  const injRaw = m.elbow_valgus_torque_proxy;
+  const outPct = outRaw != null ? percentileOfCohort('wrist_release_speed', outRaw, 'higher') : null;
+  const trPct  = trRaw  != null ? percentileOfCohort('angular_chain_amplification', trRaw, 'higher') : null;
+  if (outPct == null || trPct == null) return;
+
+  let injRankPct = null;
+  if (injRaw != null && COHORT.var_sorted_lookup.elbow_valgus_torque_proxy) {
+    const arr = COHORT.var_sorted_lookup.elbow_valgus_torque_proxy;
+    let rank = 0;
+    for (let i = 0; i < arr.length; i++) { if (arr[i] <= injRaw) rank++; else break; }
+    injRankPct = Math.round(100 * rank / arr.length);
+  }
+  // 부상 위험에 따른 점 색상 (낮음=초록, 중간=노랑, 높음=빨강)
+  const dotColor = injRankPct == null ? '#94a3b8'
+                 : injRankPct >= 80 ? '#f87171'
+                 : injRankPct >= 60 ? '#fb923c'
+                 : '#4ade80';
+
+  _OUTPUT_TRANSFER_CHART = new Chart(canvas, {
+    type: 'scatter',
+    data: {
+      datasets: [{
+        label: '선수 위치',
+        data: [{ x: outPct, y: trPct }],
+        backgroundColor: dotColor,
+        borderColor: '#0a0b0d',
+        borderWidth: 2,
+        pointRadius: 12,
+        pointHoverRadius: 14,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          min: 0, max: 100,
+          title: { display: true, text: '출력 (Output) percentile — wrist_release_speed', color: '#94a3b8' },
+          grid: { color: 'rgba(95,99,107,0.2)' },
+          ticks: { color: '#94a3b8' },
+        },
+        y: {
+          min: 0, max: 100,
+          title: { display: true, text: '전달 (Transfer) percentile — angular_chain_amplification', color: '#94a3b8' },
+          grid: { color: 'rgba(95,99,107,0.2)' },
+          ticks: { color: '#94a3b8' },
+        },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `출력 ${Math.round(ctx.parsed.x)}pt · 전달 ${Math.round(ctx.parsed.y)}pt${injRankPct != null ? ' · 부상 ' + injRankPct + 'pt' : ''}`,
+          },
+        },
+        annotation: undefined,  // chartjs-plugin-annotation 없으므로 사분면 라벨은 별도
+      },
+    },
+    // 사분면 가이드선 (50pct 십자선) + 라벨 — afterDraw로 직접 그리기
+    plugins: [{
+      id: 'quadrantOverlay',
+      afterDraw: (chart) => {
+        const { ctx, chartArea: ca, scales: { x, y } } = chart;
+        ctx.save();
+        // 50pct 십자선
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        const x50 = x.getPixelForValue(50);
+        const y50 = y.getPixelForValue(50);
+        ctx.beginPath();
+        ctx.moveTo(x50, ca.top); ctx.lineTo(x50, ca.bottom);
+        ctx.moveTo(ca.left, y50); ctx.lineTo(ca.right, y50);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // 사분면 라벨
+        ctx.font = '11px monospace';
+        ctx.fillStyle = 'rgba(74,222,128,0.7)';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+        ctx.fillText('① Elite', ca.right - 8, ca.top + 6);
+        ctx.fillStyle = 'rgba(251,146,60,0.7)';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+        ctx.fillText('② 낭비형', ca.right - 8, ca.bottom - 6);
+        ctx.fillStyle = 'rgba(96,165,250,0.7)';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText('③ 효율형', ca.left + 8, ca.top + 6);
+        ctx.fillStyle = 'rgba(148,163,184,0.7)';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+        ctx.fillText('④ 발달', ca.left + 8, ca.bottom - 6);
+        ctx.restore();
+      },
+    }],
+  });
+}
+
 const _RADAR_INSTANCES = {};
 function renderRadarCharts() {
   if (typeof Chart === 'undefined') {
@@ -4948,7 +5273,10 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
   //     - coachingDiagHtml: 맨 앞 → faultsHtml 다음(5.5)
   //     - trainingPriorityHtml: 맨 끝 → kineticChainBlock 밖(summary 다음, 7)
   const _coachSessionInline = renderCoachSessionHtml(r);
+  // ★ Phase 3 v33.7 — 출력 vs 전달 사분면 진단 카드 (메카닉 카드 다음, 키네틱 체인 블록 시작)
+  const outputTransferCardHtml = `<div class="card p-6" id="output-transfer-card">${renderOutputTransferCardInner(r)}</div>`;
   const kineticChainBlock = `
+    ${outputTransferCardHtml}
     ${modeCoachingHtml}
     ${kineticChainGifHtml}
     ${_coachSessionInline}
@@ -5565,6 +5893,7 @@ function manualRecompute() {
       const totalMech = Object.keys(matched.inputs.mechanics || {}).length;
       area.innerHTML = renderReportHtml(matched.name, matched.measuredVelo, matched.date, matched.scores, totalFit, totalMech);
       renderRadarCharts();
+      renderOutputTransferChart(matched.scores);
       setupCoachVideoDropZone();
     }
   }

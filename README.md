@@ -1,3 +1,157 @@
+# BBL v33.7 — Phase 3 UI: 출력 vs 전달 사분면 진단 + 부상 위험 fault 추가
+**Build**: 2026-05-05 / **Patch**: v33.6 → v33.7 / **Type**: UI 컴포넌트 + 자동 코칭 메시지 + 신규 fault
+
+---
+
+## v33.7 변경
+
+### 신규 UI 컴포넌트 — "출력 vs 전달 분리 진단" 카드
+v33.6에서 데이터 기반(7변수 + OUTPUT_VS_TRANSFER 카테고리)이 마련된 후, 사용자에게 가시화하는 UI 단계.
+
+**위치**: 메카닉 카드 다음, 키네틱 체인 블록 시작 (가장 먼저 보이는 진단 카드)
+
+**구성 요소**:
+1. **사분면 라벨 + 우선순위 텍스트** — 현재 선수의 사분면(① Elite / ② 낭비형 / ③ 효율형 / ④ 발달)을 자동 분류, 코칭 우선순위 한 줄로 표시
+2. **자동 코칭 메시지** — 사분면별 + 부상 위험(elbow_valgus_torque_proxy ≥ 80pct)에 따른 동적 메시지
+3. **2-축 사분면 산점도** — Chart.js scatter, X축 출력 percentile, Y축 전달 percentile, 점 색상은 부상 위험 수준 (빨강/주황/초록)
+4. **세부 통합 지표 표** (접이식) — wrist_release_speed, angular_chain_amplification, elbow_valgus_torque_proxy의 raw값 + percentile
+
+### 사분면 자동 분류 로직 (`getQuadrantCoaching`)
+| 출력 pct | 전달 pct | 사분면 | 우선순위 메시지 |
+|:-:|:-:|---|---|
+| ≥50 | ≥50 | ① Elite | "유지·정교화 — 부상 위험 모니터링 + 투구량 관리" |
+| ≥50 | <50 | **② 낭비형** | **"★ 전달 최적화 — 시퀀싱 타이밍·X-factor 활용·증폭률 점검. 코칭 효과 가장 큰 유형."** |
+| <50 | ≥50 | ③ 효율형 | "체력(F1·F2·F3) 보강 — 출력 자체 끌어올리면 즉시 구속 향상" |
+| <50 | <50 | ④ 발달 단계 | "체력 + 시퀀싱 기초 동시 향상" |
+
+부상 위험 percentile ≥ 80 시 "⚠ 부상 위험 신호" 메시지 추가.
+
+### 자동 분류 검증 (4명 사례)
+| 선수·세션 | 출력pct | 전달pct | 부상pct | 분류 | 메시지 |
+|---|---:|---:|---:|---|---|
+| 정예준 H2 (Fall) | 73 | 69 | **99 ⚠** | ① Elite | 유지·정교화 + ⚠ 부상알림 |
+| 박명균 H2 (Fall) | 75 | 91 | 27 | ① Elite | 유지·정교화 (안전) |
+| 박명균 H1 (Spring) | 28 | 30 | 43 | ④ 발달 단계 | 기초 동시 향상 |
+| **방시헌 H1 (Spring)** | 73 | 20 | **95 ⚠** | **② 낭비형** | **★ 전달 최적화 + ⚠ 부상알림** |
+
+→ "낭비형" 진단이 자동으로 작동. 분리 진단 없으면 "출력 좋음"으로만 보였을 케이스를 즉시 식별.
+
+### KINETIC_FAULTS 신규 부상 위험 항목 2개 (단계 6)
+
+| ID | severity | 임계 (코호트) | 의미 |
+|---|---|---|---|
+| `HighElbowValgus` | high | elbow_valgus_torque_proxy > 1186.5 (90pct) | UCL stress 모니터링 — 어깨 ROM·rotator cuff + 투구량 관리 |
+| `DriveKneeVarus` | medium | knee_varus_max_drive > 34.56° (90pct) | 발달기 무릎 안정성 — hip stabilizer + knee tracking 강화 |
+
+각 fault에 cause / coaching / drills 명시 (기존 16개 fault와 동일 형식).
+
+### 점수 산식 보정 (`percentileOfCohort`)
+`polarity === 'absolute'` 처리에 점수 반전 추가:
+```js
+// before: rank/length × 100  (작은 절댓값 = 작은 점수, 의미 반대)
+// after:  (1 - rank/length) × 100  (작은 절댓값 = 높은 점수, 코칭 의미 일치)
+```
+영향 변수: `stride_to_pelvis_lag_ms`, `x_factor_to_peak_pelvis_lag_ms` (양방향 최적). 기존 `trunk_rotation_at_fc`도 `var_polarity`에 'absolute'이지만 LITERATURE_OVERRIDE에 등록돼서 별도 산식 경로(line 188)이라 영향 없음.
+
+### 변경 파일
+| 파일 | 변경 |
+|---|---|
+| `app.js` | + `getQuadrantCoaching` (사분면 분류·코칭 메시지)<br>+ `renderOutputTransferCardInner` (카드 HTML)<br>+ `renderOutputTransferChart` (Chart.js scatter, 사분면 가이드 십자선·라벨)<br>+ renderReportHtml에 카드 마운트<br>+ `polarity === 'absolute'` 점수 반전 |
+| `metadata.js` | + KINETIC_FAULTS 2개 (HighElbowValgus, DriveKneeVarus) — 단계 6 |
+| `README.md` | v33.7 패치노트 |
+
+### Phase 3 향후 확장 (v33.8~)
+- 좌투수 마네킹 미러링 (Phase 1 미해결 항목, Phase 3과 무관하지만 복귀 권장)
+- master_fitness Height 매핑으로 stride_norm_height 정확도 향상 (1.80m fallback → 선수별)
+- `OUTPUT_VS_TRANSFER` 카테고리별 종합 점수 산출 (현재는 통합 지표 1개만 사용 중)
+- Phase 3 변수의 LITERATURE_OVERRIDE 부분 적용 검토 (예: angular_chain_amplification > 4.5 = elite 기준 100점 cap)
+
+---
+
+# BBL v33.6 — Phase 3: Output(출력) vs Transfer(전달) vs Injury(부상) 분리 분석 7변수 추가
+**Build**: 2026-05-05 / **Patch**: v33.5 → v33.6 / **Type**: 신규 변수 + 카테고리 신설
+
+---
+
+## v33.6 변경
+
+### 동기 (사용자 컨셉)
+사용자 요청: "선수의 **출력**과 **에너지 전달 능력**을 구분해서 분석해 선수에게 분석 결과를 전달하고 싶다." 기존 BBL은 Driveline 5각형(Posture/Block/Rotation/Arm Action/CoG) 분류이지만, **출력(절대 power generation) vs 전달(분절 간 sequencing/efficiency)**의 분리가 명시적으로 안 돼 있어서 코칭 인사이트가 흐려짐.
+
+### 분리 진단의 코칭 가치
+| 사분면 | 의미 | 코칭 우선순위 |
+|---|---|---|
+| ① 출력↑ 전달↑ | elite | 그대로 유지·정교화 |
+| ② **출력↑ 전달↓** | **"낭비형"** | **코칭 효과 가장 큼 — 전달 최적화로 즉시 구속 향상** |
+| ③ 출력↓ 전달↑ | "효율형" | 체력 보강 (출력 자체 끌어올리기) |
+| ④ 출력↓ 전달↓ | 발달 단계 | 전반적 향상 필요 |
+
+### 신규 7변수 + 1메타
+
+**출력(Output) — 통합 결과 1개 추가**
+
+| 변수 | 산출 | 의미 | 코호트 (n=186) |
+|---|---|---|---|
+| `wrist_release_speed` | throwing arm wrist 3D speed at BR (median of BR±2 frames) | 모든 회전·전달의 최종 통합 결과 (ball release proxy, wrist_jc 기준이라 실제 ball speed의 ~60%) | mean 14.2 m/s, median 15.0 |
+
+**전달(Transfer) — 효율·타이밍 4개 추가**
+
+| 변수 | 산출 | 의미 | 코호트 (n=186) |
+|---|---|---|---|
+| `elbow_to_wrist_speedup` | wrist 3D speed / elbow 3D speed at BR | 마지막 whip 효율 (전완→손목). elite 1.4~1.8 | mean 1.61, median 1.60 |
+| `angular_chain_amplification` | peak_arm_av / peak_pelvis_av | 골반→팔 전체 증폭률. elite 2.5~3.5 | mean 2.74, median 2.74 |
+| `stride_to_pelvis_lag_ms` | (peakPelvis − FC) / fps × 1000 | FC→골반 회전 시간차. <30ms = flying open, >100ms = 출력 손실 | median 0ms, IQR -45~+26 |
+| `x_factor_to_peak_pelvis_lag_ms` | (peakPelvis − argmax X-factor) / fps × 1000 | 분리 저장→골반 회전 타이밍. SSC 효율 (0~120ms ideal) | median 59ms, IQR 6~122 |
+
+**부상(Injury Risk) — 출력의 비용 2개 추가**
+
+| 변수 | 산출 | 의미 | 코호트 (n=186) |
+|---|---|---|---|
+| `elbow_valgus_torque_proxy` | 0.5 × m_forearm × L² × ω² (m_forearm=1.6kg, L=elbow→wrist, ω=shoulder_ir_vel) | UCL stress proxy (Werner-style 단순화). 절대 토크는 아니지만 percentile ranking에 적합 | median 157 Nm proxy |
+| `knee_varus_max_drive` | drive 다리 knee_varus max in [KH, FC] (Uplift raw 컬럼) | drive 무릎 외반 max — 발달기 안정성 | mean 26°, median 27 |
+
+**메타 1개**
+
+| 변수 | 산출 | 활용 |
+|---|---|---|
+| `forearm_length_m` | elbow_jc → wrist_jc 3D distance at BR | elbow_valgus_torque_proxy 산출 + 정규화 참고용 |
+
+### 카테고리 객체 추가 (`metadata.js`)
+`OUTPUT_VS_TRANSFER` const 객체 신설 — UI에서 "출력 vs 전달" 2-축 다이어그램 구현용.
+- `OUTPUT.variables`: 13개 (peak_pelvis/trunk/arm_av, elbow/shoulder/COG/hip 속도들 + wrist_release_speed)
+- `TRANSFER.variables`: 13개 (lag_ms들, speedup들, sequence, X-factor + 신규 4개)
+- `INJURY.variables`: 3개 (elbow_valgus_torque_proxy, knee_varus_max_drive, max_shoulder_ER_deg)
+- 각 카테고리에 `integration_var` 지정 — 단일 통합 지표 (각각 wrist_release_speed / angular_chain_amplification / elbow_valgus_torque_proxy)
+
+### 검증 (정예준·박명균·방시헌)
+| 선수·세션 | 출력 | 전달 | 부상 | 진단 |
+|---|---:|---:|---:|---|
+| 정예준 H2 (Fall) | 73pct | 72/69/95pct ★ | ⚠ 0.5pct | elite, 단 shoulder_ir_vel 17,347°/s outlier로 valgus proxy outlier. BBL 사이트 검증 필요 |
+| 박명균 H2 (Fall) | 75pct | 91pct ★ | 95pct ★ | **이상적** |
+| 박명균 H1 (Spring) | 28pct | 30pct | 43pct | Fall→발달 진전 확인 |
+| 방시헌 H1 (Spring) | 73pct | 20pct ⚠ | 5pct ⚠ | **"낭비형" 사례 — 분리 진단의 가치 입증** |
+
+### ⚠ 주의 사항
+- **`elbow_valgus_torque_proxy`는 단순화된 proxy** (Werner-style 0.5×m×L²×ω²). 절대 토크값으로 해석 금지 — percentile ranking 용도. 정확한 토크 측정은 inverse dynamics (마커 기반) 필요.
+- **`wrist_release_speed`는 wrist_jc 기준** → 실제 ball release speed의 ~60% underestimate (손가락 끝 5-10cm extension 미포함). 모든 선수에 일관 적용되므로 percentile ranking에는 영향 없음.
+- **두 lag 변수(stride_to_pelvis_lag_ms, x_factor_to_peak_pelvis_lag_ms)의 sd가 큼** (outlier 영향). median/IQR 기반 percentile은 합리적.
+- **`angular_chain_amplification`은 LITERATURE_OVERRIDE 미포함** — 134 코호트 분포 percentile만 사용.
+
+### Phase 3 향후 작업 (v33.7~)
+- UI에 **"출력 vs 전달" 2-축 다이어그램** 추가 (사분면 차트). X축: wrist_release_speed percentile, Y축: angular_chain_amplification percentile, 색상: elbow_valgus_torque_proxy
+- 종합 코칭 권고 자동 생성: "당신은 ② 낭비형입니다. 출력은 73pct로 elite지만 전달 효율이 20pct에 머무릅니다. 우선순위는 …"
+- KINETIC_FAULTS에 `elbow_valgus_torque_proxy > 코호트 90pct` 임계로 부상 위험 fault 추가
+
+### 변경 파일
+| 파일 | 변경 |
+|---|---|
+| `cohort_v29.js` | var_distributions +8, var_sorted_lookup +8, polarity_vars +7 |
+| `metadata.js` | EXTRA_VAR_SCORING +7, PLAUSIBLE_RANGES +8, OUTPUT_VS_TRANSFER 신설 |
+| `app.js` | extractScalarsFromUplift에 7변수 산출 로직 추가 (Python 1:1 포팅) |
+| `README.md` | v33.6 패치노트 |
+
+---
+
 # BBL v33.5 — Phase 2: 16개 메카닉 변수 134 코호트 분포 산출 + LITERATURE_OVERRIDE 해제
 **Build**: 2026-05-05 / **Patch**: v33.4 → v33.5 / **Type**: 코호트 데이터 갱신 + 점수 산식 전환
 

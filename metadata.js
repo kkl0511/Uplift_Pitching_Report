@@ -173,6 +173,26 @@ const KINETIC_FAULTS = [
     coaching: 'tall spine cue, 코어 강화',
     drills: ['Plank-throw 3×6', 'Anti-flexion abs', 'Lead leg block ISO'],
   },
+  // ── 단계 6 (부상 위험) — Phase 3 v33.7 신규 ──
+  {
+    id: 'HighElbowValgus', stage: 6, severity: 'high',
+    label: '팔꿈치 외반 토크 과다 ⚠ (High Elbow Valgus / UCL Stress)',
+    // 코호트 90pct = 1186.5 Nm proxy. 부상 위험 elite는 ω×L×m 산식에서 자연스럽게 높지만
+    // 발달 코호트 상위 10%는 측정 노이즈 또는 진짜 stress 둘 다 의심 → high severity 모니터링
+    detect: m => m.elbow_valgus_torque_proxy != null && m.elbow_valgus_torque_proxy > 1186.5,
+    cause: 'shoulder_ir_vel_max 과다 + forearm length 영향. 몸통 출력 부족 시 팔에 과도한 의존',
+    coaching: '몸통 회전 출력 강화로 팔 의존 감소, 투구량 관리 (MLB Pitch Smart 권고), 어깨 ROM·rotator cuff 강화',
+    drills: ['Sleeper stretch 3×30s', 'PNF rotator cuff', '메디신볼 회전 던지기 (몸통 활성화)', 'Throwing volume monitoring'],
+  },
+  {
+    id: 'DriveKneeVarus', stage: 6, severity: 'medium',
+    label: 'Drive 무릎 외반 과다 ⚠ (Drive Knee Varus)',
+    // 코호트 90pct = 34.56°. 발달기 무릎 안정성 모니터링
+    detect: m => m.knee_varus_max_drive != null && m.knee_varus_max_drive > 34.56,
+    cause: 'drive 다리 quad/glute 균형 약함, hip ER 가동범위 부족',
+    coaching: '드라이브 다리 hip stabilizer 강화, knee tracking cue ("knee over second toe")',
+    drills: ['Single-leg squat (무릎 정렬 cue)', 'Hip airplane', 'Lateral band walk', 'Bulgarian split squat'],
+  },
 ];
 
 // ════════════════════════════════════════════════════════════════════
@@ -450,6 +470,21 @@ const EXTRA_VAR_SCORING = {
   'Weight[KG]':                           { optimal: 90, sigma: 12 },         // kg — MLB pitcher 평균 95
   'BMI':                                  { optimal: 25, sigma: 3.5 },        // — MLB pitcher 평균 26
   // F5_Flexibility ROM 변수 제거 (v31.44)
+  // ════════════════════════════════════════════════════════════════════
+  // ★ Phase 3 (v33.6, 2026-05-05) — Output(출력) vs Transfer(전달) 분리 분석 7변수
+  //   모두 134 코호트 분포 기반 percentile 평가 (LITERATURE_OVERRIDE 미포함)
+  //   stride_to_pelvis_lag·x_factor_to_peak_pelvis_lag는 양방향 최적 (Gaussian useAbs)
+  // ════════════════════════════════════════════════════════════════════
+  // 출력(Output) — 통합 결과
+  'wrist_release_speed':           { min: 8, max: 22, polarity: 'higher' },     // m/s — wrist_jc 기준 (실제 ball speed의 ~60%)
+  // 전달(Transfer)
+  'elbow_to_wrist_speedup':        { min: 1.0, max: 2.2, polarity: 'higher' },  // ratio — elite 1.4~1.8
+  'angular_chain_amplification':   { min: 1.5, max: 4.5, polarity: 'higher' },  // ratio — elite 2.5~3.5 (peak_arm/peak_pelvis)
+  'stride_to_pelvis_lag_ms':       { optimal: 0, sigma: 60, useAbs: true },     // ms — 절댓값 작을수록 좋음. 음수=일찍 열림, 양수=지연
+  'x_factor_to_peak_pelvis_lag_ms':{ optimal: 60, sigma: 60 },                  // ms — 0~120ms ideal (저장→방출), 너무 길면 SSC 손실
+  // 부상 위험(Injury) — lower is better, percentile 평가
+  'elbow_valgus_torque_proxy':     { min: 0, max: 1500, polarity: 'lower' },    // Nm proxy — UCL stress
+  'knee_varus_max_drive':          { min: 5, max: 45, polarity: 'lower' },      // ° — drive 무릎 외반 max
 };
 
 // ════════════════════════════════════════════════════════════════════
@@ -573,6 +608,15 @@ const PLAUSIBLE_RANGES = {
   // ── 운동량 전달 효율 (2026-05-03)
   'arm_trunk_speedup':            { min: 0.8, max: 4.0 },       // ratio
   'pelvis_trunk_speedup':         { min: 0.8, max: 3.0 },       // ratio
+  // ★ Phase 3 (v33.6) — Output vs Transfer 분리 분석 7변수 plausibility
+  'wrist_release_speed':            { min: 1, max: 30 },         // m/s (wrist_jc 기준)
+  'elbow_to_wrist_speedup':         { min: 0.3, max: 4.0 },      // ratio
+  'angular_chain_amplification':    { min: 1.0, max: 6.0 },      // ratio
+  'elbow_valgus_torque_proxy':      { min: 0,   max: 5000 },     // Nm proxy
+  'stride_to_pelvis_lag_ms':        { min: -400, max: 700 },     // ms
+  'x_factor_to_peak_pelvis_lag_ms': { min: -400, max: 700 },     // ms
+  'knee_varus_max_drive':           { min: 0,   max: 60 },       // °
+  'forearm_length_m':               { min: 0.05, max: 0.40 },    // m
 };
 
 // ════════════════════════════════════════════════════════════════════
@@ -603,4 +647,69 @@ const CATEGORY_DETAILS = {
   "P4_TimingConsistency": {"name":"타이밍 일관성","short_desc":"운동사슬 타이밍 안정성","meaning":"운동 사슬 순서(Pelvis-Trunk-Arm)가 매번 동일한지 + MER→BR 시간 일관성.","method":"proper_sequence 비율(%) + MER→BR 시간 SD (ms)","interpretation":[["75-100","타이밍 매우 일관"],["50-75","평균"],["25-50","타이밍 변동"],["0-25","타이밍 매우 불안정"]],"coaching":"템포 메트로놈 드릴, 메디신볼 타이밍","reference":"Aguinaldo (2007)"},
   "P5_StrideConsistency": {"name":"스트라이드 일관성","short_desc":"발 위치 일관성","meaning":"매 trial 앞발 착지 위치(stride 길이)가 일관된지. 변동이 크면 모든 후속 단계가 무너짐.","method":"Stride 길이의 trial-to-trial SD (cm)","interpretation":[["75-100","발 위치 매우 일관"],["50-75","평균"],["25-50","발 위치 변동"],["0-25","발 위치 매우 변동"]],"coaching":"착지 마크 훈련, 일관 셋업","reference":"Driveline Stride 표준"},
   "P6_TrunkConsistency": {"name":"몸통 자세 일관성","short_desc":"몸통 기울기 안정성","meaning":"BR 시점 몸통 전방 기울기가 일관된지. 변동이 크면 공이 높낮이 차이.","method":"몸통 전방 기울기의 trial-to-trial SD (degrees)","interpretation":[["75-100","몸통 자세 매우 일관"],["50-75","평균"],["25-50","몸통 변동"],["0-25","몸통 매우 변동"]],"coaching":"몸통 안정성 훈련, 코어","reference":"Werner (2008)"}
+};
+
+// ════════════════════════════════════════════════════════════════════
+// OUTPUT_VS_TRANSFER  (★ Phase 3, v33.6 — 사용자 컨셉)
+// ════════════════════════════════════════════════════════════════════
+// 출력(Output/Power Generation) — 각 분절이 만들어내는 절대 출력
+// 전달(Transfer/Sequencing)     — 분절 간 에너지가 효율적으로 흐르는가
+// 부상(Injury Risk)             — 출력의 비용 (UCL stress, knee stress)
+// 코칭 인사이트:
+//   ① 출력↑ 전달↑  → elite (이상적 — 그대로 유지)
+//   ② 출력↑ 전달↓  → "낭비형" (코칭 효과 가장 큼 — 전달 최적화로 즉시 구속 향상)
+//   ③ 출력↓ 전달↑  → "효율형" (체력 보강 — 출력 자체 끌어올리기)
+//   ④ 출력↓ 전달↓  → 발달 단계 — 전반적 향상 필요
+// ════════════════════════════════════════════════════════════════════
+const OUTPUT_VS_TRANSFER = {
+  'OUTPUT': {
+    name: '출력 (Power Generation)',
+    desc: '각 분절(하체→몸통→팔)이 만들어내는 절대 회전·선형 출력',
+    variables: [
+      'peak_pelvis_av',                  // 골반 회전속도
+      'peak_trunk_av',                   // 몸통 회전속도
+      'peak_arm_av',                     // 팔 회전속도
+      'max_pelvis_rot_vel_dps',          // alias
+      'max_trunk_twist_vel_dps',         // alias
+      'elbow_ext_vel_max',               // 팔꿈치 신전속도
+      'shoulder_ir_vel_max',             // 어깨 내회전 속도
+      'max_cog_velo',                    // COM 전진 속도 (선형 출력)
+      'drive_hip_ext_vel_max',           // drive leg hip 신전 (단계 1)
+      'hip_ir_vel_max_drive',            // drive leg hip IR
+      'lead_knee_ext_vel_max',           // lead leg knee 신전 (단계 2)
+      'trunk_flex_vel_max',              // 몸통 굴곡 속도
+      'wrist_release_speed',             // ★ 통합 결과 (ball release proxy)
+    ],
+    integration_var: 'wrist_release_speed',  // 출력의 단일 통합 지표
+  },
+  'TRANSFER': {
+    name: '전달 (Energy Transfer / Sequencing)',
+    desc: '분절 간 에너지가 효율적으로 흐르는가 — 타이밍·증폭률·저장방출',
+    variables: [
+      'pelvis_to_trunk_lag_ms',          // 골반→몸통 타이밍
+      'trunk_to_arm_lag_ms',             // 몸통→팔 타이밍
+      'arm_trunk_speedup',               // 몸통→팔 증폭률
+      'pelvis_trunk_speedup',            // 골반→몸통 증폭률
+      'arm_to_forearm_speedup',          // 상완→전완 증폭률
+      'elbow_to_wrist_speedup',          // ★ 전완→손목 증폭률 (마지막 whip)
+      'angular_chain_amplification',     // ★ 골반→팔 전체 증폭률 (peak_arm/peak_pelvis)
+      'proper_sequence_binary',          // 시퀀스 정확도 (P-T-A)
+      'peak_x_factor',                   // 분리 저장
+      'hip_shoulder_sep_at_fc',          // FC 시점 분리 자세
+      'peak_torso_counter_rot',          // 와인드업 저장
+      'stride_to_pelvis_lag_ms',         // ★ FC→peakPelvis 타이밍
+      'x_factor_to_peak_pelvis_lag_ms',  // ★ 분리저장→골반회전 타이밍 (SSC)
+    ],
+    integration_var: 'angular_chain_amplification',  // 전달의 단일 통합 지표
+  },
+  'INJURY': {
+    name: '부상 위험 (Injury Risk)',
+    desc: '출력의 비용 — UCL stress (팔꿈치) + knee stress (drive 다리)',
+    variables: [
+      'elbow_valgus_torque_proxy',       // ★ UCL stress proxy
+      'knee_varus_max_drive',            // ★ drive 무릎 외반
+      'max_shoulder_ER_deg',             // 어깨 ROM (200°+ valgus 위험)
+    ],
+    integration_var: 'elbow_valgus_torque_proxy',  // 부상의 단일 통합 지표
+  },
 };
