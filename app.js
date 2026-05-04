@@ -72,7 +72,16 @@
 //             getPlayerMode·getModeTarget이 armSide 매개변수 무시 → 항상 우투 target lookup
 //             modeCoachingHtml·헤더에서 "좌투/우투" 라벨 제거, "Elite 임계 140 km/h" 단일 표현
 //             (좌투수의 좌표계 정규화 — LEFT_TRUNK_REF, peak_x_factor swap 등 — 모두 유지)
-const ALGORITHM_VERSION = 'v33.7.5';
+//   v33.8 — master_fitness Height 매핑으로 stride_norm_height 정확도 향상 (사용자 요청 옵션 C)
+//           (A) Python 코호트: master_fitness.xlsx 268행 Lab_ID→Height 매핑 → 1810 trial 재처리
+//                → cohort_v29.js stride_norm_height 분포 갱신 (1.80m fallback 기반 → 선수별 정확)
+//                → 1790 trial Lab_ID 정확 매칭, 20 trial ID fallback (kwonjunseo·leetaehoon)
+//           (B) BBL 사이트 매칭 로직 강화:
+//                → extractScalarsFromUplift에서 sessionFolder(Lab_ID 형식) 자동 산출
+//                  athlete_name + capture_time(unix/ISO) → "{id}_{yyyyMMdd}"
+//                → master_fitness 매칭 키에 Lab_ID(0차 우선) + ID 부분일치 fuzzy 추가
+//                → 정예준 같은 매칭 실패 케이스 해결 (기존 ID 정확 비교만 → Lab_ID 우선)
+const ALGORITHM_VERSION = 'v33.8';
 const ALGORITHM_DATE    = '2026-05-05';
 
 let CURRENT_AGE = '고교';
@@ -516,11 +525,33 @@ function extractScalarsFromUplift(parsed) {
   const r0 = rows[0];
 
   const athleteName = r0[idx['athlete_name']] || '';
-  const captureDate = r0[idx['capture_datetime']] || '';
+  // ★ v33.2 (2026-05-04) Uplift CSV 컬럼명 다양성: capture_datetime 또는 capture_time
+  const captureDate = r0[idx['capture_datetime']] || r0[idx['capture_time']] || '';
   const fps         = parseFloat(r0[idx['fps']]) || 240;
   const handedness  = (r0[idx['handedness']] || '').toLowerCase();
   const armSide     = handedness === 'left' ? 'left' : 'right';
   const kinSeq      = r0[idx['kinematic_sequence_order']] || '';
+
+  // ★ v33.8 — sessionFolder 산출 (master_fitness Lab_ID 매칭용)
+  //   형식: "{id}_{yyyyMMdd}" — 예: "jeongyejun_20250429"
+  //   athlete_name "S36 jeongyejun" → "jeongyejun" (s번호 제거)
+  //   capture_time이 unix timestamp(숫자) 또는 ISO 문자열 둘 다 처리
+  let sessionFolder = null;
+  try {
+    const idStr = athleteName.toLowerCase().replace(/^s\d+\s+/i, '').trim();
+    let dateStr = '';
+    if (/^\d{10,}$/.test(String(captureDate))) {
+      // unix timestamp (초 또는 밀리초)
+      const ts = parseInt(captureDate, 10);
+      const d = new Date(ts < 1e12 ? ts * 1000 : ts);
+      dateStr = d.toISOString().slice(0, 10).replace(/-/g, '');
+    } else {
+      // ISO 또는 날짜 문자열
+      const m = String(captureDate).match(/(\d{4})[-/.]?(\d{2})[-/.]?(\d{2})/);
+      if (m) dateStr = m[1] + m[2] + m[3];
+    }
+    if (idStr && dateStr) sessionFolder = idStr + '_' + dateStr;
+  } catch (e) { /* sessionFolder=null */ }
 
   // 이벤트 프레임 절대값
   // ★ v33.2 (2026-05-04) — Uplift CSV의 "0" 값을 placeholder(검출 실패)로 인식하여 null 처리
@@ -839,7 +870,7 @@ function extractScalarsFromUplift(parsed) {
   // ━━━ 메카닉(C) per-trial scalar ━━━
   // ★ 모든 변수는 raw 시계열에서 직접 산출 (2026-05-03 — Uplift 사전계산값 의존 제거)
   const out = {
-    meta: { athleteName, captureDate, fps, handedness, armSide, kinSeq },
+    meta: { athleteName, captureDate, fps, handedness, armSide, kinSeq, sessionFolder },  // ★ v33.8 sessionFolder (Lab_ID 매칭용)
     events,
     _eventMeta,
   };
@@ -1530,13 +1561,31 @@ function applyMultiTrialUplift(scalarsList) {
   let heightM = CURRENT_INPUT.fitness?.['Height[M]'];
   if (heightM == null) {
     // master_fitness 매칭 결과를 fitness에 채우는 v30.16.2 로직보다 mechanic 처리가 먼저 끝나는 경우 백업
+    // ★ v33.8 — 매칭 키 강화: Lab_ID(session_folder) > Name > athleteName > ID(s번호 제거) > 부분 일치
     try {
       const masterRaw = localStorage.getItem('bbl_master_fitness');
       if (masterRaw) {
         const master = JSON.parse(masterRaw);
-        const playerName = document.getElementById('player-name')?.value;
-        if (playerName && Array.isArray(master)) {
-          const row = master.find(r => r.Name === playerName || r.athleteName === playerName);
+        const playerName = (document.getElementById('player-name')?.value || '').trim();
+        const labId = scalarsList[0]?.session_folder || scalarsList[0]?.meta?.sessionFolder;
+        if (Array.isArray(master)) {
+          let row = null;
+          // 0차: Lab_ID 정확 일치
+          if (labId) {
+            row = master.find(r => (r.Lab_ID || '').toString().toLowerCase().trim() === labId.toLowerCase().trim());
+          }
+          // 1차: Name 또는 athleteName 정확 일치
+          if (!row && playerName) {
+            row = master.find(r => r.Name === playerName || r.athleteName === playerName);
+          }
+          // 2차: ID 또는 부분 일치 (영문 ID 사용)
+          if (!row && playerName) {
+            const idStr = playerName.toLowerCase().replace(/^s\d+\s+/i, '').trim();
+            row = master.find(r => {
+              const rid = (r.ID || '').toString().toLowerCase().trim();
+              return rid && (rid === idStr || (idStr.length >= 4 && (rid.includes(idStr) || idStr.includes(rid))));
+            });
+          }
           if (row && row['Height[M]'] != null) heightM = parseFloat(row['Height[M]']);
         }
       }
@@ -1699,19 +1748,40 @@ function handleMultipleUpliftFiles(files) {
       const masterRaw = localStorage.getItem('bbl_master_fitness');
       if (masterRaw && firstMeta.athleteName) {
         const masterRows = JSON.parse(masterRaw);
-        const targetName = firstMeta.athleteName.toLowerCase().replace(/^s\d+\s+/i, '');
+        const targetName = firstMeta.athleteName.toLowerCase().replace(/^s\d+\s+/i, '').trim();
         const targetDate = parseDateFlex((firstMeta.captureDate || '').split(' ')[0]);
+        // ★ v33.8 — session_folder (Lab_ID) 추출 — trial CSV 파일 경로에서 부모 폴더명
+        //   형식: "jeongyejun_20250429" — master_fitness Lab_ID와 정확히 일치
+        const targetLabId = firstMeta.sessionFolder || firstMeta.session_folder || null;
+        // 0차 매칭 (★ v33.8 신설): Lab_ID 정확 일치 — 가장 신뢰성 높음
+        let masterRow = null;
+        if (targetLabId) {
+          masterRow = masterRows.find(r => {
+            const labMatch = (r.Lab_ID || r['Lab_ID'] || '').toString().toLowerCase().trim() === targetLabId.toLowerCase().trim();
+            return labMatch;
+          });
+        }
         // 1차 매칭: ID + 측정일 일치
-        let masterRow = masterRows.find(r => {
-          const idMatch = (r.ID || '').toString().toLowerCase() === targetName
-                       || (r.Name || '').toString() === firstMeta.athleteName;
-          const dateNum = parseInt((r.Date || '').toString().replace(/\D/g, ''), 10);
-          const targetNum = parseInt((targetDate || '').toString().replace(/\D/g, ''), 10);
-          return idMatch && (!targetNum || Math.abs(dateNum - targetNum) <= 7);  // ±7일 허용
-        });
+        if (!masterRow) {
+          masterRow = masterRows.find(r => {
+            const idMatch = (r.ID || '').toString().toLowerCase().trim() === targetName
+                         || (r.Name || '').toString().trim() === firstMeta.athleteName.trim()
+                         || (r.athleteName || '').toString().trim() === firstMeta.athleteName.trim();
+            const dateNum = parseInt((r.Date || '').toString().replace(/\D/g, ''), 10);
+            const targetNum = parseInt((targetDate || '').toString().replace(/\D/g, ''), 10);
+            return idMatch && (!targetNum || Math.abs(dateNum - targetNum) <= 7);  // ±7일 허용
+          });
+        }
         // 2차 매칭: ID만 일치 (가장 가까운 날짜)
         if (!masterRow) {
-          masterRow = masterRows.find(r => (r.ID || '').toString().toLowerCase() === targetName);
+          masterRow = masterRows.find(r => (r.ID || '').toString().toLowerCase().trim() === targetName);
+        }
+        // ★ v33.8 3차 매칭: 부분 문자열 fuzzy (영어 ID에서 마지막 토큰만 일치하는 경우 등)
+        if (!masterRow && targetName.length >= 4) {
+          masterRow = masterRows.find(r => {
+            const rid = (r.ID || '').toString().toLowerCase().trim();
+            return rid.length >= 4 && (rid.includes(targetName) || targetName.includes(rid));
+          });
         }
         if (masterRow) {
           // 손잡이 마스터 우선
