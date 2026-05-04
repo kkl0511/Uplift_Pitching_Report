@@ -39,8 +39,18 @@
 //           수정: upEvents.peakX ?? detectPeakRotVel(...) — Uplift 우선, 없을 때만 자체 검출
 //   v33.4 — index.html 인라인 script 6,414라인을 app.js로 분리 (로직 변경 0)
 //           index.html 7,074 → 661라인 (90% 축소). GitHub 편집·diff 가독성 대폭 개선
-const ALGORITHM_VERSION = 'v33.4';
-const ALGORITHM_DATE    = '2026-05-04';
+//   v33.5 — Phase 2: 16개 메카닉 변수 134 코호트 분포 산출 + LITERATURE_OVERRIDE 해제
+//           1810 trial Python 일괄 처리 → 186 세션 분포 → cohort_v29.js 갱신
+//           발달 코호트 평균 선수도 50점(중앙값) 받게 점수 산식 정상화
+//   v33.6 — Phase 3: Output(출력) vs Transfer(전달) vs Injury(부상) 분리 분석 7변수 추가
+//           wrist_release_speed, elbow_to_wrist_speedup, angular_chain_amplification,
+//           elbow_valgus_torque_proxy, stride_to_pelvis_lag_ms, x_factor_to_peak_pelvis_lag_ms,
+//           knee_varus_max_drive + metadata.js OUTPUT_VS_TRANSFER 카테고리 신설
+//   v33.7 — Phase 3 UI: 출력 vs 전달 사분면 진단 카드 + 자동 코칭 메시지
+//           KINETIC_FAULTS 부상 위험 항목 2개 추가 (HighElbowValgus, DriveKneeVarus)
+//           polarity 'absolute' 점수 반전 보정 (lag 변수 의미 정확화)
+const ALGORITHM_VERSION = 'v33.7';
+const ALGORITHM_DATE    = '2026-05-05';
 
 let CURRENT_AGE = '고교';
 let CURRENT_INPUT = { fitness: {}, mechanics: {} };
