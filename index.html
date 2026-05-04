@@ -659,7 +659,10 @@
 //   v32.1 — F1_Strength에 악력(Grip Strength) 통합 (cross d=+1.18)
 //   v32.2 — C5 가중치 절충 (1.5 → 1.0): Driveline literature와 134코호트 d=+0.09 사이 절충
 //   v32.3 — IPS "부분 측정" 경고 FP 비교 버그 수정 (0.9999... < 1.0 → 999 임계)
-const ALGORITHM_VERSION = 'v32.3';
+//   v32.4 — F2_Power(CMJ_BM·SJ_BM) LITERATURE_OVERRIDE 해제 → percentile 산식
+//   v32.5 — "more is better" 변수 10개 추가 percentile 전환 (IMTP/BM, RSI×2, EUR,
+//           회전속도 3개, lead_knee_ext_vel_max, Height, Weight). 16개 분포 미보유 변수는 Phase 2.
+const ALGORITHM_VERSION = 'v32.5';
 const ALGORITHM_DATE    = '2026-05-04';
 
 let CURRENT_AGE = '고교';

@@ -1,3 +1,138 @@
+# BBL v32.5 — "more is better" 변수 10개 추가 percentile 전환
+**Build**: 2026-05-04 / **Patch**: v32.4 → v32.5 / **Type**: 산식 수정 (광범)
+
+---
+
+## v32.5 변경
+
+v32.4에서 발견된 "가우시안 optimal이 코호트 median보다 위면 점수 폭락" 문제가 다른 변수에도 동일하게 존재. 코호트 분포가 있고 "more is better" 성격인 변수 10개를 추가 percentile로 전환.
+
+### 전환된 10개 변수
+
+| 변수 | 카테고리 | n | 사유 |
+|---|---|---:|---|
+| IMTP Peak Vertical Force / BM | F1_Strength | 234 | optimal=36 vs cohort median 26.8 — 폭락 위험 |
+| **CMJ RSI-modified** | F3_Reactivity | 234 | optimal=0.5 vs RSI 1.1(top)인 선수가 0점 받던 문제 |
+| **SJ RSI-modified** | F3_Reactivity | 233 | 동일 |
+| **EUR** | F3_Reactivity | 233 | optimal mismatch |
+| max_trunk_twist_vel_dps | C4 (mechanics) | 199 | Werner 950°/s 가정 — 발달 코호트 median 540 |
+| max_pelvis_rot_vel_dps | C3 (mechanics) | 199 | 동일 |
+| trunk_flex_vel_max | C4 (mechanics) | 198 | 동일 |
+| lead_knee_ext_vel_max | C2 (mechanics) | 196 | 동일 |
+| Height[M] | F4_Body | 234 | 체형은 코호트 분포가 더 적절 |
+| Weight[KG] | F4_Body | 234 | 동일 |
+
+### 변경 안 한 16개 변수 (분포 미보유 — Phase 2)
+
+코호트 분포(`var_sorted_lookup`)가 cohort_v29.js에 없어서 LITERATURE_OVERRIDE 해제해도 자동 가우시안 fallback으로 떨어짐. raw 데이터 재처리 후 분포 추가 필요:
+
+```
+peak_x_factor (★ 사용자 우선 요구)
+peak_arm_av, peak_trunk_av, peak_pelvis_av
+elbow_ext_vel_max, shoulder_ir_vel_max
+hip_ir_vel_max_drive, max_cog_velo
+drive_hip_ext_vel_max, lead_hip_ext_vel_max
+arm_trunk_speedup, pelvis_trunk_speedup
+peak_torso_counter_rot, torso_side_bend_at_mer, torso_rotation_at_br
+lead_knee_ext_change_fc_to_br, stride_norm_height
+```
+
+### 가우시안 유지 (의도된 양방향 최적)
+
+진짜 양방향 최적이 있는 변수는 가우시안 그대로 유지:
+- `BMI` — 25 근처가 진짜 생물학적 최적
+- `max_shoulder_ER_deg` — 부상 모니터링 (180° elite, 200°+ valgus stress)
+- `trunk_rotation_at_fc`, `trunk_forward_tilt_at_fc`, `hip_shoulder_sep_at_fc`, `shoulder_h_abd_at_fc`, `arm_slot_mean_deg` — 자세 최적 각도
+- `com_decel_pct`, `lead_knee_amortization_ms`, `stride_time_ms`, `lead_hip_flex_at_fc` — 타이밍/자세
+- SD 변수들 (lower-better, 가우시안 형태가 적합)
+
+### 정예준 케이스 효과
+
+| 카테고리 | v32.4 | v32.5 | 변화 |
+|---|---:|---:|---|
+| F2_Power | H1 53.8 / H2 17.8 | 동일 | (v32.4에서 처리) |
+| **F3_Reactivity** | H1 30 / H2 42 | **H1 64.5 / H2 45** | ★ 방향 반전 |
+
+★ F3 방향 반전의 의미: 가우시안 산식에서는 RSI 1.1(코호트 top)이 optimal=0.5와 멀어 0점이 됐었음. percentile은 "RSI 높을수록 좋음"을 정상 반영 → H1의 폭발적 반응성이 제대로 평가됨.
+
+### 변경 파일
+- `metadata.js`: LITERATURE_OVERRIDE에서 10개 변수 주석 처리
+- `index.html`: ALGORITHM_VERSION v32.4 → v32.5
+
+### 메모리 적용 원칙
+- 발달 단계 코호트 컨텍스트 우선 (elite 가우시안 X)
+- 측정 신뢰성 있는 변수만 카테고리 점수에 사용
+- X-factor 등 사용자 우선 변수는 Phase 2 분포 확보 후 즉시 전환
+
+---
+
+# BBL v32.4 — F2_Power 산식 percentile 전환
+**Build**: 2026-05-04 / **Patch**: v32.3 → v32.4 / **Type**: 산식 수정
+
+---
+
+## v32.4 변경
+
+### 배경
+정예준 H1(4월) vs H2(10월) 비교 진단에서 발견된 F2_Power 산식 이슈.
+
+**문제 발견 과정**
+1. H1 체력 51.8 → H2 체력 28.7 (Δ −23.1)으로 비정상 큰 차이
+2. 진단 결과: F2_Power가 49.8 → **0.3**으로 추락 (전체 체력 −23의 단일 원인)
+3. F2_Power 산식 추적: **LITERATURE_OVERRIDE의 가우시안 산식**
+   - `CMJ Peak Power / BM`: optimal=60 W/kg, sigma=6
+   - `SJ Peak Power / BM`: optimal=59 W/kg, sigma=6
+   - 점수 = 100 × exp(−(value − optimal)² / (2 × sigma²))
+
+### 문제의 본질
+가우시안 산식은 "최적값에서 멀어질수록 점수↓"라서 **양쪽으로 페널티**. 체중당 power는 "more is better" 메트릭인데 가우시안이 부적절. 결과:
+
+```
+              optimal     코호트 median   코호트 max
+CMJ_BM:       60          47.6           93.3
+SJ_BM:        59          46.4           74.9
+```
+
+→ 코호트 median이 optimal 아래 → **대부분 선수가 0~몇 점**. 정예준 H2는 CMJ 42(percentile 21%)인데 점수가 1점.
+
+### 수정 (metadata.js)
+```javascript
+// LITERATURE_OVERRIDE Set에서 CMJ·SJ Power /BM 제외 → percentile 산식 사용
+// 'CMJ Peak Power / BM [W/kg]',  // → percentile (v32.4)
+// 'SJ Peak Power / BM [W/kg]',   // → percentile (v32.4)
+```
+
+`percentileOfCohort()` 함수가 LITERATURE_OVERRIDE 체크를 건너뛰면 자동으로 코호트 sorted_lookup 기반 percentile로 산출됨. Code 변경은 주석 처리 한 줄.
+
+### 효과 (정예준 시뮬)
+
+| 지표 | 이전 (Gaussian) | v32.4 (Percentile) |
+|---|---:|---:|
+| H1 F2_Power | 49.8 | **53.8** |
+| H2 F2_Power | **0.3** | **17.8** |
+| Δ F2 | −49.5 | **−36.0** |
+| 체력 종합 Δ | −23.1 | **약 −17.2** |
+
+여전히 큰 차이지만 측정 데이터의 실제 변화(CMJ percentile 73→21)를 반영하는 합리적 수치.
+
+### 영향 범위
+- F2_Power가 들어가는 모든 보고서 점수 자동 변화 (저장된 리포트는 재계산 트리거됨)
+- 134코호트 비교 분석에도 영향 — 빠른/느린 그룹 F2 차이가 더 분포 기반으로 표현됨
+
+### 변경하지 않은 것 (Phase 2 검토)
+같은 패턴(가우시안 + optimal이 코호트 median보다 위)이 다른 변수에도 있을 가능성:
+- `IMTP Peak Vertical Force / BM` (optimal=36, 코호트 median ?)
+- `CMJ RSI-modified`, `SJ RSI-modified`, `EUR`
+- F4_Body 변수들 (`Height`, `Weight`, `BMI` — 이건 Gaussian이 정당할 수도)
+
+→ 사용자 확인 후 Phase 2에서 일괄 검토 권장.
+
+### 변경 파일
+- `metadata.js`: LITERATURE_OVERRIDE 2줄 주석 처리
+- `index.html`: ALGORITHM_VERSION v32.3 → v32.4
+
+---
+
 # BBL v32.3 — IPS 부분측정 경고 FP 버그 수정
 **Build**: 2026-05-04 / **Patch**: v32.2 → v32.3 / **Type**: 버그 픽스
 
@@ -280,7 +415,7 @@ Synthetic input sanity check:
 
 ---
 
-## v31.12 → v32.2 누적
+## v31.12 → v32.5 누적
 
 | 버전 | 핵심 |
 |---|---|
@@ -288,7 +423,10 @@ Synthetic input sanity check:
 | v31.13~v31.48 | UX·임계 fine-tune, 카테고리별 가중치 정교화 (literature 기반) |
 | v32.0 | 134명 코호트 효과크기 기반 카테고리 가중치 + IPS 신설 (잘못된 파일 적용) |
 | v32.1 | 악력(Grip Strength) F1_Strength 통합 (잘못된 파일 적용) |
-| **v32.2** | **index.html로 통합 + C5 가중치 절충 (1.5 → 1.0)** |
+| v32.2 | index.html로 통합 + C5 가중치 절충 (1.5 → 1.0) |
+| v32.3 | IPS 부분측정 경고 FP 비교 버그 수정 |
+| v32.4 | F2_Power(CMJ·SJ /BM) percentile 산식 전환 |
+| **v32.5** | **"more is better" 변수 10개 추가 percentile 전환 (IMTP/BM, RSI×2, EUR, 회전속도, lead_knee, Height/Weight)** |
 
 ---
 
