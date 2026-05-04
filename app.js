@@ -4336,7 +4336,7 @@ function renderOutputTransferCardInner(r) {
   return `
     <div class="flex justify-between items-end mb-3">
       <div>
-        <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)]">DIAGNOSIS · v33.7</div>
+        <div class="mono text-[10px] uppercase tracking-widest text-[var(--text-muted)]">DIAGNOSIS · ${ALGORITHM_VERSION}</div>
         <div class="display text-xl mt-1" style="color: #fb923c">출력 vs 전달 분리 진단</div>
       </div>
       <div class="text-right">
