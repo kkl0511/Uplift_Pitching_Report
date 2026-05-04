@@ -49,7 +49,9 @@
 //   v33.7 — Phase 3 UI: 출력 vs 전달 사분면 진단 카드 + 자동 코칭 메시지
 //           KINETIC_FAULTS 부상 위험 항목 2개 추가 (HighElbowValgus, DriveKneeVarus)
 //           polarity 'absolute' 점수 반전 보정 (lag 변수 의미 정확화)
-const ALGORITHM_VERSION = 'v33.7';
+//   v33.7.1 — hotfix: applyMultiTrialUplift meanFields에 v33.6 신규 7변수 누락
+//             → 사분면 카드가 항상 빈 상태였음. 신규 trial CSV 업로드 시점부터 정상 산출
+const ALGORITHM_VERSION = 'v33.7.1';
 const ALGORITHM_DATE    = '2026-05-05';
 
 let CURRENT_AGE = '고교';
@@ -1451,6 +1453,16 @@ function applyMultiTrialUplift(scalarsList) {
     // 'elbow_flexion_at_fp' 제거 (v31.25, 사용자 요청)
     'pelvis_to_trunk_lag_ms':       'pelvis_to_trunk_lag_ms',
     'trunk_to_arm_lag_ms':          'trunk_to_arm_lag_ms',
+    // ★ Phase 3 (v33.6, 2026-05-05) — Output(출력) vs Transfer(전달) vs Injury(부상) 7변수
+    //   v33.7 hotfix: meanFields 누락으로 사분면 카드가 빈 상태였음 (extractScalars는 산출, 집계 단계서 누락)
+    'wrist_release_speed':              'wrist_release_speed',              // 출력 통합 결과
+    'elbow_to_wrist_speedup':           'elbow_to_wrist_speedup',           // 전달 — 마지막 whip 효율
+    'angular_chain_amplification':      'angular_chain_amplification',      // 전달 — 골반→팔 증폭률
+    'elbow_valgus_torque_proxy':        'elbow_valgus_torque_proxy',        // 부상 — UCL stress proxy
+    'stride_to_pelvis_lag_ms':          'stride_to_pelvis_lag_ms',          // 전달 — FC→peakPelvis 타이밍
+    'x_factor_to_peak_pelvis_lag_ms':   'x_factor_to_peak_pelvis_lag_ms',   // 전달 — SSC 타이밍
+    'knee_varus_max_drive':             'knee_varus_max_drive',             // 부상 — drive 무릎 외반
+    'forearm_length_m':                 'forearm_length_m',                 // 메타 (참고용)
   };
   for (const [bbl, key] of Object.entries(meanFields)) {
     const vals = collect(key);

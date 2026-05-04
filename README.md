@@ -1,3 +1,29 @@
+# BBL v33.7.1 — hotfix: applyMultiTrialUplift meanFields 누락
+**Build**: 2026-05-05 / **Patch**: v33.7 → v33.7.1 / **Type**: 긴급 버그 수정
+
+### 증상
+v33.7 배포 후 "출력 vs 전달 분리 진단" 카드는 정상 마운트되었으나, **데이터가 항상 빈 상태** ("wrist_release_speed 또는 angular_chain_amplification 산출 실패 — Uplift CSV 업로드 필요" 메시지만 표시).
+
+### 원인
+`applyMultiTrialUplift` 함수의 `meanFields` 매핑 객체에 v33.6 신규 7변수가 누락. 즉:
+- `extractScalarsFromUplift`은 v33.6에서 신규 7변수를 trial 단위로 정확히 산출 ✓
+- 그러나 다중 trial 평균 집계 단계 (`applyMultiTrialUplift`)가 `meanFields` 매핑을 통해 trial scalars를 mechanics 객체로 옮기는데, 신규 7변수가 그 매핑에 없어서 → mechanics 객체에 **항상 null**.
+- → 사분면 카드 진입 시 raw 값이 null → "산출 실패" 안내 메시지
+
+### 수정
+`meanFields`에 v33.6 신규 8변수 (7변수 + forearm_length_m 메타) 매핑 추가. trial 평균값이 정상적으로 mechanics에 들어감.
+
+### 영향
+신규 trial CSV 업로드 시점부터 정상 산출. 단, **v33.6 이전에 저장된 SAVED_REPORTS는 mechanics에 raw trial scalars가 보존되지 않으므로** 자동 재계산해도 7변수 채워지지 않음 → **새 trial CSV를 다시 업로드해서 저장해야 사분면 카드가 채워짐.**
+
+### 변경 파일
+| 파일 | 변경 |
+|---|---|
+| `app.js` | meanFields에 8변수 매핑 추가 + ALGORITHM_VERSION 'v33.7.1' |
+| `README.md` | v33.7.1 hotfix 노트 |
+
+---
+
 # BBL v33.7 — Phase 3 UI: 출력 vs 전달 사분면 진단 + 부상 위험 fault 추가
 **Build**: 2026-05-05 / **Patch**: v33.6 → v33.7 / **Type**: UI 컴포넌트 + 자동 코칭 메시지 + 신규 fault
 
