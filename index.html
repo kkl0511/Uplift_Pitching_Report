@@ -675,7 +675,13 @@
 //   v32.7 — narrative 점수차 소수점 1자리 통일 (FP 정밀도) + 좌완 시퀀스 차트 누락 수정
 //   v32.8 — v32.7 음수 lag "발달 미성숙" 해석 정정. lag은 biomechanically 항상 양수 →
 //           음수 = 이벤트 검출 오류. abs() 보정 + 검출 오류 경고로 변경
-const ALGORITHM_VERSION = 'v32.8';
+//   v32.9 — 마네킹 누수-only 재설계 (정상 단계 라벨 숨김) + ARM→FOREARM 신규 변수·라벨
+//           (arm_to_forearm_speedup = elbow_ext_vel_max / shoulder_ir_vel_max, elite 0.50~0.65)
+//           스토리 순서 재배치: 투수 유형 진단을 결함 직후(5.5)로, 코칭 우선순위는 종합 평가 다음(7)
+//   v33.0 — 마네킹 착지다리 경로 변경(앞 hip 경유) + 팔꿈치·손목 노드 시각화 추가
+//           레이더 라벨을 카드 라벨과 일치시킴 (CATEGORY_DETAILS.name 우선 사용)
+//           5각 Driveline Block 카테고리: stride_norm_height Height[M] 부재 시 근사값 산출
+const ALGORITHM_VERSION = 'v33.0';
 const ALGORITHM_DATE    = '2026-05-04';
 
 let CURRENT_AGE = '고교';
@@ -1719,6 +1725,14 @@ function extractScalarsFromUplift(parsed) {
     }
   }
 
+  // ── arm_to_forearm_speedup ★ v32.9 — 상완→전완 에너지 전달 효율 ──
+  //   ratio = elbow_ext_vel_max / shoulder_ir_vel_max
+  //   elite 0.50~0.65 (전완이 상완의 절반 정도). > 0.70 전완 의존(부상 위험), < 0.40 출력 손실
+  //   Phase 2: 코호트 분포 산출 후 percentile 전환 검토
+  if (out.elbow_ext_vel_max != null && out.shoulder_ir_vel_max != null && out.shoulder_ir_vel_max > 0) {
+    out.arm_to_forearm_speedup = out.elbow_ext_vel_max / out.shoulder_ir_vel_max;
+  }
+
   // ── peak_torso_counter_rot ★ — 와인드업 시 trunk가 뒤로 회전한 max (Posture 0.38) ──
   // [KH-50, FC] 사이 trunk_global_rotation의 (max - min) — counter rotation 진폭
   if (events.kh != null && events.fc != null) {
@@ -1968,9 +1982,30 @@ function applyMultiTrialUplift(scalarsList) {
   if (stride.length)      loaded['stride_mean_m'] = mean(stride);
   if (stride.length >= 2) loaded['stride_sd_cm']  = stdev(stride) * 100;
   // C1: stride_norm_height ★ — stride_length / Height[M] (체력 CSV에 신장 있을 때만)
-  const heightM = CURRENT_INPUT.fitness?.['Height[M]'];
+  // ★ v33.0 — Height 누락 시 master_fitness 자동 매칭 결과도 검색해서 사용
+  let heightM = CURRENT_INPUT.fitness?.['Height[M]'];
+  if (heightM == null) {
+    // master_fitness 매칭 결과를 fitness에 채우는 v30.16.2 로직보다 mechanic 처리가 먼저 끝나는 경우 백업
+    try {
+      const masterRaw = localStorage.getItem('bbl_master_fitness');
+      if (masterRaw) {
+        const master = JSON.parse(masterRaw);
+        const playerName = document.getElementById('player-name')?.value;
+        if (playerName && Array.isArray(master)) {
+          const row = master.find(r => r.Name === playerName || r.athleteName === playerName);
+          if (row && row['Height[M]'] != null) heightM = parseFloat(row['Height[M]']);
+        }
+      }
+    } catch (e) {}
+  }
   if (loaded['stride_mean_m'] != null && heightM != null && heightM > 0) {
     loaded['stride_norm_height'] = loaded['stride_mean_m'] / heightM;
+  } else if (loaded['stride_mean_m'] != null) {
+    // ★ v33.0 — Height 부재 시에도 5각 Block 카테고리에 점수 산출 가능하도록 코호트 평균 신장(1.80m) 사용
+    //   Driveline standard 0.85~1.0이 기준이므로 정확한 Height 없어도 근사 평가 가능
+    console.warn('stride_norm_height: Height[M] 부재 → 코호트 평균 1.80m로 근사');
+    loaded['stride_norm_height'] = loaded['stride_mean_m'] / 1.80;
+    loaded['_stride_norm_height_approx'] = true;
   }
   // P6: trunk tilt SD @ BR — 전후(forward) 단일 평면 SD 사용 (2026-05-03 수정)
   //   기존 √(σ_lat² + σ_fwd²) 합성은 임의적이고 SD가 부풀려지는 문제 → forward 단일 채택
@@ -3645,6 +3680,19 @@ function renderKineticChainSvg(r) {
   const ptTextColor = !ptLeak ? '#94a3b8' : (ptSevere ? '#ef4444' : '#fcd34d');
   const taTextColor = !taLeak ? '#94a3b8' : (taSevere ? '#fca5a5' : '#fcd34d');
 
+  // ★ v32.9 — ARM → FOREARM 에너지 전달 효율 (상완 IR → 전완 신전)
+  //   ratio = elbow_ext_vel_max / shoulder_ir_vel_max (Option A)
+  //   누수: > 0.70 전완 의존 (부상 위험), < 0.40 전완 약화 (출력 손실), 0.40~0.70 정상
+  const armForearmRatio = inputs.arm_to_forearm_speedup;
+  let afStatus = 'na';   // 'normal' | 'high' (전완 우세) | 'low' (전완 약함) | 'na'
+  if (armForearmRatio != null) {
+    if (armForearmRatio > 0.70) afStatus = 'high';
+    else if (armForearmRatio < 0.40) afStatus = 'low';
+    else afStatus = 'normal';
+  }
+  const afColor = afStatus === 'high' ? '#ef4444' : (afStatus === 'low' ? '#f59e0b' : '#4ade80');
+  const afLeak = afStatus === 'high' || afStatus === 'low';
+
   // ★ v31.20 — Drive leg → Pelvis 에너지 (밀고 나가는 발 → 골반 추진력)
   //   조합 진단: drive_hip_ext_vel_max (직접 토크) + max_cog_velo (전진 효율)
   //   임계 정합 (코호트 기반): KINETIC_FAULTS의 SlowDriveHip(<455)·WeakDrive(<2.24)와 일관
@@ -3708,11 +3756,11 @@ function renderKineticChainSvg(r) {
     rKnee: [556, 358], rAnkle: [620, 412], rToe: [658, 420],
     lKnee: [370, 384], lAnkle: [332, 472], lToe: [290, 474],
   };
-  // ★ v31.16 — 척추(neck) 거치지 않고 throwing-side hip(pelvisR) → throwing shoulder 사선 라우팅
-  //   실제 trunk axial rotation 토크는 self-side hip → self-side shoulder 사선으로 전달됨
-  // ★ v31.25 — 첨부 이미지(MLB 투수 빨간 점선) 참조: 골반 → 몸통 안을 통과하는 직선 → 던지는 어깨
-  //   이전 v31.16 외부 곡선 제거. 척추-throwing shoulder 중심축 직선 통과로 단순화
-  const energyPath = `M ${K.lAnkle[0]} ${K.lAnkle[1]} L ${K.lKnee[0]} ${K.lKnee[1]} L ${K.pelvisC[0]} ${K.pelvisC[1]} L ${K.rShoulder[0]} ${K.rShoulder[1]} L ${K.rElbow[0]} ${K.rElbow[1]} L ${K.rWrist[0]} ${K.rWrist[1]} L ${K.ball[0]} ${K.ball[1]}`;
+  // ★ v33.0 — 착지다리 에너지 경로를 착지측 고관절(앞 hip = pelvisL) 경유로 변경
+  //   기존: lAnkle → lKnee → pelvisC (가운데로 바로 이동)
+  //   현재: lAnkle → lKnee → pelvisL (앞 hip) → pelvisC → rShoulder → rElbow → rWrist → ball
+  //   생물역학적으로 GRF는 발→무릎→앞 hip→골반 회전축으로 전달됨
+  const energyPath = `M ${K.lAnkle[0]} ${K.lAnkle[1]} L ${K.lKnee[0]} ${K.lKnee[1]} L ${K.pelvisL[0]} ${K.pelvisL[1]} L ${K.pelvisC[0]} ${K.pelvisC[1]} L ${K.rShoulder[0]} ${K.rShoulder[1]} L ${K.rElbow[0]} ${K.rElbow[1]} L ${K.rWrist[0]} ${K.rWrist[1]} L ${K.ball[0]} ${K.ball[1]}`;
 
   // ★ v31.16 — Drive leg path (밀고 나가는 발 → 무릎 → 골반 우측)
   //   메인 energyPath와 별도로 그려져 골반에서 합류하는 두 갈래 흐름 구현
@@ -3861,76 +3909,97 @@ function renderKineticChainSvg(r) {
         </path>
         ${leakBurst}
 
-        <!-- Annotations (스테이지 단계) -->
+        <!-- ★ v33.0 — 공 던지는 팔 팔꿈치 노드 (elbow → wrist → ball 에너지 흐름 강조) -->
         <g>
-          <line x1="${K.lAnkle[0]-6}" y1="${K.lAnkle[1]-14}" x2="150" y2="430" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="2 3"/>
-          <rect x="42" y="412" width="176" height="44" rx="6" fill="#0b1220" stroke="#22d3ee" stroke-opacity="0.55"/>
-          <text x="130" y="428" fill="#22d3ee" font-size="10" font-family="Inter" font-weight="700" text-anchor="middle" letter-spacing="1">FRONT-FOOT BLOCK</text>
-          <text x="130" y="446" fill="#e2e8f0" font-size="11" font-family="Inter" font-weight="600" text-anchor="middle">지면 반력 · 에너지 시작</text>
+          <circle cx="${K.rElbow[0]}" cy="${K.rElbow[1]}" r="11" fill="none" stroke="${afColor}" stroke-opacity="0.5" stroke-width="2">
+            <animate attributeName="r" values="9;14;9" dur="1.8s" repeatCount="indefinite"/>
+            <animate attributeName="stroke-opacity" values="0.6;0.15;0.6" dur="1.8s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="${K.rElbow[0]}" cy="${K.rElbow[1]}" r="6" fill="${afColor}" stroke="#08080c" stroke-width="1.5" filter="url(#glow-${uid})"/>
+          <text x="${K.rElbow[0]}" y="${K.rElbow[1]+22}" font-size="9" fill="${afColor}" text-anchor="middle" font-family="Inter" font-weight="700" letter-spacing="1">ELBOW</text>
         </g>
+        <!-- ★ v33.0 — 손(wrist) 노드도 강조 (elbow → wrist 흐름 가시화) -->
+        <g>
+          <circle cx="${K.rWrist[0]}" cy="${K.rWrist[1]}" r="5" fill="#22d3ee" stroke="#08080c" stroke-width="1.5" filter="url(#glow-${uid})"/>
+        </g>
+
+        <!-- ★ v32.9 — 누수 감지 라벨 only (정상 단계는 표시 X) -->
+        <!-- 누수가 하나라도 발견되면 해당 라벨만 출력. 모두 정상이면 중앙에 ✅ 메시지. -->
+
+        <!-- PELVIS → TRUNK 누수 -->
+        ${ptLeak ? `
         <g>
           <line x1="${K.pelvisC[0]-20}" y1="${K.pelvisC[1]-10}" x2="150" y2="280" stroke="${ptColor}" stroke-width="1.2" stroke-dasharray="2 3"/>
-          <rect x="42" y="252" width="176" height="52" rx="6" fill="#0b1220" stroke="${ptColor}" stroke-opacity="0.6"/>
-          <text x="130" y="268" fill="${ptColor}" font-size="10" font-family="Inter" font-weight="700" text-anchor="middle" letter-spacing="1">PELVIS → TRUNK</text>
-          <text x="130" y="284" fill="#e2e8f0" font-size="13" font-family="Inter" font-weight="700" text-anchor="middle">${ptLag != null ? `lag ${ptLag.toFixed(0)}ms` : '—'}</text>
-          <text x="130" y="298" fill="${ptTextColor}" font-size="10" font-family="Inter" text-anchor="middle">${ptLag == null ? '데이터 없음' : (ptSevere && ptLag < 0 ? '⚠ 시퀀스 역순' : (ptLeak && ptSevere) ? '⚠ 누수 감지' : ptLeak ? '△ 발달 단계 미세 누수' : '정상 전달')}</text>
-        </g>
+          <rect x="42" y="252" width="176" height="60" rx="6" fill="#0b1220" stroke="${ptColor}" stroke-opacity="0.85" stroke-width="2"/>
+          <text x="130" y="268" fill="${ptColor}" font-size="10" font-family="Inter" font-weight="800" text-anchor="middle" letter-spacing="1">⚠ PELVIS → TRUNK</text>
+          <text x="130" y="286" fill="#e2e8f0" font-size="14" font-family="JetBrains Mono" font-weight="800" text-anchor="middle">lag ${ptLag.toFixed(0)}ms</text>
+          <text x="130" y="302" fill="${ptTextColor}" font-size="9" font-family="Inter" text-anchor="middle">${ptSevere && ptLag < 0 ? '시퀀스 역순' : (ptSevere ? '명확한 누수 (정상 30~80ms)' : '미세 누수 — 트렁크 활성화 늦음')}</text>
+        </g>` : ''}
+
+        <!-- TRUNK → ARM 누수 -->
+        ${taLeak ? `
         <g>
           <line x1="${K.rShoulder[0]+12}" y1="${K.rShoulder[1]-4}" x2="700" y2="140" stroke="${taColor}" stroke-width="1.2" stroke-dasharray="2 3"/>
-          <rect x="592" y="110" width="180" height="60" rx="6" fill="#0b1220" stroke="${taColor}" stroke-opacity="0.7"/>
-          <text x="682" y="126" fill="${taColor}" font-size="10" font-family="Inter" font-weight="700" text-anchor="middle" letter-spacing="1">TRUNK → ARM</text>
-          <text x="682" y="144" fill="#e2e8f0" font-size="15" font-family="Inter" font-weight="800" text-anchor="middle">${taLag != null ? `lag ${taLag.toFixed(0)}ms` : '—'}</text>
-          <text x="682" y="160" fill="${taTextColor}" font-size="10" font-family="Inter" font-weight="${taLeak ? 700 : 400}" text-anchor="middle">${taLag == null ? '데이터 없음' : (taSevere && taLag < 0 ? '⚠ 시퀀스 역순' : (taLeak && taSevere) ? '⚠ 누수 · 어깨 부하↑' : taLeak ? '△ 발달 단계 미세 누수' : '정상 전달')}</text>
-        </g>
-
-        <!-- ★ 핵심 변수 라벨 — 가장 중요한 구속 결정 요인들 ★ -->
-        <!-- ① 몸통 회전 속도 (Trunk Rotation Velocity) — 우상단 trunk 옆 -->
-        ${trunkRotVel != null ? `
-        <g>
-          <line x1="${K.rShoulder[0]+8}" y1="${K.rShoulder[1]+30}" x2="690" y2="240" stroke="${scoreColor(trunkRotScore)}" stroke-width="1.5" stroke-dasharray="2 3"/>
-          <rect x="582" y="210" width="200" height="60" rx="6" fill="#0b1220" stroke="${scoreColor(trunkRotScore)}" stroke-opacity="0.85" stroke-width="2"/>
-          <text x="682" y="226" fill="${scoreColor(trunkRotScore)}" font-size="10" font-family="Inter" font-weight="800" text-anchor="middle" letter-spacing="1">⚡ TRUNK ROT VEL</text>
-          <text x="682" y="246" fill="#e2e8f0" font-size="16" font-family="JetBrains Mono" font-weight="800" text-anchor="middle">${Math.round(trunkRotVel)}<tspan font-size="10" fill="#94a3b8" font-family="Inter">°/s</tspan></text>
-          <text x="682" y="262" fill="#94a3b8" font-size="9" font-family="Inter" text-anchor="middle">가장 강한 구속 결정 요인 · 1mph≈40°/s</text>
+          <rect x="592" y="110" width="180" height="60" rx="6" fill="#0b1220" stroke="${taColor}" stroke-opacity="0.85" stroke-width="2"/>
+          <text x="682" y="126" fill="${taColor}" font-size="10" font-family="Inter" font-weight="800" text-anchor="middle" letter-spacing="1">⚠ TRUNK → ARM</text>
+          <text x="682" y="144" fill="#e2e8f0" font-size="15" font-family="JetBrains Mono" font-weight="800" text-anchor="middle">lag ${taLag.toFixed(0)}ms</text>
+          <text x="682" y="160" fill="${taTextColor}" font-size="9" font-family="Inter" text-anchor="middle">${taSevere && taLag < 0 ? '시퀀스 역순' : (taSevere ? '명확한 누수 — 어깨 부하↑' : '미세 누수 (정상 30~80ms)')}</text>
         </g>` : ''}
 
-        <!-- ② Flying Open — X-Factor @ FC가 작으면 몸통이 일찍 열림 -->
-        ${xFactor != null ? `
+        <!-- ★ v32.9 신규: ARM → FOREARM 누수 (상완→전완 에너지 전달 효율) -->
+        ${afLeak ? `
         <g>
-          <line x1="${K.pelvisR[0]+10}" y1="${K.pelvisR[1]-10}" x2="700" y2="370" stroke="${flyingOpen ? '#ef4444' : '#4ade80'}" stroke-width="1.5" stroke-dasharray="2 3"/>
-          <rect x="592" y="346" width="190" height="56" rx="6" fill="#0b1220" stroke="${flyingOpen ? '#ef4444' : '#4ade80'}" stroke-opacity="0.85" stroke-width="2"/>
-          <text x="687" y="362" fill="${flyingOpen ? '#f59e0b' : '#4ade80'}" font-size="10" font-family="Inter" font-weight="800" text-anchor="middle" letter-spacing="1">${flyingOpen ? '△ 일찍 열림 경향' : '✓ X-FACTOR @ FC'}</text>
-          <text x="687" y="380" fill="#e2e8f0" font-size="14" font-family="JetBrains Mono" font-weight="700" text-anchor="middle">${Math.round(xFactor)}<tspan font-size="10" fill="#94a3b8" font-family="Inter">° (또래 평균 21°)</tspan></text>
-          <text x="687" y="394" fill="${flyingOpen ? '#fcd34d' : '#94a3b8'}" font-size="9" font-family="Inter" text-anchor="middle">${flyingOpen ? '분리 부족 경향 · KINETIC_FAULTS 참고' : '골반-몸통 분리 양호'}</text>
+          <line x1="${K.rElbow[0]+6}" y1="${K.rElbow[1]+10}" x2="700" y2="240" stroke="${afColor}" stroke-width="1.5" stroke-dasharray="2 3"/>
+          <rect x="582" y="210" width="200" height="64" rx="6" fill="#0b1220" stroke="${afColor}" stroke-opacity="0.85" stroke-width="2"/>
+          <text x="682" y="226" fill="${afColor}" font-size="10" font-family="Inter" font-weight="800" text-anchor="middle" letter-spacing="1">${afStatus === 'high' ? '🚨 ARM → FOREARM' : '△ ARM → FOREARM'}</text>
+          <text x="682" y="246" fill="#e2e8f0" font-size="14" font-family="JetBrains Mono" font-weight="800" text-anchor="middle">ratio ${armForearmRatio.toFixed(2)}</text>
+          <text x="682" y="262" fill="${afColor}" font-size="9" font-family="Inter" text-anchor="middle">${afStatus === 'high' ? '전완 의존 — 팔꿈치 부하↑ (정상 0.50~0.65)' : '전완 가속 부족 — 출력 손실 (정상 0.50~0.65)'}</text>
         </g>` : ''}
 
-        <!-- ③ 무릎 무너짐 — FC vs BR 무릎 신전량 비교 -->
-        ${kneeChange != null ? `
+        <!-- Flying Open (X-Factor 부족) -->
+        ${flyingOpen ? `
         <g>
-          <line x1="${K.lKnee[0]-12}" y1="${K.lKnee[1]+4}" x2="180" y2="370" stroke="${kneeCollapse ? '#f59e0b' : '#4ade80'}" stroke-width="1.5" stroke-dasharray="2 3"/>
-          <rect x="42" y="346" width="176" height="62" rx="6" fill="#0b1220" stroke="${kneeCollapse ? '#f59e0b' : '#4ade80'}" stroke-opacity="0.85" stroke-width="2"/>
-          <text x="130" y="362" fill="${kneeCollapse ? '#f59e0b' : '#4ade80'}" font-size="10" font-family="Inter" font-weight="800" text-anchor="middle" letter-spacing="1">${kneeCollapse ? '△ 무릎 굽힘 경향' : '✓ 무릎 신전 정상'}</text>
-          <text x="130" y="381" fill="#e2e8f0" font-size="13" font-family="JetBrains Mono" font-weight="700" text-anchor="middle">Δ ${kneeChange >= 0 ? '+' : ''}${kneeChange.toFixed(1)}<tspan font-size="10" fill="#94a3b8" font-family="Inter">° (또래 +3°)</tspan></text>
-          <text x="130" y="399" fill="${kneeCollapse ? '#fcd34d' : '#94a3b8'}" font-size="9" font-family="Inter" text-anchor="middle">${kneeCollapse ? 'BR 시 10° 이상 굽음 · 약한 누수' : 'FC→BR 신전 양호 (정상 ≥ -10°)'}</text>
+          <line x1="${K.pelvisR[0]+10}" y1="${K.pelvisR[1]-10}" x2="700" y2="370" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="2 3"/>
+          <rect x="592" y="346" width="190" height="58" rx="6" fill="#0b1220" stroke="#ef4444" stroke-opacity="0.85" stroke-width="2"/>
+          <text x="687" y="362" fill="#f59e0b" font-size="10" font-family="Inter" font-weight="800" text-anchor="middle" letter-spacing="1">⚠ FLYING OPEN</text>
+          <text x="687" y="382" fill="#e2e8f0" font-size="14" font-family="JetBrains Mono" font-weight="800" text-anchor="middle">${Math.round(xFactor)}<tspan font-size="10" fill="#94a3b8" font-family="Inter">° (정상 ≥ 5°)</tspan></text>
+          <text x="687" y="396" fill="#fcd34d" font-size="9" font-family="Inter" text-anchor="middle">FC 시 몸통 분리 부족 — 일찍 열림</text>
         </g>` : ''}
 
-        <!-- ★ v31.16 ④ Drive leg 추진 — 밀고 나가는 발 → 골반 -->
-        ${driveStatus !== 'na' ? `
+        <!-- 무릎 무너짐 (Knee Collapse) -->
+        ${kneeCollapse ? `
+        <g>
+          <line x1="${K.lKnee[0]-12}" y1="${K.lKnee[1]+4}" x2="180" y2="370" stroke="${kneeCollapseSevere ? '#ef4444' : '#f59e0b'}" stroke-width="1.5" stroke-dasharray="2 3"/>
+          <rect x="42" y="346" width="176" height="58" rx="6" fill="#0b1220" stroke="${kneeCollapseSevere ? '#ef4444' : '#f59e0b'}" stroke-opacity="0.85" stroke-width="2"/>
+          <text x="130" y="362" fill="${kneeCollapseSevere ? '#ef4444' : '#f59e0b'}" font-size="10" font-family="Inter" font-weight="800" text-anchor="middle" letter-spacing="1">${kneeCollapseSevere ? '🚨 무릎 무너짐' : '△ 무릎 굽힘 경향'}</text>
+          <text x="130" y="381" fill="#e2e8f0" font-size="14" font-family="JetBrains Mono" font-weight="800" text-anchor="middle">Δ ${kneeChange.toFixed(1)}<tspan font-size="10" fill="#94a3b8" font-family="Inter">° (정상 ≥ -10°)</tspan></text>
+          <text x="130" y="396" fill="${kneeCollapseSevere ? '#fca5a5' : '#fcd34d'}" font-size="9" font-family="Inter" text-anchor="middle">앞다리 블록 약화 — 에너지 손실</text>
+        </g>` : ''}
+
+        <!-- Drive leg 추진 약함 (normal 제외) -->
+        ${driveStatus === 'leak' || driveStatus === 'weak' ? `
         <g>
           <line x1="${K.rKnee[0]+8}" y1="${K.rKnee[1]+8}" x2="700" y2="438" stroke="${driveColors.label}" stroke-width="1.5" stroke-dasharray="2 3"/>
           <rect x="582" y="412" width="200" height="58" rx="6" fill="#0b1220" stroke="${driveColors.label}" stroke-opacity="0.85" stroke-width="2"/>
-          <text x="682" y="428" fill="${driveColors.label}" font-size="10" font-family="Inter" font-weight="800" text-anchor="middle" letter-spacing="1">${driveColors.text} · DRIVE LEG</text>
+          <text x="682" y="428" fill="${driveColors.label}" font-size="10" font-family="Inter" font-weight="800" text-anchor="middle" letter-spacing="1">${driveColors.text}</text>
           <text x="682" y="446" fill="#e2e8f0" font-size="12" font-family="JetBrains Mono" font-weight="700" text-anchor="middle">${driveHipVel != null ? `${Math.round(driveHipVel)}°/s` : '—'} · ${cogVelo != null ? `${cogVelo.toFixed(2)} m/s` : '—'}</text>
-          <text x="682" y="462" fill="#94a3b8" font-size="9" font-family="Inter" text-anchor="middle">뒷다리 hip 신전 · CoG 전진 (또래 평균 595°/s, 2.9 m/s)</text>
+          <text x="682" y="462" fill="#94a3b8" font-size="9" font-family="Inter" text-anchor="middle">뒷다리 hip 신전·CoG 전진 부족 (또래 595°/s, 2.9 m/s)</text>
+        </g>` : ''}
+
+        <!-- ★ v32.9 — 누수 0개 시 중앙에 ✅ 메시지 -->
+        ${(!ptLeak && !taLeak && !afLeak && !flyingOpen && !kneeCollapse && driveStatus === 'normal') ? `
+        <g>
+          <rect x="280" y="495" width="400" height="48" rx="8" fill="#0b1f12" stroke="#4ade80" stroke-opacity="0.8" stroke-width="2"/>
+          <text x="480" y="515" fill="#4ade80" font-size="14" font-family="Inter" font-weight="800" text-anchor="middle" letter-spacing="1">✅ 키네틱 체인 정상</text>
+          <text x="480" y="533" fill="#86efac" font-size="11" font-family="Inter" text-anchor="middle">모든 단계 에너지 전달 효율 양호 — 누수 미감지</text>
         </g>` : ''}
       </svg>
 
       <div class="text-xs text-[var(--text-muted)] mt-2 px-2">
-        <span style="color:#22d3ee">●</span> 메인 흐름 ·
-        <span style="color:#3b82f6">●</span> Drive leg 흐름 ·
-        <span style="color:#f59e0b">●</span> 발달 단계 미세 누수 (코호트 약 16%) ·
-        <span style="color:#ef4444">●</span> 명확한 누수 (KINETIC_FAULTS high · 약 3%) ·
-        파랑=정상 / 주황=경향 / 빨강=결함 진단
+        <span style="color:#4ade80">●</span> 정상 단계는 라벨 없음 ·
+        <span style="color:#f59e0b">●</span> 미세 누수 (발달 단계 경향) ·
+        <span style="color:#ef4444">●</span> 명확한 누수 (KINETIC_FAULTS 진단 수준) —
+        ★ v32.9: 누수가 감지된 단계만 라벨 표시 (정상 단계는 깨끗하게).
       </div>
     </div>`;
 }
@@ -5351,7 +5420,11 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
   window.__BBL_RADAR_DATA__ = sections.map(sec => {
     const score = r[sec.key];
     if (score == null) return null;
-    const labels = sec.cats.map(c => (COHORT.category_meta[c]?.name) || c);
+    // ★ v33.0 — 레이더 라벨이 하위 카드 라벨과 일치하도록 CATEGORY_DETAILS 우선 사용
+    //   (cohort_v29.js의 옛 라벨 "X-Factor 형성/몸통 회전 채찍/레이백+팔 전달" → 카드와 동일한 신규 라벨)
+    const labels = sec.cats.map(c =>
+      (typeof CATEGORY_DETAILS !== 'undefined' && CATEGORY_DETAILS[c]?.name) ||
+      (COHORT.category_meta[c]?.name) || c);
     const values = sec.cats.map(c => r.cat_scores[c] != null ? Math.round(r.cat_scores[c]) : 0);
     const data = { canvasId: sec.radarId, color: sec.hex, labels, values };
     if (sec.key === 'Mechanics_Score') {
@@ -5477,20 +5550,23 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
   // ★ v30.33 키네틱 체인 블록
   //   sectionsHtml(레이더 차트) 뒤, summary 앞에 위치
   // ★ v31.6: 체력·메카닉 편차 자동 진단 카드를 키네틱 체인 블록 맨 위에 추가
-  // ★ v31.22 순서 재배치 (사용자 요청, 2026-05-04)
-  //   2단계 키네틱 체인이란? (GIF) → 코칭 세션 (마네킹+시퀀스+동영상) →
-  //   3단계 당신의 에너지 흐름 → 4단계 에너지 리크 원인 → 트레이닝 우선순위
-  // 코칭 세션 (마네킹·시퀀스·동영상) — kineticChainBlock 안에 통합
+  // ★ v32.9 스토리 순서 재배치 (사용자 요청, 2026-05-04)
+  //   3 키네틱 체인 개념 (GIF) → 4 마네킹·시퀀스·에너지 흐름 → 5 리크 원인 →
+  //   5.5 투수 유형 진단 → (종합 평가는 summary로) → 7 코칭 우선순위 액션
+  //   v31.22 대비 변경:
+  //     - coachingDiagHtml: 맨 앞 → faultsHtml 다음(5.5)
+  //     - trainingPriorityHtml: 맨 끝 → kineticChainBlock 밖(summary 다음, 7)
   const _coachSessionInline = renderCoachSessionHtml(r);
   const kineticChainBlock = `
-    ${coachingDiagHtml}
     ${modeCoachingHtml}
     ${kineticChainGifHtml}
     ${_coachSessionInline}
     ${energyFlowHtml}
     ${faultsHtml}
-    ${trainingPriorityHtml}
+    ${coachingDiagHtml}
   `;
+  // ★ v32.9 — 코칭 우선순위 액션 플랜 (종합 평가 다음, 위치 7)
+  const actionPlanBlock = `${trainingPriorityHtml}`;
 
   // ★ v30.33 강점·약점을 영역별로 분리 (사용자 피드백)
   //   기존: 카테고리별 점수 (체력/메카닉/제구 섞여 있음)
@@ -5683,13 +5759,15 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
   //   1) header (점수 + 잠재 구속 통합)
   //   2) profileHtml (투수 프로파일 분석)
   //   3) sectionsHtml (체력·메카닉·제구 레이더 차트)
-  //   4) kineticChainBlock = 2단계 GIF → 코칭 세션(마네킹+시퀀스+동영상) → 3단계 에너지 흐름 → 4단계 리크 원인
-  //   5) summary (1단계 점수 + 강점·약점 + 종합 멘트)
+  //   4) kineticChainBlock = 3 GIF → 4 마네킹·시퀀스·에너지 흐름 → 5 리크 원인 → 5.5 투수 유형 진단
+  //   5) summary (6 점수·강점·약점·종합 멘트)
+  //   6) actionPlanBlock (7 코칭 우선순위 액션 — v32.9에서 분리)
   return header
     + profileHtml
     + `<div class="grid grid-cols-1 md:grid-cols-3 gap-4">` + sectionsHtml + `</div>`
     + kineticChainBlock
     + summary
+    + actionPlanBlock
     + downloadBtn;
 }
 

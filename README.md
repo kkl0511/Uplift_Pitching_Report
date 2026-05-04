@@ -1,3 +1,94 @@
+# BBL v33.0 — 마네킹 경로 + 레이더 라벨 일치 + 5각 누락 변인
+**Build**: 2026-05-04 / **Patch**: v32.9 → v33.0 / **Type**: UX 정밀 + 데이터 완전성
+
+---
+
+## v33.0 변경 (사용자 요청 3건)
+
+### 1. 마네킹 에너지 경로 — 착지다리 → 앞 hip 경유
+**기존**: lAnkle → lKnee → pelvisC (가운데로 바로)
+**v33.0**: **lAnkle → lKnee → pelvisL (앞 hip) → pelvisC** → rShoulder → rElbow → rWrist → ball
+GRF 경로가 발→무릎→**앞 hip**→골반 회전축으로 전달되는 생물역학적 경로 반영.
+
+### 2. 팔꿈치·손목 노드 시각화 (공 던지는 팔)
+- 팔꿈치(rElbow)에 펄스 애니메이션 + ARM→FOREARM 색상(`afColor`) 노드
+- 손목(rWrist)에 작은 cyan 노드
+- 라벨 "ELBOW" 표시
+- 팔꿈치 → 손 에너지 흐름이 시각적으로 강조됨
+
+### 3. 레이더 라벨 ↔ 카드 라벨 일치
+**기존**: 레이더는 `COHORT.category_meta[c].name` ("X-Factor 형성", "몸통 회전 채찍", "레이백 + 팔 전달")
+**v33.0**: `CATEGORY_DETAILS[c].name` 우선 사용 → "몸통 에너지 로딩", "몸통 에너지 발현", "팔 에너지" — **카드와 동일**.
+Fallback으로 category_meta 유지 (안전성).
+
+### 4. 5각 Driveline Block — `stride_norm_height` 보강
+**원인 분석**: 17개 5각 Driveline 변수 중 `stride_norm_height`만 조건부 계산 (Height[M] 의존)
+**v33.0 수정**:
+- master_fitness localStorage에서 Height 백업 검색
+- 그래도 없으면 코호트 평균 신장(1.80m)으로 근사값 산출 + `_stride_norm_height_approx` 플래그
+- Driveline standard 0.85~1.0 기준이라 ±5cm 신장 차이는 점수에 큰 영향 없음
+
+→ Block 카테고리 점수가 항상 산출됨 (Height 자동 보강 또는 근사값).
+
+### 변경 파일
+- `index.html`: ALGORITHM_VERSION v32.9 → v33.0, energyPath 경로 변경, 팔꿈치/손목 노드 SVG 추가, 레이더 라벨 우선순위 변경, stride_norm_height Height 백업 로직
+
+---
+
+# BBL v32.9 — 마네킹 누수-only + ARM→FOREARM 신규 + 스토리 재배치
+**Build**: 2026-05-04 / **Patch**: v32.8 → v32.9 / **Type**: UX 재설계 + 신규 변수
+
+---
+
+## v32.9 변경 (사용자 요청 3건 일괄)
+
+### 1. ARM → FOREARM 신규 에너지 흐름
+**Option A (Biomechanics 기반) 채택**:
+```javascript
+arm_to_forearm_speedup = elbow_ext_vel_max / shoulder_ir_vel_max
+```
+**해석**:
+- elite 0.50 ~ 0.65 (전완이 상완의 절반 정도 = 정상 채찍)
+- > 0.70 → 🚨 전완 의존 (팔꿈치 부하↑, 부상 위험)
+- < 0.40 → ⚠ 전완 가속 부족 (출력 손실)
+- 0.40 ~ 0.70 → 정상 (라벨 숨김)
+
+`extractScalarsFromUplift`에 산식 추가 (4줄). Phase 2: 코호트 분포 확보 후 percentile 전환 검토.
+
+### 2. 마네킹 시각화 — 누수 only 원칙
+**기존**: 7개 라벨이 항상 표시 (PELVIS→TRUNK, TRUNK→ARM, TRUNK ROT VEL, X-FACTOR, DRIVE LEG, FRONT-FOOT BLOCK, 무릎 신전)
+**v32.9**: 누수 트리거 발생 시에만 라벨 표시. 정상 단계는 깨끗.
+
+| 라벨 | 트리거 조건 |
+|---|---|
+| ⚠ PELVIS → TRUNK | `pelvis_to_trunk_lag_ms` 정상 30~80ms 벗어남 |
+| ⚠ TRUNK → ARM | `trunk_to_arm_lag_ms` 정상 20~80ms 벗어남 |
+| 🚨/△ ARM → FOREARM | `arm_to_forearm_speedup` 0.40~0.70 벗어남 (★ 신규) |
+| ⚠ FLYING OPEN | `hip_shoulder_sep_at_fc` < 5° |
+| 🚨/△ 무릎 무너짐 | `lead_knee_ext_change_fc_to_br` < -10° |
+| △ 추진 약함/부족 | drive_hip 또는 max_cog_velo 부족 |
+
+→ 전부 정상이면 중앙에 "✅ 키네틱 체인 정상 — 모든 단계 에너지 전달 효율 양호" 단일 메시지.
+
+### 3. 스토리 순서 재배치 (5.5 위치)
+**v31.22 순서**: coachingDiag → GIF → 마네킹 → 에너지 흐름 → 결함 → 우선순위 → summary
+**v32.9 순서**:
+1. 구속·잠재구속 (header)
+2. 점수 (sections)
+3. 키네틱 체인 개념 (GIF)
+4. 마네킹·시퀀스·에너지 흐름 (coach session)
+5. 리크 원인 (faultsHtml)
+**5.5. 투수 유형 진단 (coachingDiagHtml) ← 신규 위치**
+6. 종합 평가·강점·약점 (summary)
+**7. 코칭 우선순위 액션 플랜 (trainingPriorityHtml) ← summary 다음으로 분리**
+
+근거: 투수 유형은 1~5의 종합 결과 → 종합 평가 직전이 자연. 코칭 우선순위는 액션 → 마지막.
+
+### 변경 파일
+- `index.html`: ALGORITHM_VERSION v32.8 → v32.9, arm_to_forearm_speedup 산식 추가, 마네킹 라벨 누수-only 재구성, kineticChainBlock 순서 변경, actionPlanBlock 신규 분리
+
+---
+
 # BBL v32.8 — 음수 lag 해석 정정 (검출 오류로 처리)
 **Build**: 2026-05-04 / **Patch**: v32.7 → v32.8 / **Type**: 정정
 
@@ -512,7 +603,9 @@ Synthetic input sanity check:
 | v32.5 | "more is better" 변수 10개 추가 percentile 전환 |
 | v32.6 | 비교표 칼럼 정렬 수정 (UI 픽스) |
 | v32.7 | 숫자 FP 포매팅 + 좌완 시퀀스 차트 복구 |
-| **v32.8** | **음수 lag 해석 정정 (발달 미성숙→이벤트 검출 오류)** |
+| v32.8 | 음수 lag 해석 정정 (발달 미성숙→이벤트 검출 오류) |
+| v32.9 | 마네킹 누수-only + ARM→FOREARM 신규 + 스토리 재배치 |
+| **v33.0** | **마네킹 경로(앞 hip 경유) + 팔꿈치 노드 + 레이더 라벨 일치 + 5각 stride_norm_height 보강** |
 
 ---
 
