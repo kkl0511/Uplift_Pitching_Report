@@ -1,3 +1,51 @@
+# BBL v33.7.5 — 좌·우투 평가 통일 (모두 우투 기준)
+**Build**: 2026-05-05 / **Patch**: v33.7.4 → v33.7.5 / **Type**: 평가 정책 통일 (좌·우 분기 제거)
+
+### 사용자 요청
+"기존에 좌·우투를 구분해 평가했던 방식을 그냥 동일한 기준으로 평가하고 싶어 (모두 우투 기준으로)."
+
+### 동기 (메모리 원칙과 일치)
+메모리에 등록된 **"Uplift 좌·우완은 같은 조건 데이터"** 원칙과 정합. 좌·우 결함 임계는 표준값 대비 동일한 buffer/z-score여야 한다는 기존 방향과 일치. 평가 임계만 분리(우투 140 / 좌투 135)되어 있던 부분이 모순이었음.
+
+또한 정예준 화면에 "좌투 elite Mode B"로 잘못 표기되던 misclassification 이슈도 동시 해결 — 통일되면 잘못 분류돼도 평가 결과 동일.
+
+### 변경 — 평가 임계·target만 통일 (좌표계 정규화는 유지)
+
+| 항목 | 변경 전 | 변경 후 |
+|---|---|---|
+| `ELITE_THRESHOLD_KMH` | `{ right: 140, left: 135 }` | `{ right: 140, left: 140 }` (단일 `UNIFIED_ELITE_THRESHOLD = 140`) |
+| `getPlayerMode(armSide, maxV)` | armSide별 임계 | armSide 매개변수 무시, 단일 임계 |
+| `getModeTarget(varKey, armSide, mode)` | `byHand[armSide]` lookup | 항상 `byHand['right']` lookup (좌투도 우투 target) |
+| `modeCoachingHtml` | "좌투 elite 임계 135 km/h" / "우투 elite 임계 140 km/h" | "Elite 임계 140 km/h" 단일 표현 |
+| 헤더 모드 배지 threshold | armSide 분기 | UNIFIED_ELITE_THRESHOLD 고정 |
+| 헤더 좌투/우투 라벨 | 평가 분기 영향 | **정보 표시로만 유지** (배지에 "좌투 · Mode B" 등 표기) |
+
+### 유지 — 좌투수의 좌표계 정규화는 모두 유지
+
+다음은 좌투수의 raw 측정값이 우투수와 부호·범위 다른 측정 좌표계 문제이므로 **반드시 유지** (이걸 제거하면 측정값 자체가 틀림):
+
+- `LEFT_TRUNK_REF` / `LEFT_PELVIS_REF` 정규화 (`extractScalarsFromUplift` 내)
+- 좌투 `trunk_global_flexion` 부호 보정 (abs 처리)
+- `peak_x_factor` signed max 컬럼 swap (좌투는 `trunk-pelvis`)
+- `front_side` / `drive_side` 결정 (해부학적 좌·우)
+- 좌·우투 컬럼 선택 (`left_elbow_flexion_velocity` vs `right_elbow_flexion_velocity` 등)
+
+→ 좌투수의 raw 측정 → 우투 좌표계로 정규화 → 그 결과를 우투 기준 단일 평가 산식으로 평가. 측정 정확성 + 평가 일관성 동시 확보.
+
+### 효과
+- 좌투수도 우투수와 동일한 elite 임계·target·메시지로 평가
+- 정예준 같은 armSide misclassification 케이스에서도 평가 결과 동일 (코칭 메시지 "좌투/우투" 라벨만 표기 차이)
+- "좌투 임계가 더 낮은 것은 관행적 보정" 같은 모호한 정책 제거
+- 메모리 원칙 "좌·우완은 같은 조건 데이터"와 코드 정책 일치
+
+### 변경 파일
+| 파일 | 변경 |
+|---|---|
+| `app.js` | + `UNIFIED_ELITE_THRESHOLD = 140` 상수, `getPlayerMode`·`getModeTarget` 좌·우 분기 제거, modeCoachingHtml·헤더 메시지 통일 + ALGORITHM_VERSION 'v33.7.5' |
+| `README.md` | v33.7.5 패치노트 |
+
+---
+
 # BBL v33.7.4 — 부상 위험 문헌 임계 + SAVED_REPORTS 마이그레이션 안내 + 자동 저장 토스트
 **Build**: 2026-05-05 / **Patch**: v33.7.3 → v33.7.4 / **Type**: 사용자 피드백 #2 두 가지 동시 반영
 

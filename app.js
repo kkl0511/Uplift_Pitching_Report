@@ -66,7 +66,13 @@
 //             (B) 매번 trial CSV 재입력 부담 → 두 가지로 해결:
 //                 1) DOMContentLoaded 시 신규 7변수 누락 saved 자동 감지 + 토스트 안내
 //                 2) trial CSV 분석 후 자동 저장 (silent autoSaveReport는 이미 작동) + 명시적 토스트
-const ALGORITHM_VERSION = 'v33.7.4';
+//   v33.7.5 — 좌·우투 평가 통일: 모든 선수를 우투 기준 단일 임계로 평가
+//             (사용자 요청 + 메모리 원칙 "좌·우완은 같은 조건 데이터")
+//             ELITE_THRESHOLD_KMH = { left: 140, right: 140 } 단일화 (UNIFIED_ELITE_THRESHOLD)
+//             getPlayerMode·getModeTarget이 armSide 매개변수 무시 → 항상 우투 target lookup
+//             modeCoachingHtml·헤더에서 "좌투/우투" 라벨 제거, "Elite 임계 140 km/h" 단일 표현
+//             (좌투수의 좌표계 정규화 — LEFT_TRUNK_REF, peak_x_factor swap 등 — 모두 유지)
+const ALGORITHM_VERSION = 'v33.7.5';
 const ALGORITHM_DATE    = '2026-05-05';
 
 let CURRENT_AGE = '고교';
@@ -93,7 +99,12 @@ const LEFT_TO_RIGHT_PELVIS_OFFSET = 200;  // 좌완 normalized → 우완 등가
 //     R sub-elite (n=29 H1): -67±33 / R elite (n=30 H2): -95±23
 //     L sub-elite (n=80 H1): -67±30 / L elite 135+ (n=60 H2): -60±22
 //   좌완 elite는 우완보다 덜 닫힘(target -60° vs -95°) — 운동학적 천장 차이
-const ELITE_THRESHOLD_KMH = { right: 140, left: 135 };
+// ★ v33.7.5 (2026-05-05) — 좌·우투 평가 통일: 모두 우투 기준 임계 사용
+//   기존: { right: 140, left: 135 } — 좌투에 더 낮은 임계 적용 (관행적 보정)
+//   변경: 좌투수의 좌표 정규화 후에는 우투와 동일 평가가 메모리 원칙("좌·우완은 같은 조건 데이터")
+//        평가 임계 분리는 모순 → 단일 임계로 통일
+const ELITE_THRESHOLD_KMH = { right: 140, left: 140 };  // 좌·우 모두 우투 기준 140 km/h
+const UNIFIED_ELITE_THRESHOLD = 140;  // 단일 임계 (모든 모드 표시·임계 산식에서 사용)
 // ★ v31.24 — 다음 데이터들은 metadata.js로 분리됨 (가독성 향상):
 //   KINETIC_FAULTS, FAULT_VISUAL_GUIDE, CATEGORY_TRAINING_RECS,
 //   PLAYER_MODE_TARGETS, LAG_OPTIMAL_VARS, EXTRA_VAR_SCORING,
@@ -120,17 +131,19 @@ function detectKineticFaults(mechanics, measuredVelo, armSide) {
 let CURRENT_ARM_SIDE = null;  // 'right' | 'left' | null
 let CURRENT_MODE     = null;  // 'sub_elite' | 'elite' | null
 
+// ★ v33.7.5 — 좌·우투 평가 통일: armSide 무시, 항상 단일 임계 + 우투 target 사용
 function getPlayerMode(armSide, maxV) {
-  if (!maxV || !armSide) return 'sub_elite';
-  const threshold = ELITE_THRESHOLD_KMH[armSide] || 140;
-  return maxV >= threshold ? 'elite' : 'sub_elite';
+  if (!maxV) return 'sub_elite';
+  // armSide 매개변수는 무시 — 모든 선수 동일 임계 (좌투수의 좌표는 이미 우투로 정규화됨)
+  return maxV >= UNIFIED_ELITE_THRESHOLD ? 'elite' : 'sub_elite';
 }
 
-// 변수별 mode-aware target lookup
+// 변수별 mode-aware target lookup — armSide 무시, 항상 'right' lookup 사용
 function getModeTarget(varKey, armSide, mode) {
   const byHand = PLAYER_MODE_TARGETS[varKey];
   if (!byHand) return null;
-  const byMode = byHand[armSide] || byHand['right'];
+  const byMode = byHand['right'];  // ★ v33.7.5 — 좌·우 통일: 좌투도 우투 target 사용
+  if (!byMode) return null;
   return byMode[mode] || byMode['sub_elite'];
 }
 
@@ -4718,8 +4731,9 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
   // ★ v30.17 Phase 4: 모드별 코칭 메시지 (Mode A/B 분기)
   const _armSide_p4 = CURRENT_INPUT._armSide || 'right';
   const _mode_p4 = getPlayerMode(_armSide_p4, measuredVelo);
-  const _threshold_p4 = _armSide_p4 === 'left' ? 135 : 140;
-  const _handLabel_p4 = _armSide_p4 === 'left' ? '좌투' : '우투';
+  // ★ v33.7.5 — 좌·우투 평가 통일: 단일 임계 사용, 라벨은 정보 표시로만 유지
+  const _threshold_p4 = UNIFIED_ELITE_THRESHOLD;
+  const _handLabel_p4 = _armSide_p4 === 'left' ? '좌투' : '우투';  // 정보용 라벨 (평가 통일이라 메시지에서 빼도 의미 동일)
 
   // 활용도 한 줄 (잔차) — 모드별 표현
   let utilLine = '';
@@ -5037,10 +5051,11 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
       const eliteGap = _threshold_p4 - measuredVelo;
       const lowestMechName = lowestMech ? (COHORT.category_meta[lowestMech.id]?.name || lowestMech.id) : '메카닉 전반';
       const lowestMechScore = lowestMech ? Math.round(lowestMech.score) : null;
+      // ★ v33.7.5 — 좌·우 라벨 제거, 통일된 elite 임계 표현
       modeCoachingHtml = `<div class="summary-callout" style="border-left:4px solid #2563eb; background: rgba(37,99,235,0.08); padding:12px 16px; margin:12px 0;">
-        <div class="text-sm font-semibold mb-1" style="color:#2563eb;">🚀 Sub-elite 발전 단계 (Mode A) — ${_handLabel_p4} elite 임계값까지</div>
+        <div class="text-sm font-semibold mb-1" style="color:#2563eb;">🚀 Sub-elite 발전 단계 (Mode A) — Elite 임계값까지</div>
         <div class="text-sm">
-          현재 <strong>${measuredVelo} km/h</strong> → <strong>${_threshold_p4} km/h</strong>(${_handLabel_p4} elite) 도달까지 <strong style="color:#f59e0b;">+${eliteGap.toFixed(1)} km/h</strong> 필요.
+          현재 <strong>${measuredVelo} km/h</strong> → <strong>${_threshold_p4} km/h</strong>(Elite 임계) 도달까지 <strong style="color:#f59e0b;">+${eliteGap.toFixed(1)} km/h</strong> 필요.
           ${lowestMechScore != null ? ` 우선 보강 영역 — <strong>${lowestMechName}</strong> (${lowestMechScore}점). 이 카테고리를 elite 평균(70+)으로 끌어올리면 큰 폭의 구속 향상 기대.` : ''}
         </div>
       </div>`;
@@ -5049,10 +5064,11 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
       const aboveThreshold = measuredVelo - _threshold_p4;
       const lowestMechName = lowestMech ? (COHORT.category_meta[lowestMech.id]?.name || lowestMech.id) : '메카닉 전반';
       const lowestMechScore = lowestMech ? Math.round(lowestMech.score) : null;
+      // ★ v33.7.5 — 좌·우 라벨 제거, 통일된 elite 임계 표현
       modeCoachingHtml = `<div class="summary-callout" style="border-left:4px solid #7c3aed; background: rgba(124,58,237,0.08); padding:12px 16px; margin:12px 0;">
-        <div class="text-sm font-semibold mb-1" style="color:#7c3aed;">⭐ Elite 정착 단계 (Mode B) — ${_handLabel_p4} elite 안에서 미세조정</div>
+        <div class="text-sm font-semibold mb-1" style="color:#7c3aed;">⭐ Elite 정착 단계 (Mode B) — Elite 임계 안에서 미세조정</div>
         <div class="text-sm">
-          ${_handLabel_p4} elite 임계 ${_threshold_p4} km/h를 <strong>+${aboveThreshold.toFixed(1)} km/h</strong> 초과 (현재 ${measuredVelo} km/h).
+          Elite 임계 ${_threshold_p4} km/h를 <strong>+${aboveThreshold.toFixed(1)} km/h</strong> 초과 (현재 ${measuredVelo} km/h).
           ${lowestMechScore != null ? ` 미세조정 영역 — <strong>${lowestMechName}</strong> (${lowestMechScore}점). 안정성·일관성·trial SD 감소가 추가 향상 핵심.` : ''}
         </div>
       </div>`;
@@ -5063,12 +5079,12 @@ function renderReportHtml(name, measuredVelo, date, r, totalFit, totalMech) {
   // ★ v30.15 Phase 2: handedness × mode 뱃지 (가독성 개선 v30.15.1, v30.16.1 hotfix)
   const armSide = CURRENT_INPUT._armSide || 'right';
   const mode = getPlayerMode(armSide, measuredVelo);
-  const handLabel = armSide === 'left' ? '좌투' : '우투';
+  const handLabel = armSide === 'left' ? '좌투' : '우투';  // ★ v33.7.5 — 정보 라벨로만 유지 (평가는 통일)
   const modeLabel = mode === 'elite' ? 'Elite 정착 (Mode B)' : 'Sub-elite 발전 (Mode A)';
   const modeIcon = mode === 'elite' ? '⭐' : '🚀';
   const modeColor = mode === 'elite' ? '#7c3aed' : '#2563eb';
   const modeBgColor = mode === 'elite' ? '#ede9fe' : '#dbeafe';
-  const threshold = armSide === 'left' ? 135 : 140;
+  const threshold = UNIFIED_ELITE_THRESHOLD;  // ★ v33.7.5 — 좌·우 통일 임계 140 km/h
   const modeDesc = mode === 'elite'
     ? `MaxV ≥${threshold} km/h — 미세조정 (좁은 σ)`
     : `MaxV <${threshold} km/h — gap 측정 (넓은 σ)`;
