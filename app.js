@@ -54,7 +54,11 @@
 //   v33.7.2 — hotfix #2: calculateScores return에 mechanics raw 객체 누락
 //             → 사분면 카드가 r.mechanics를 참조하지만 result에 해당 키 없어 항상 null
 //             → result.mechanics = input.mechanics 추가로 raw 값 접근 가능
-const ALGORITHM_VERSION = 'v33.7.2';
+//   v33.7.3 — 사용자 피드백: 사분면 차트 한 장만으로 코치가 이해 어려움
+//             → 차트 위 "이 차트 읽는 법" 안내 박스 (사분면 의미·점 색상 풀어 설명)
+//             → 차트 아래 OUTPUT/TRANSFER/INJURY 3개 폴더 카드 (변수별 한글명·raw·percentile·해석)
+//             → metadata.js에 OUTPUT_VS_TRANSFER_VAR_META 추가 (29개 변수 한글명·단위·코칭 hint)
+const ALGORITHM_VERSION = 'v33.7.3';
 const ALGORITHM_DATE    = '2026-05-05';
 
 let CURRENT_AGE = '고교';
@@ -4347,12 +4351,30 @@ function renderOutputTransferCardInner(r) {
     <div class="text-sm leading-relaxed mb-4 p-3 rounded" style="background:var(--bg-elevated); border-left:3px solid ${ovTColor}">
       ${coach ? coach.message : ''}
     </div>
+    <details class="mb-3 text-xs" style="background:var(--bg-elevated); padding:10px; border-radius:4px">
+      <summary class="cursor-pointer text-[var(--text-muted)]" style="font-weight:600">📖 이 차트 읽는 법 (코치용)</summary>
+      <div class="mt-2 leading-relaxed">
+        <div class="mb-2"><strong>X축 — 출력 (Output)</strong>: 선수가 만들어내는 절대 회전·속도 출력의 통합 지표. <code>wrist_release_speed</code>(손목 릴리스 속도)를 코호트 134명과 비교한 percentile (0~100). 50이 코호트 중앙값.</div>
+        <div class="mb-2"><strong>Y축 — 전달 (Transfer)</strong>: 만들어진 출력이 분절 간(하체→골반→몸통→팔→공) 얼마나 효율적으로 흐르는가. <code>angular_chain_amplification</code>(골반→팔 전체 증폭률)을 코호트와 비교.</div>
+        <div class="mb-2"><strong>4 사분면 의미:</strong></div>
+        <ul class="list-none pl-2 space-y-1">
+          <li><span style="color:#4ade80">●</span> <strong>① Elite</strong> (출력↑ 전달↑): 만들어내는 출력도 좋고, 키네틱 체인을 통해 공으로 전달도 잘 됨. <em>현재 메카닉 유지 + 부상 모니터링.</em></li>
+          <li><span style="color:#fb923c">●</span> <strong>② 낭비형</strong> (출력↑ 전달↓): 출력은 만들어지는데 시퀀싱·증폭률이 낮아 손실. <em>코칭 효과가 가장 큰 유형 — 전달 최적화로 즉시 구속 향상 가능.</em></li>
+          <li><span style="color:#60a5fa">●</span> <strong>③ 효율형</strong> (출력↓ 전달↑): 메카닉(전달)은 좋은데 출력 자체가 부족. <em>체력(파워·근력)으로 출력 끌어올리기.</em></li>
+          <li><span style="color:#94a3b8">●</span> <strong>④ 발달 단계</strong> (출력↓ 전달↓): 둘 다 평균 미만. <em>체력 + 시퀀싱 기초 동시 향상.</em></li>
+        </ul>
+        <div class="mt-2"><strong>점 색상</strong>: 부상 위험(<code>elbow_valgus_torque_proxy</code> 코호트 ranking)에 따라 <span style="color:#4ade80">초록(안전)</span> / <span style="color:#fb923c">주황(주의)</span> / <span style="color:#f87171">빨강(상위 20%, UCL stress 모니터링 권장)</span>.</div>
+      </div>
+    </details>
     <div class="mb-4 relative" style="height: 320px;">
       <canvas id="output-transfer-chart"></canvas>
     </div>
-    <details class="mt-2">
-      <summary class="text-xs cursor-pointer text-[var(--text-muted)]">세부 통합 지표 (Phase 3 산출)</summary>
-      <div class="mt-2 text-xs">
+    ${renderOutputTransferAccordion(r, 'OUTPUT', '#4ade80')}
+    ${renderOutputTransferAccordion(r, 'TRANSFER', '#fb923c')}
+    ${renderOutputTransferAccordion(r, 'INJURY', '#f87171')}
+    <details class="mt-3 text-xs">
+      <summary class="cursor-pointer text-[var(--text-muted)]">세부 통합 지표 (Phase 3 산출)</summary>
+      <div class="mt-2">
         <table class="w-full" style="border-collapse:collapse">
           <thead><tr style="border-bottom:1px solid var(--border)">
             <th class="text-left py-1">카테고리</th><th class="text-left py-1">통합 지표</th>
@@ -4367,6 +4389,86 @@ function renderOutputTransferCardInner(r) {
         <div class="mt-2 text-[10px] text-[var(--text-muted)]">
           ※ 부상 percentile은 raw rank (높을수록 위험). 80pt+ 시 모니터링 권고. 절대 토크값 아닌 ranking proxy.
         </div>
+      </div>
+    </details>`;
+}
+
+// 출력/전달/부상 카테고리별 변수 폴더 (아코디언) — 사분면 카드 안에 들어감
+function renderOutputTransferAccordion(r, catKey, color) {
+  if (typeof OUTPUT_VS_TRANSFER === 'undefined' || !OUTPUT_VS_TRANSFER[catKey]) return '';
+  const cat = OUTPUT_VS_TRANSFER[catKey];
+  const meta = (typeof OUTPUT_VS_TRANSFER_VAR_META !== 'undefined') ? OUTPUT_VS_TRANSFER_VAR_META : {};
+  const m = r.mechanics || r.inputs?.mechanics || (typeof CURRENT_INPUT !== 'undefined' ? CURRENT_INPUT.mechanics : {}) || {};
+
+  // 변수별 행 생성
+  const rows = cat.variables.map(varKey => {
+    const vm = meta[varKey] || { name: varKey, unit: '', hint: '' };
+    const rawVal = m[varKey];
+    if (rawVal == null) {
+      return `<tr style="border-bottom:1px solid rgba(95,99,107,0.15)">
+        <td class="py-1.5 pr-2"><div style="font-weight:500">${vm.name}</div><div class="text-[10px] text-[var(--text-muted)]">${vm.hint}</div></td>
+        <td class="text-right mono py-1.5 pr-2 text-[var(--text-muted)]">—</td>
+        <td class="text-right mono py-1.5 text-[var(--text-muted)]">—</td>
+      </tr>`;
+    }
+    // percentile 산출 (var_polarity 자동 사용)
+    const polarity = (typeof COHORT !== 'undefined' && COHORT.var_polarity?.[varKey]) || 'higher';
+    let pct = percentileOfCohort(varKey, rawVal, polarity);
+    // INJURY 카테고리는 raw rank (높을수록 위험) 별도 표시
+    let pctDisplay = '';
+    let pctColor = '#94a3b8';
+    if (catKey === 'INJURY') {
+      // raw rank percentile (높을수록 위험)
+      const arr = COHORT.var_sorted_lookup?.[varKey];
+      if (arr) {
+        let rank = 0;
+        for (let i = 0; i < arr.length; i++) { if (arr[i] <= rawVal) rank++; else break; }
+        const rankPct = Math.round(100 * rank / arr.length);
+        pctColor = rankPct >= 80 ? '#f87171' : rankPct >= 60 ? '#fb923c' : '#4ade80';
+        pctDisplay = `${rankPct}pt<br><span class="text-[9px]" style="color:${pctColor}">${rankPct >= 80 ? '⚠ 위험' : rankPct >= 60 ? '주의' : '안전'}</span>`;
+      } else {
+        pctDisplay = pct != null ? `${pct}pt` : '—';
+      }
+    } else {
+      // OUTPUT/TRANSFER는 percentileOfCohort 결과 그대로 (높을수록 좋음)
+      pctColor = pct == null ? '#94a3b8' : pct >= 75 ? '#4ade80' : pct >= 50 ? '#fbbf24' : pct >= 30 ? '#fb923c' : '#f87171';
+      pctDisplay = pct != null ? `${pct}pt` : '—';
+    }
+    const rawDisplay = (typeof rawVal === 'number')
+      ? (Math.abs(rawVal) >= 100 ? rawVal.toFixed(0) : rawVal.toFixed(2)) + (vm.unit ? ' ' + vm.unit : '')
+      : String(rawVal);
+    return `<tr style="border-bottom:1px solid rgba(95,99,107,0.15)">
+      <td class="py-1.5 pr-2"><div style="font-weight:500">${vm.name}</div><div class="text-[10px] text-[var(--text-muted)]">${vm.hint}</div></td>
+      <td class="text-right mono py-1.5 pr-2" style="white-space:nowrap">${rawDisplay}</td>
+      <td class="text-right mono py-1.5" style="color:${pctColor}; white-space:nowrap">${pctDisplay}</td>
+    </tr>`;
+  }).join('');
+
+  // 카테고리 헤더 + integration_var 강조
+  const intVar = cat.integration_var;
+  const intMeta = meta[intVar] || {};
+  const intRaw = m[intVar];
+  const headerSubtitle = intRaw != null
+    ? `통합 지표: ${intMeta.name || intVar} = ${typeof intRaw === 'number' ? (Math.abs(intRaw) >= 100 ? intRaw.toFixed(0) : intRaw.toFixed(2)) : intRaw}${intMeta.unit ? ' ' + intMeta.unit : ''}`
+    : `통합 지표: ${intMeta.name || intVar} = (산출 안 됨)`;
+
+  return `
+    <details class="mb-2" style="background:var(--bg-elevated); border-left:3px solid ${color}; border-radius:4px">
+      <summary class="cursor-pointer p-3" style="font-weight:600">
+        <span style="color:${color}">${cat.name}</span>
+        <span class="text-[10px] text-[var(--text-muted)] ml-2 mono">${cat.variables.length}변수</span>
+        <div class="text-[11px] mt-1 text-[var(--text-muted)]" style="font-weight:400">${cat.desc}</div>
+        <div class="text-[10px] mt-0.5 text-[var(--text-muted)]" style="font-weight:400">${headerSubtitle}</div>
+      </summary>
+      <div class="px-3 pb-3 text-xs">
+        <table class="w-full" style="border-collapse:collapse">
+          <thead><tr style="border-bottom:1px solid var(--border); color:var(--text-muted)">
+            <th class="text-left py-1.5 pr-2">변수 (의미)</th>
+            <th class="text-right py-1.5 pr-2">raw</th>
+            <th class="text-right py-1.5">percentile</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
       </div>
     </details>`;
 }

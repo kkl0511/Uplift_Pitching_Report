@@ -1,3 +1,48 @@
+# BBL v33.7.3 — 출력 vs 전달 진단 카드 가독성 강화 (사용자 피드백 반영)
+**Build**: 2026-05-05 / **Patch**: v33.7.2 → v33.7.3 / **Type**: UI 확장 (코치 가독성)
+
+### 사용자 피드백
+"사분면 차트 한 장만으로 코치가 읽기 어려움. Elite 의미도 모를 거 같고. 출력/진단 세부 항목을 폴더 카드로 넣으면 어떨지?"
+
+### 추가
+1. **차트 위 "이 차트 읽는 법" 안내 박스** (접이식)
+   - X/Y축 의미 설명 (출력 = wrist_release_speed percentile, 전달 = angular_chain_amplification percentile)
+   - 4 사분면 의미 풀어 설명 (① Elite 유지·정교화 / ② 낭비형 코칭 효과 가장 큼 / ③ 효율형 체력 보강 / ④ 발달 동시 향상)
+   - 점 색상 의미 (초록 안전 / 주황 주의 / 빨강 UCL stress 모니터링)
+
+2. **차트 아래 3개 폴더 카드** (아코디언 — OUTPUT/TRANSFER/INJURY 카테고리별)
+   - 각 카드 헤더: 카테고리명 + 변수 수 + 통합 지표 raw 값
+   - 펼치면 변수별 표: 한글명·hint(코칭 해석 한 줄) / raw 값+단위 / percentile (color coded by 점수 구간 또는 부상 위험)
+   - INJURY는 raw rank percentile로 부상 위험 표시 (80pt+ 빨강 ⚠ 위험, 60+ 주황 주의, 그 외 초록 안전)
+
+3. **`metadata.js`에 OUTPUT_VS_TRANSFER_VAR_META 추가** — 29개 변수 한글명·단위·코칭 hint 매핑
+   - OUTPUT 13변수 (peak_pelvis/trunk/arm_av, wrist_release_speed 등)
+   - TRANSFER 13변수 (lag, speedup, X-factor 등)
+   - INJURY 3변수 (elbow_valgus_torque_proxy, knee_varus_max_drive, max_shoulder_ER_deg)
+
+### 변경 파일
+| 파일 | 변경 |
+|---|---|
+| `app.js` | renderOutputTransferCardInner에 안내 박스 + 3개 아코디언 마운트, 신규 함수 renderOutputTransferAccordion + ALGORITHM_VERSION 'v33.7.3' + DIAGNOSIS 헤더 동적 참조 |
+| `metadata.js` | OUTPUT_VS_TRANSFER_VAR_META 신설 (29개 변수 메타) |
+| `README.md` | v33.7.3 패치노트 |
+
+---
+
+# BBL v33.7.2 — hotfix #2: calculateScores return mechanics 누락
+**Build**: 2026-05-05 / **Patch**: v33.7.1 → v33.7.2 / **Type**: 긴급 버그 수정 #2
+
+### 증상
+v33.7.1 hotfix 후에도 사분면 카드가 여전히 "산출 실패" 메시지만 표시. trial CSV 처리는 정상이지만 사분면 카드 함수가 raw 값을 못 읽음.
+
+### 원인
+`calculateScores`의 return 객체에 `mechanics` 키가 없음. result에 보존되는 건 `var_scores`(점수), `cat_scores`(카테고리 점수), `_raw_inputs`(IPS 일부 변수만) 등인데 raw mechanics 객체 자체는 누락. 사분면 카드 함수가 `r.mechanics`를 봤지만 항상 `undefined`.
+
+### 수정
+`calculateScores` return에 `mechanics: input.mechanics, fitness: input.fitness` 추가. 사분면 카드 함수에 3단계 fallback (`r.mechanics → r.inputs?.mechanics → CURRENT_INPUT.mechanics`)도 안전장치로 추가.
+
+---
+
 # BBL v33.7.1 — hotfix: applyMultiTrialUplift meanFields 누락
 **Build**: 2026-05-05 / **Patch**: v33.7 → v33.7.1 / **Type**: 긴급 버그 수정
 

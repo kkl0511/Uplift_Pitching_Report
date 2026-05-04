@@ -713,3 +713,41 @@ const OUTPUT_VS_TRANSFER = {
     integration_var: 'elbow_valgus_torque_proxy',  // 부상의 단일 통합 지표
   },
 };
+
+// ════════════════════════════════════════════════════════════════════
+// OUTPUT_VS_TRANSFER_VAR_META — 변수별 한글명·단위·해석 (사분면 폴더 카드용)
+// ════════════════════════════════════════════════════════════════════
+const OUTPUT_VS_TRANSFER_VAR_META = {
+  // ── 출력(OUTPUT) — 13변수 ──
+  'peak_pelvis_av':        { name: '골반 회전 속도 peak',        unit: '°/s',  hint: '단계 1 — 하체에서 만든 회전을 골반으로 전달' },
+  'peak_trunk_av':         { name: '몸통 회전 속도 peak',        unit: '°/s',  hint: '단계 2 — 몸통(코어) 회전 출력' },
+  'peak_arm_av':           { name: '팔 swing 속도 peak',         unit: '°/s',  hint: '단계 3 — 팔 휘두름 속도 (전체 키네틱 체인 마지막)' },
+  'max_pelvis_rot_vel_dps':{ name: '골반 회전 속도 (alias)',     unit: '°/s',  hint: 'peak_pelvis_av와 동일 — 호환용' },
+  'max_trunk_twist_vel_dps':{ name: '몸통 회전 속도 (alias)',    unit: '°/s',  hint: 'peak_trunk_av와 동일 — 호환용' },
+  'elbow_ext_vel_max':     { name: '팔꿈치 신전 속도 max',       unit: '°/s',  hint: '팔 액션 마지막 출력 (Driveline elite 2400~2800)' },
+  'shoulder_ir_vel_max':   { name: '어깨 내회전 속도 max',       unit: '°/s',  hint: '공 가속 핵심 출력. 너무 크면 UCL stress (HS elite 4500+)' },
+  'max_cog_velo':          { name: '무게중심 전진 속도 max',     unit: 'm/s',  hint: '하체 추진의 선형 출력 (Pro 3.2)' },
+  'drive_hip_ext_vel_max': { name: 'Drive 다리 hip 신전 속도',   unit: '°/s',  hint: '뒷다리 push 동력 (단계 1)' },
+  'hip_ir_vel_max_drive':  { name: 'Drive 다리 hip 내회전 속도', unit: '°/s',  hint: '골반 회전 시작 동력' },
+  'lead_knee_ext_vel_max': { name: 'Lead 다리 무릎 신전 속도',   unit: '°/s',  hint: '단계 2 — 블로킹 후 회전 가속' },
+  'trunk_flex_vel_max':    { name: '몸통 굴곡 속도 max',         unit: '°/s',  hint: 'FC→BR 동안 앞으로 굽혀 팔에 직선 가속 부여' },
+  'wrist_release_speed':   { name: '★ 손목 릴리스 속도',         unit: 'm/s',  hint: '★ 출력 통합 — 모든 회전·전달의 최종 결과 (ball release proxy, wrist_jc 기준)' },
+  // ── 전달(TRANSFER) — 13변수 ──
+  'pelvis_to_trunk_lag_ms':       { name: '골반→몸통 시간차',         unit: 'ms',   hint: '키네틱 체인 1단 전달. 너무 짧으면 동시 회전(전달 X), 너무 길면 손실 (40~50ms ideal)' },
+  'trunk_to_arm_lag_ms':          { name: '몸통→팔 시간차',           unit: 'ms',   hint: '키네틱 체인 2단 전달. 동일 원리' },
+  'arm_trunk_speedup':            { name: '몸통→팔 증폭률',           unit: 'x',    hint: '몸통이 1만큼 회전할 때 팔이 몇 배. elite 1.8~2.2' },
+  'pelvis_trunk_speedup':         { name: '골반→몸통 증폭률',         unit: 'x',    hint: '하체→몸통 전달 증폭. elite 1.4~1.7' },
+  'arm_to_forearm_speedup':       { name: '상완→전완 증폭률',         unit: 'x',    hint: '팔 내부 휘두름 효율 (elbow_ext / shoulder_ir)' },
+  'elbow_to_wrist_speedup':       { name: '★ 전완→손목 증폭률',       unit: 'x',    hint: '★ 마지막 whip 효율. 손목이 팔꿈치보다 몇 배 빠른가 (elite 1.4~1.8)' },
+  'angular_chain_amplification':  { name: '★ 골반→팔 전체 증폭률',    unit: 'x',    hint: '★ 전달 통합 — 골반 회전 1만큼당 팔 회전 N배 (peak_arm/peak_pelvis, elite 2.5~3.5)' },
+  'proper_sequence_binary':       { name: '시퀀스 정확도',            unit: '0/1',  hint: 'Pelvis→Trunk→Arm 순서 준수 여부. 0이면 시퀀스 오류' },
+  'peak_x_factor':                { name: 'X-factor (분리 저장)',     unit: '°',    hint: 'KH→FC 동안 최대 골반-몸통 분리각. 클수록 SSC 저장량 많음' },
+  'hip_shoulder_sep_at_fc':       { name: 'FC 시점 hip-shoulder 분리',unit: '°',    hint: 'FC 도달 시점의 분리 자세' },
+  'peak_torso_counter_rot':       { name: '와인드업 counter rotation',unit: '°',    hint: 'KH→FC 동안 trunk가 뒤로 회전한 max — 저장 자세' },
+  'stride_to_pelvis_lag_ms':      { name: '★ FC→peakPelvis 시간차',   unit: 'ms',   hint: '★ 하체 contact→골반 회전 시작 타이밍. 절댓값 작을수록 좋음 (음수=일찍 열림 flying open, 양수=지연)' },
+  'x_factor_to_peak_pelvis_lag_ms':{ name: '★ X-factor max→peakPelvis 시간차', unit: 'ms', hint: '★ SSC 활용 타이밍. 0~120ms ideal — 분리 저장 후 빠르게 골반 회전' },
+  // ── 부상(INJURY) — 3변수 ──
+  'elbow_valgus_torque_proxy':    { name: '★ 팔꿈치 외반 토크 proxy', unit: 'Nm',   hint: '★ UCL stress 모니터링. 0.5×m_forearm×L²×ω² 산식. 절대값보단 코호트 percentile ranking 활용' },
+  'knee_varus_max_drive':         { name: 'Drive 무릎 외반 max',      unit: '°',    hint: '발달기 무릎 안정성. 코호트 90pct(34.56°) 초과 시 stabilizer 강화 권장' },
+  'max_shoulder_ER_deg':          { name: '어깨 외회전 max (Layback)',unit: '°',    hint: '180~190° elite. 200° 초과 시 어깨 valgus stress 위험' },
+};
