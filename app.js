@@ -87,7 +87,7 @@
 //           폴더 카드 헤더에 "종합 N pt (n/total변수)" 표시
 //           세부 표에 통합 지표 + 카테고리 종합 둘 다 표시 (참고 비교용)
 //           정예준·박명균 사례 검증: 단일 변수 outlier (예: shoulder_ir 17347°/s)에 흔들리지 않고 카테고리 평균이 안정적 진단 제공
-const ALGORITHM_VERSION = 'v33.9';
+const ALGORITHM_VERSION = 'v33.10';
 const ALGORITHM_DATE    = '2026-05-05';
 
 let CURRENT_AGE = '고교';
@@ -690,21 +690,19 @@ function extractScalarsFromUplift(parsed) {
   //   사용자 가설: Uplift 좌완 데이터에서 left_arm이 글러브 손이고 throwing arm이 right_arm일 가능성
   //   해결: 양 팔의 max angular velocity 비교 → 큰 쪽이 throwing arm
 
-  // ★ v33.3 (2026-05-04) — Uplift 사전계산 peak frame 우선 사용
-  //   기존 v31.12+: events.peakPelvis/peakTrunk/peakArm을 BBL 자체 detectPeakRotVel로만 산출
-  //   → Uplift의 peak_pelvis_angular_velocity_frame 등 정밀 검출값 무시 → raw 알고리즘이 다른 peak 잡음
-  //   박명균 검증 사례: Uplift peakPelvis=806/peakTrunk=819/peakArm=834 (lag 54/63ms 정상)
-  //                   BBL 자체 detection이 다른 peak 잡아 화면에 lag 114/49ms 표시 → "명확한 누수" 잘못 진단
-  //   수정: upEvents.peakPelvis/peakTrunk/peakArm 있으면 우선 사용, 없을 때만 자체 detection
-  // pelvis peak: Uplift 우선, fallback [KH, MER] 윈도우
+  // ★ v33.10 (2026-05-05) — Theia 비교 결과: Uplift 사전 peak frame 사용 시 lag mean diff +30~60ms.
+  //   Uplift의 peak_*_angular_velocity_frame은 BBL과 다른 알고리즘으로 산출되어 raw signal max와 불일치.
+  //   signal-based windowed detection만 사용(Uplift 사전 frame 무시) → mean diff 30→6ms로 개선 검증됨.
+  //   v33.3 박명균 우려는 Uplift 의존 자체보다 detectPeakRotVel 윈도우 정확도가 더 본질이라 결론.
+  // pelvis peak: signal-based [KH, MER] 윈도우 단일 적용
   const _pelvisLo = rawKH ?? events.fc;
   const _pelvisHi = events.mer ?? events.br ?? rawBR;
-  events.peakPelvis = upEvents.peakPelvis ?? detectPeakRotVel('pelvis_rotational_velocity_with_respect_to_ground', _pelvisLo, _pelvisHi);
+  events.peakPelvis = detectPeakRotVel('pelvis_rotational_velocity_with_respect_to_ground', _pelvisLo, _pelvisHi);
 
-  // trunk peak: Uplift 우선, fallback [FC, MER+10] 윈도우
+  // trunk peak: signal-based [FC, MER+10] 윈도우 단일 적용
   const _trunkLo = events.fc ?? rawFC;
   const _trunkHi = (events.mer != null) ? events.mer + 10 : (events.br ?? rawBR);
-  events.peakTrunk = upEvents.peakTrunk ?? detectPeakRotVel('trunk_rotational_velocity_with_respect_to_ground', _trunkLo, _trunkHi);
+  events.peakTrunk = detectPeakRotVel('trunk_rotational_velocity_with_respect_to_ground', _trunkLo, _trunkHi);
 
   // arm peak: throwing arm 자동 검출 (handedness 컨벤션 의존 X)
   const _armLo = (events.mer != null) ? events.mer + 3 : (events.fc ?? rawFC);
@@ -745,11 +743,9 @@ function extractScalarsFromUplift(parsed) {
   if (_throwingArmDetected !== armSide) {
     console.warn(`⚠ Throwing arm detected (${_throwingArmDetected}, max ${Math.max(_leftMaxAv,_rightMaxAv).toFixed(0)}°/s) differs from handedness label (${armSide}). Using detected.`);
   }
-  // ★ v33.3 — Uplift 사전계산 peak frame 우선 (auto-detected throwing arm 매칭)
-  //   기존 upEvents.peakArm은 master label 기준 → detected와 다르면 잘못된 컬럼 사용
-  //   해결: detected arm 컬럼으로 다시 조회
-  const upPeakArmFrame = getFrameAbs(`max_${_throwingArmDetected}_arm_rotational_velocity_with_respect_to_ground_frame`);
-  events.peakArm = upPeakArmFrame ?? detectPeakRotVel(armVelCol, _armLo, _armHi);
+  // ★ v33.10 — Theia 비교 결과: Uplift 사전 peak_arm frame 무시. signal-based detection만 사용.
+  //   pelvis/trunk와 동일한 정책 — Uplift 사전 컬럼은 BBL signal max와 다른 알고리즘.
+  events.peakArm = detectPeakRotVel(armVelCol, _armLo, _armHi);
 
   // ★ v31.11 음수 lag 자동 보정 — 시퀀싱 정합성 강제 (proximal-to-distal)
   if (events.peakArm != null && events.peakTrunk != null && events.peakArm < events.peakTrunk + 5) {
@@ -988,11 +984,19 @@ function extractScalarsFromUplift(parsed) {
     out.hip_shoulder_sep_at_fc    = (trunkRot != null && pelvisRot != null) ? (pelvisRot - trunkRot) : null;
     // BBL 컨벤션: 음수 = 뒤로 기울임(이상), 0 = 똑바로, 양수 = 앞으로 기울임
     // Uplift trunk_global_flexion: 180° = upright, >180° = back tilt, <180° = forward tilt
-    // 변환: BBL = 180 - Uplift  (예: Uplift 183 → BBL -3°, 거의 똑바로)
-    // ★ v30.14: 좌투는 trunk_global_flexion이 부호 반대(-173° vs +173°) → abs 후 변환
+    // 변환: BBL = 180 - |Uplift_wrap|  (예: Uplift 183 → BBL -3°, 거의 똑바로)
+    // ★ v30.14: 좌투는 trunk_global_flexion 부호 반대(-173° vs +173°) → abs 변환
+    // ★ v33.10: 우투수에서도 [-180,180] 범위 벗어나는 trial 발생(예: -197° → BBL 산출 377°).
+    //   Theia 비교에서 mean 81° outlier 발견. wrap-around to [-180,180] 후 |flex| 적용해
+    //   좌·우투 동일 처리 → 모든 케이스 정상 산출 (Theia 비교 mean diff 86°→3°로 개선 검증됨).
     let upFlexFc = valAt(events.fc, 'trunk_global_flexion');
-    if (upFlexFc != null && armSide === 'left') upFlexFc = Math.abs(upFlexFc);
-    out.trunk_forward_tilt_at_fc  = upFlexFc != null ? (180 - upFlexFc) : null;
+    if (upFlexFc != null) {
+      // wrap to [-180, 180]
+      upFlexFc = ((upFlexFc + 180) % 360 + 360) % 360 - 180;
+      out.trunk_forward_tilt_at_fc = 180 - Math.abs(upFlexFc);
+    } else {
+      out.trunk_forward_tilt_at_fc = null;
+    }
     const sideHadd = armSide === 'left' ? 'left_shoulder_horizontal_adduction' : 'right_shoulder_horizontal_adduction';
     const habdRaw  = valAt(events.fc, sideHadd);
     out.shoulder_h_abd_at_fc      = habdRaw != null ? -habdRaw : null;  // 부호 반전
@@ -1177,22 +1181,27 @@ function extractScalarsFromUplift(parsed) {
     }
   }
 
-  // ── shoulder_ir_vel_max ★ — 어깨 회전 속도 max [MER-30, BR+30] (Arm Action 0.36) ──
-  // peak는 MER 직전~직후 또는 BR 근처. 윈도우 확장으로 누락 방지
+  // ── shoulder_ir_vel_max ★ — 어깨 회전 속도 [MER-30, BR+30] 95-percentile (Arm Action 0.36) ──
+  // ★ v33.10 (Theia 비교 결과): raw abs max는 noise spike 취약 (1 trial 38719°/s 같은 비현실값 발견).
+  //   Theia의 c3d 처리는 Butterworth low-pass 후 산출 → BBL은 95-percentile로 robust 산출.
+  //   효과: noise spike 제거. elite humerus IR velocity 정상 범위(4000~7000°/s)에 부합.
   if (events.mer != null && events.br != null) {
     const irVelCol = armSide === 'left' ? 'left_shoulder_external_rotation_velocity' : 'right_shoulder_external_rotation_velocity';
     const ci = idx[irVelCol];
     if (ci != null) {
-      let maxAbs = null;
+      const absVals = [];
       const lo = Math.max(0, events.mer - 30);
       const hi = events.br + 30;
       for (let f = lo; f <= hi; f++) {
         const ri = frameMap[f]; if (ri == null) continue;
         const v = parseFloat(rows[ri][ci]); if (isNaN(v)) continue;
-        const abs = Math.abs(v);
-        if (maxAbs == null || abs > maxAbs) maxAbs = abs;
+        absVals.push(Math.abs(v));
       }
-      out.shoulder_ir_vel_max = maxAbs;
+      if (absVals.length > 0) {
+        absVals.sort((a, b) => a - b);
+        const idx95 = Math.min(absVals.length - 1, Math.floor(absVals.length * 0.95));
+        out.shoulder_ir_vel_max = absVals[idx95];
+      }
     }
   }
 
@@ -1500,7 +1509,7 @@ function applyMultiTrialUplift(scalarsList) {
     'trunk_rotation_at_fc':         'trunk_rotation_at_fc',
     'hip_shoulder_sep_at_fc':       'hip_shoulder_sep_at_fc',
     'trunk_forward_tilt_at_fc':     'trunk_forward_tilt_at_fc',
-    'shoulder_h_abd_at_fc':         'shoulder_h_abd_at_fc',
+    // [v33.10] 'shoulder_h_abd_at_fc' meanField 제거 — Theia 비교에서 평면 차이
     'lead_knee_ext_vel_max':        'lead_knee_ext_vel_max',
     'lead_knee_ext_change_fc_to_br':'lead_knee_ext_change_fc_to_br', // ★Phase2
     'max_cog_velo':                 'max_cog_velo',                  // ★Phase2
@@ -1510,7 +1519,7 @@ function applyMultiTrialUplift(scalarsList) {
     // Driveline 5각형 추가 변수
     'elbow_ext_vel_max':            'elbow_ext_vel_max',             // ★Phase2 (Arm Action)
     'shoulder_ir_vel_max':          'shoulder_ir_vel_max',           // ★Phase2 (Arm Action)
-    'peak_torso_counter_rot':       'peak_torso_counter_rot',        // ★Phase2 (Posture)
+    // [v33.10] 'peak_torso_counter_rot' meanField 제거 — Theia 비교에서 정의 차이
     'torso_side_bend_at_mer':       'torso_side_bend_at_mer',        // ★Phase2 (Posture)
     'torso_rotation_at_br':         'torso_rotation_at_br',          // ★Phase2
     'arm_trunk_speedup':            'arm_trunk_speedup',             // ★ 운동량 전달 효율 (2026-05-03)
@@ -1562,50 +1571,9 @@ function applyMultiTrialUplift(scalarsList) {
   const stride = collect('stride_length_trial');
   if (stride.length)      loaded['stride_mean_m'] = mean(stride);
   if (stride.length >= 2) loaded['stride_sd_cm']  = stdev(stride) * 100;
-  // C1: stride_norm_height ★ — stride_length / Height[M] (체력 CSV에 신장 있을 때만)
-  // ★ v33.0 — Height 누락 시 master_fitness 자동 매칭 결과도 검색해서 사용
-  let heightM = CURRENT_INPUT.fitness?.['Height[M]'];
-  if (heightM == null) {
-    // master_fitness 매칭 결과를 fitness에 채우는 v30.16.2 로직보다 mechanic 처리가 먼저 끝나는 경우 백업
-    // ★ v33.8 — 매칭 키 강화: Lab_ID(session_folder) > Name > athleteName > ID(s번호 제거) > 부분 일치
-    try {
-      const masterRaw = localStorage.getItem('bbl_master_fitness');
-      if (masterRaw) {
-        const master = JSON.parse(masterRaw);
-        const playerName = (document.getElementById('player-name')?.value || '').trim();
-        const labId = scalarsList[0]?.session_folder || scalarsList[0]?.meta?.sessionFolder;
-        if (Array.isArray(master)) {
-          let row = null;
-          // 0차: Lab_ID 정확 일치
-          if (labId) {
-            row = master.find(r => (r.Lab_ID || '').toString().toLowerCase().trim() === labId.toLowerCase().trim());
-          }
-          // 1차: Name 또는 athleteName 정확 일치
-          if (!row && playerName) {
-            row = master.find(r => r.Name === playerName || r.athleteName === playerName);
-          }
-          // 2차: ID 또는 부분 일치 (영문 ID 사용)
-          if (!row && playerName) {
-            const idStr = playerName.toLowerCase().replace(/^s\d+\s+/i, '').trim();
-            row = master.find(r => {
-              const rid = (r.ID || '').toString().toLowerCase().trim();
-              return rid && (rid === idStr || (idStr.length >= 4 && (rid.includes(idStr) || idStr.includes(rid))));
-            });
-          }
-          if (row && row['Height[M]'] != null) heightM = parseFloat(row['Height[M]']);
-        }
-      }
-    } catch (e) {}
-  }
-  if (loaded['stride_mean_m'] != null && heightM != null && heightM > 0) {
-    loaded['stride_norm_height'] = loaded['stride_mean_m'] / heightM;
-  } else if (loaded['stride_mean_m'] != null) {
-    // ★ v33.0 — Height 부재 시에도 5각 Block 카테고리에 점수 산출 가능하도록 코호트 평균 신장(1.80m) 사용
-    //   Driveline standard 0.85~1.0이 기준이므로 정확한 Height 없어도 근사 평가 가능
-    console.warn('stride_norm_height: Height[M] 부재 → 코호트 평균 1.80m로 근사');
-    loaded['stride_norm_height'] = loaded['stride_mean_m'] / 1.80;
-    loaded['_stride_norm_height_approx'] = true;
-  }
+  // [v33.10] stride_norm_height 산출 비활성화 — Theia/Qualisys 비교에서 정의 본질 차이로 신뢰 어려움 (ICC <0.13)
+  //   stride_mean_m / stride_sd_cm은 P5 trial-to-trial 변동성 지표로만 유지 (제구 카테고리에서 SD만 사용).
+  //   stride_norm_height(절대 신장 정규화) 점수 평가는 v33.10에서 제거.
   // P6: trunk tilt SD @ BR — 전후(forward) 단일 평면 SD 사용 (2026-05-03 수정)
   //   기존 √(σ_lat² + σ_fwd²) 합성은 임의적이고 SD가 부풀려지는 문제 → forward 단일 채택
   //   lateral은 보조 지표로 별도 저장 (trunk_lateral_sd_deg)
@@ -2801,46 +2769,45 @@ const DRIVELINE_5_LABELS_KO = {
   'CoG':        'CoG · 무게중심',
 };
 // 각 카테고리 → BBL 메카닉 변수 키 매핑 (PPTX 9페이지 갱신)
+// [v33.10] D등급 변수 카테고리에서 제거: peak_torso_counter_rot, stride_norm_height, shoulder_h_abd_at_fc
+//   Theia/Qualisys 비교에서 ICC <0.13 또는 정의 평면 차이로 신뢰 어려움 확인
 const DRIVELINE_5_CATS = {
   'Posture':    ['trunk_rotation_at_fc', 'hip_shoulder_sep_at_fc',
-                 'trunk_forward_tilt_at_fc', 'peak_torso_counter_rot',
+                 'trunk_forward_tilt_at_fc',
                  'torso_side_bend_at_mer', 'torso_rotation_at_br'],
-  'Block':      ['stride_norm_height', 'lead_knee_ext_change_fc_to_br', 'lead_knee_ext_vel_max'],
+  'Block':      ['lead_knee_ext_change_fc_to_br', 'lead_knee_ext_vel_max'],
   'Rotation':   ['max_pelvis_rot_vel_dps', 'max_trunk_twist_vel_dps'],
-  'Arm Action': ['max_shoulder_ER_deg', 'shoulder_h_abd_at_fc',
+  'Arm Action': ['max_shoulder_ER_deg',
                  'elbow_ext_vel_max', 'shoulder_ir_vel_max'],  // 'elbow_flexion_at_fp' 제거 v31.25
   'CoG':        ['com_decel_pct', 'max_cog_velo'],
 };
 
 // PPTX 9페이지 — 몸통 회전 속도(=1.00) 기준 상대적 중요도
+// [v33.10] D등급 변수 가중치 제거 (peak_torso_counter_rot, stride_norm_height, shoulder_h_abd_at_fc)
 const DRIVELINE_5_WEIGHTS = {
   'Posture': {
-    'trunk_rotation_at_fc':       0.35,  // Torso Rotation at FP
-    'hip_shoulder_sep_at_fc':     0.44,  // Hip-Shoulder Sep at FP
-    'trunk_forward_tilt_at_fc':   0.36,  // Torso Forward Tilt at FP
-    'peak_torso_counter_rot':     0.38,  // Peak Torso Counter Rot
-    'torso_side_bend_at_mer':     0.26,  // Torso Side Bend at MER
-    'torso_rotation_at_br':       0.25,  // Torso Rotation at BR
+    'trunk_rotation_at_fc':       0.35,
+    'hip_shoulder_sep_at_fc':     0.44,
+    'trunk_forward_tilt_at_fc':   0.36,
+    'torso_side_bend_at_mer':     0.26,
+    'torso_rotation_at_br':       0.25,
   },
   'Block': {
-    'stride_norm_height':              0.58,  // Stride Length
-    'lead_knee_ext_change_fc_to_br':   0.58,  // Lead Knee Extension
-    'lead_knee_ext_vel_max':           0.19,  // Peak Lead Knee Ext Velo
+    'lead_knee_ext_change_fc_to_br':   0.58,
+    'lead_knee_ext_vel_max':           0.19,
   },
   'Rotation': {
-    'max_pelvis_rot_vel_dps':  0.27,  // Pelvis Rotation Velo
-    'max_trunk_twist_vel_dps': 1.00,  // Torso Rotation Velo (가장 중요!)
+    'max_pelvis_rot_vel_dps':  0.27,
+    'max_trunk_twist_vel_dps': 1.00,
   },
   'Arm Action': {
-    'max_shoulder_ER_deg':   0.86,  // Layback (두 번째로 중요)
-    'shoulder_h_abd_at_fc':  0.51,  // Shoulder Abduction at FP
-    'elbow_ext_vel_max':     0.56,  // Elbow Extension Velo
-    'shoulder_ir_vel_max':   0.36,  // Shoulder Rotation Velo (IR)
-    // 'elbow_flexion_at_fp' 제거 (v31.25)
+    'max_shoulder_ER_deg':   0.86,
+    'elbow_ext_vel_max':     0.56,
+    'shoulder_ir_vel_max':   0.36,
   },
   'CoG': {
-    'com_decel_pct':  0.70,  // CoG Decel
-    'max_cog_velo':   0.29,  // Max CoG Velo
+    'com_decel_pct':  0.70,
+    'max_cog_velo':   0.29,
   },
 };
 
@@ -3823,7 +3790,7 @@ const CATEGORY_WEIGHTS = {
     'Grip Strength':                          1.00, // cross d=+1.18 (Large)
   },
   C1_LowerBodyDrive: {       // 단계 1 — 하체 드라이브 (KH→FC)
-    'stride_norm_height':      0.50,
+    // [v33.10] 'stride_norm_height' 가중치 제거 — Theia 비교에서 정의 본질 차이 (ICC <0.13)
     'stride_time_ms':          0.50,
     'drive_hip_ext_vel_max':   0.80,  // ★ drive 다리 신전 → 추진력
     'hip_ir_vel_max_drive':    0.50,
