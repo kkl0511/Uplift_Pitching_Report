@@ -1,3 +1,345 @@
+# BBL v33.21 — 카테고리 통합 + 다중회귀 MaxV 예측 모델
+**Build**: 2026-05-06 / **Patch**: v33.19 → v33.20 → v33.21 / **Type**: 카테고리 갱신 + 회귀모델 통합
+
+### 사용자 요청
+> "구속 정보는 master_fitness.xlsx에 있으니 반영하고, 카테고리를 통합하고 다중 회귀모델을 적용해줘"
+
+## v33.20 — 카테고리 통합 (cohort_v29.js)
+
+신규 10 SD 변수가 EXTRA_VAR_SCORING에만 등록되고 카테고리 평균에 안 들어가던 문제 해결.
+
+**P 시리즈 매핑**:
+
+| 카테고리 | 추가된 변수 |
+|---|---|
+| **P1_ReleaseConsistency** | + `wrist_release_speed_sd` |
+| **P4_TimingConsistency** | + `pelvis_to_trunk_lag_ms_sd`, `trunk_to_arm_lag_ms_sd`, `pelvis_trunk_speedup_sd`, `arm_trunk_speedup_sd` |
+| **P5_StrideConsistency** | + `lead_knee_ext_change_fc_to_br_sd` |
+| **P6_TrunkConsistency** | + `peak_trunk_av_sd`, `max_x_factor_sd`, `trunk_tilt_at_br_trial_sd`, `trunk_flex_vel_max_sd` |
+
+**var_distributions에도 코호트 분포 추가** (mean·sd·median·q25·q75·n, BBL 90~185 sessions 기반).
+
+→ 신규 10 SD 변수가 카테고리 평균에 자연 반영 → 종합 점수·percentile 자동 계산
+
+## v33.21 — 다중회귀 MaxV 예측 모델 IPS 통합
+
+### OLS 학습 결과 (3 모델 비교)
+
+| 모델 | 변수 | n | R² | adj R² |
+|---|---|---|---|---|
+| 1. 메카닉만 | 10 | 169 | 0.234 | 0.185 |
+| 2. 메카닉+신체 | 15 | 169 | **0.401** | 0.343 ★ 가장 정밀 |
+| **3. 핵심 (IPS 통합)** | **10** | **169** | **0.361** | **0.321** |
+
+**모델 3 — 핵심 10 변수 (BBL 통합용)**:
+
+| 변수 | 비표준화 계수 | 표준화 β |
+|---|---|---|
+| `max_x_factor_mean` | +0.177 | +0.256 |
+| `lead_knee_ext_change_fc_to_br_mean` | +0.023 | +0.066 |
+| `proper_sequence_binary_mean` | +8.733 | +0.228 ★ |
+| `pelvis_to_trunk_lag_ms_sd` | +0.001 | -0.022 |
+| `elbow_ext_vel_max_mean` | +0.001 | +0.061 |
+| `height_m` | +40.227 | +0.253 ★ |
+| `weight_kg` | +0.007 | -0.016 |
+| `cmj_pp_bm` | +0.051 | +0.069 |
+| `imtp_pp_bm` | +0.309 | +0.062 |
+| `grip_strength` | +0.280 | +0.266 ★ 1순위 |
+
+**intercept**: 15.62
+
+### v33.21 metadata.js 추가
+
+```js
+const VELO_REGRESSION_v33_21 = {
+  intercept: 15.6232,
+  coefs: { max_x_factor_mean: 0.177448, ... grip_strength: 0.280420 },
+  R2: 0.361, n: 169,
+  validation: { kimgangyeon_H2: { measured: 146.3, predicted: 134.1, residual: +12.2 } }
+};
+
+function predictMaxVelocity(mechanics, fitness) {
+  // 결측 시 코호트 mean으로 imputation
+  // 반환: 예상 구속 (km/h)
+}
+```
+
+### 김강연 H2 검증 (실제 호출)
+
+```
+입력: x_factor 37.4°, knee_ext +12.4°, sequence 100%,
+      lag_sd 8.9ms, elbow_ext 1472°/s,
+      height 1.80m, weight 75kg, cmj 54, imtp 28.2, grip 58.1
+출력: 예측 134.1 km/h (실측 146.3, 잔차 +12.2)
+```
+
+→ **잔차 +12.2 km/h = 메카닉+신체로 설명 안 되는 효율 우수** 신호
+
+### 사용 시나리오 (향후 UI 통합 가능)
+
+- `predictMaxVelocity()` → 예상 구속 산출
+- 잔차 = 실측 - 예상 → "효율" 지표 (Theia 리포트의 P1 Coach Delivery 같은 효율 평가)
+- > +5 km/h: 효율 우수 (메카닉 100% 활용)
+- < -5 km/h: 잠재 미발현 (메카닉/체력 발달 여지)
+
+### 변경 없음
+- 산식·기존 변수 sigma 모두 v33.19와 동일
+- v33.10~v33.19 모든 변경 그대로 유지
+- 회귀 함수는 metadata.js에 정의만 (기존 ceiling 시스템과 별개, 향후 UI 통합 가능)
+
+---
+
+# BBL v33.19 — 실제 MaxV 데이터 + 다중회귀 모델 + lead_knee_ext_change Gaussian 추가
+**Build**: 2026-05-06 / **Patch**: v33.18 → v33.19 / **Type**: 측정 구속 검증 + 다중회귀 + 신규 변수
+
+### 사용자 요청
+> "구속 정보는 이 파일(master_fitness.xlsx)에 있으니 이를 반영하고, 카테고리를 통합하고 다중 회귀모델을 적용해줘"
+
+### 1. 측정 구속(MaxV) 데이터 통합
+- master_fitness.xlsx Lab_ID ↔ bbl_per_session session_folder 매칭: **175 sessions**
+- H1·H2 둘 다 매칭된 선수: **85명**
+- ΔMaxV 통계: mean +3.5, q25 +0.1, q75 +5.8, max +14.8 km/h
+- 향상 그룹 평균 +9.1 km/h vs 정체 그룹 -1.5 km/h (실제 구속 차이!)
+
+### 2. 다중회귀 모델 (OLS, n=169 sessions, 11 메카닉 변수)
+
+**전체 모형**: R² = **0.235** (adj 0.181) — 메카닉만으로 MaxV 변동 23.5% 설명
+
+**통계적 유의 변수** (표준화 β):
+
+| 변수 | β | t | 유의성 | 단순 r |
+|---|---|---|---|---|
+| **max_x_factor_mean** | **+0.302** | **+4.01** | **★★★** | +0.297 |
+| **proper_sequence_binary_mean** | **+0.263** | **+3.45** | **★★★** | +0.284 |
+| **lead_knee_ext_change_fc_to_br_mean** | **+0.145** | **+1.95** | **★** | +0.137 |
+| pelvis_trunk_speedup_mean | -0.550 | -1.92 | * | -0.082 (다중공선) |
+
+→ **X-Factor + 시퀀스 정확도 + 앞다리 신전**이 통계적 유의 elite 핵심
+
+### 3. peak_arm_av proxy vs 진짜 MaxV 비교 (중요)
+
+| 변수 | proxy (peak_arm) Cohen d | 진짜 MaxV Cohen d |
+|---|---|---|
+| elbow_ext_vel_max | +1.48 ★★ | +0.64 (약화) |
+| peak_trunk_av | +1.37 ★★ | +0.47 (약화) |
+| arm_to_forearm_speedup | +1.25 ★★ | (약화) |
+| **max_x_factor_mean** | (작음) | **+1.02 ★ (강화)** |
+| **lead_knee_ext_change** | (중간) | **+0.94 ★ (강화)** |
+
+→ **peak_arm은 elite 차별로는 좋지만 MaxV proxy로는 부정확**. v33.18 변수 일부는 검증 필요.
+
+### 4. v33.19 변경 — `lead_knee_ext_change_fc_to_br_mean` EXTRA_VAR_SCORING 추가
+
+| 항목 | 값 | 근거 |
+|---|---|---|
+| optimal | 8° | H2 상위 그룹 평균 +7.8° |
+| sigma | 8 | 코호트 ±5σ 합리적 범위 |
+| oneSided | 'open_is_good' | FC→BR 무릎 펴질수록 좋음 (max 60° plausible) |
+| 평가 | Gaussian + LITERATURE_OVERRIDE | 다중회귀 t=1.95 * + Cohen d=+0.94 |
+
+기존 KINETIC_FAULTS `LeadKneeCollapse`(<-22.2°)와 보완 — Gaussian으로 elite 양 차별 명확화.
+
+### 5. 향후 작업 (v33.20+)
+- **v33.20 카테고리 통합**: 신규 10 SD 변수를 cohort_v29.js category_vars의 P 시리즈에 매핑 (큰 작업, 코호트 분포 갱신 필요)
+- **v33.21 MaxV 예측 모델 IPS 통합**: 다중회귀 계수로 예상 MaxV 산출 → 향상 잠재력 점수 정밀화
+- 측정 구속(MaxV) + 신체 변수(F1·F2) 결합 시 R² 개선 가능
+
+### 변경 없음
+- 산식·기존 변수 sigma 모두 v33.18과 동일
+- v33.17/v33.18에서 추가한 10 SD 변수 그대로 유지
+- 다중회귀 모델은 **분석 결과만 활용** (코드에는 회귀 계수 미적용 — v33.21 향후)
+
+---
+
+# BBL v33.18 — H2 Elite 차별 SD 변수 5종 추가 (상위/하위 20% 비교)
+**Build**: 2026-05-06 / **Patch**: v33.17 → v33.18 / **Type**: 신규 변수 추가 (Elite 차별 평가 강화)
+
+### 사용자 통찰
+> "H2 기준 구속 상위 20%와 하위 20%(아웃라이어 제거 후) 차이 특성도 반영해야 하지 않을까?"
+
+### 분석 방법
+- BBL 95명 H2 시점 (마지막 세션) 데이터
+- IQR outlier 제거 후 91명
+- 상위 20% (n=18, 평균 arm 1575 °/s) vs 하위 20% (n=18, 평균 arm 1088 °/s)
+- 모든 메카닉 변수 Cohen's d 효과크기 산출
+
+### Elite 출력 차별 변수 (mean, d 큰 순)
+
+| 변수 | Cohen d | 상위 20% | 하위 20% | BBL 평가 상태 |
+|---|---|---|---|---|
+| **elbow_ext_vel_max** | **+1.48 ★★** | 1637 | 1192 | ✓ 코호트 percentile (이미 평가) |
+| **peak_trunk_av** | **+1.37 ★★** | 801 | 668 | ✓ Uplift Pro Gaussian (v33.14) |
+| **arm_to_forearm_speedup** | **+1.25 ★★** | 0.84 | 0.51 | ✓ 코호트 percentile |
+| pelvis_trunk_speedup | +1.15 ★ | 1.54 | 1.35 | ✓ Uplift Pro Gaussian |
+| proper_sequence_binary | +0.67 | 99% | 86% | ✓ 평가 중 |
+| lead_knee_ext_change | +0.62 | +5.2° | -1.9° | ✓ KINETIC_FAULTS 평가 |
+
+### Elite 일관성 차별 변수 (SD, 상위가 모두 작음)
+
+| 변수 | Cohen d | 상위 SD | 하위 SD | 추가 여부 |
+|---|---|---|---|---|
+| **max_x_factor_sd** | **-0.68** | 1.86° | 4.01° | ✅ **v33.18 추가** |
+| **trunk_tilt_at_br_trial_sd** | **-0.65** | 1.24° | 2.83° | ✅ **v33.18 추가** |
+| **wrist_release_speed_sd** | **-0.62** | 0.52 | 1.61 | ✅ **v33.18 추가** |
+| **trunk_flex_vel_max_sd** | **-0.60** | 18 | 58 | ✅ **v33.18 추가** |
+| **arm_trunk_speedup_sd** | **-0.57** | 0.12 | 0.41 | ✅ **v33.18 추가** |
+| peak_pelvis_av_sd | -0.57 | 17 | 38 | (이미 코호트 평가) |
+| peak_trunk_av_sd | -0.68 | 29 | 68 | ✓ v33.17 추가됨 |
+| pelvis_trunk_speedup_sd | -0.51 | 0.07 | 0.12 | ✓ v33.17 추가됨 |
+
+### v33.18 변경 — `metadata.js` SD 변수 5종 신규 추가
+
+| 변수 | optimal | sigma | 코호트 q75 |
+|---|---|---|---|
+| `max_x_factor_sd` | 0 | 3 | 2.9° (분리 일관성 ★) |
+| `trunk_tilt_at_br_trial_sd` | 0 | 1.5 | 1.6° (릴리스 자세) |
+| `wrist_release_speed_sd` | 0 | 0.7 | 0.7 m/s |
+| `trunk_flex_vel_max_sd` | 0 | 25 | 27 °/s |
+| `arm_trunk_speedup_sd` | 0 | 0.18 | 0.20 |
+
+### 핵심 통찰
+
+**1. Elite의 출력 핵심 = elbow_ext + arm_to_forearm + trunk_av**
+- 어깨가 아니라 **팔꿈치 신전 속도(d=1.48)** 가 가장 강한 elite 차별 (UCL 부하 변수이기도)
+- arm_to_forearm_speedup (팔→전완 증폭률) d=1.25 — elite 강력 차별
+
+**2. Elite는 거의 모든 변수에서 SD 작음**
+- 11개 SD 변수에서 모두 상위가 일관성 우수 (d=-0.51~-0.68)
+- → **"안정적 메카닉" = elite 핵심 특성**
+
+**3. v33.17 + v33.18 시너지**
+- v33.17: 발달 잠재력 신호 (어떻게 향상되었나) — lag SD, knee SD 등
+- v33.18: Elite 차별 (무엇이 elite를 만드나) — X-Factor SD, 릴리스 SD, 굴곡 SD 등
+- 두 분석이 보완적 → 메카닉 평가의 폭 + 깊이 동시 강화
+
+### 변경 없음
+- 산식·기존 변수 sigma 모두 v33.17과 동일
+- elbow_ext_vel_max·arm_to_forearm_speedup은 이미 평가 중 (코호트 percentile)
+- LITERATURE_OVERRIDE 등록만 추가 (변수 카드에서 Gaussian 평가)
+
+---
+
+# BBL v33.17 — H1→H2 발달 신호 SD 변수 5종 신규 추가 (BBL 90명 매칭 분석)
+**Build**: 2026-05-06 / **Patch**: v33.16 → v33.17 / **Type**: 신규 변수 추가 (메카닉 평가 확장)
+
+### 사용자 통찰
+> "코호트 중에 H1에 비해 H2에서 속도 향상이 많이 된 선수들의 특성(타이밍 일관성 등)을 메카닉 평가에 반영"
+
+### BBL 90명 H1·H2 매칭 분석 (Cohen's d 효과크기)
+- 향상 그룹 (상위 1/3, n=27, 평균 Δarm +184)
+- 정체 그룹 (하위 1/3, n=27, 평균 Δarm -133)
+
+**H1 시점 변수 — 발달 잠재력 신호**:
+
+| 변수 | Cohen d | 향상 H1 | 정체 H1 | 해석 |
+|---|---|---|---|---|
+| pelvis_to_trunk_lag_ms | **+0.92 ★** | 95ms | 54ms | **lag 미숙 = 발달 여지 큼** |
+| stride_length | +0.91 ★ | 1.96m | 1.80m | 출발점 stride 길수록 |
+| shoulder_ir_vel_max | +0.82 ★ | 3282 | 2618 | 출발점 ↑ |
+| pelvis_to_trunk_lag_sd | **+0.51** | 19ms | 13ms | 변동성 있음 |
+| lead_knee_ext_change_sd | -0.66 | 3.1° | 5.1° | **★ 향상 그룹 일관성↑** |
+
+**H1→H2 Δ변수 — 발달 동반 변화**:
+
+| 변수 | Cohen d | 향상 Δ | 정체 Δ | 해석 |
+|---|---|---|---|---|
+| pelvis_to_trunk_lag | **-1.09 ★** | -40 | +12 | **★ lag 단축이 핵심** |
+| peak_trunk_av_sd | -0.72 | -2.6 | +30.7 | trunk 일관성 향상 |
+| pelvis_trunk_speedup_sd | -0.70 | -0.01 | +0.04 | speedup 일관성 향상 |
+| peak_torso_counter_rot | -0.71 | -32 | -10 | counter rot 변화 |
+| max_shoulder_ER | +0.61 | +5° | -5° | 레이백 증가 |
+
+### v33.17 변경 — `metadata.js` EXTRA_VAR_SCORING + LITERATURE_OVERRIDE
+
+**신규 SD 변수 5종 추가** (sigma는 코호트 q75 기준 약 70점 도달):
+
+| 변수 | optimal | sigma | 카테고리 | 효과크기 |
+|---|---|---|---|---|
+| `pelvis_to_trunk_lag_ms_sd` | 0 | 15 | 타이밍 일관성 (★ 가장 강력) | d=+0.51 |
+| `trunk_to_arm_lag_ms_sd` | 0 | 18 | 타이밍 일관성 | (Δ에서 변동) |
+| `peak_trunk_av_sd` | 0 | 30 | 출력 일관성 | Δ d=-0.72 |
+| `pelvis_trunk_speedup_sd` | 0 | 0.06 | 효율 일관성 | Δ d=-0.70 |
+| `lead_knee_ext_change_fc_to_br_sd` | 0 | 4 | 무릎 일관성 (★ 사용자 요청) | d=-0.66 |
+
+### 사용자 요청 변인 검증 결과
+
+| 변인 | 발달 신호? |
+|---|---|
+| 몸통-팔 피크속도 타이밍 (`trunk_to_arm_lag`) | △ pelvis-trunk가 더 강함, SD는 추가 |
+| 착지-릴리즈 무릎 굴곡 각도 변화 (`lead_knee_ext_change_fc_to_br`) | ✓ SD 추가 (사용자 정확) |
+| 착지 시 몸통 앞기울기 (`trunk_forward_tilt_at_fc`) | ❌ 큰 신호 없음 |
+
+### 변경 없음
+- 산식·코호트 분포·기존 변수 sigma 모두 v33.16과 동일
+- 카테고리 매핑(P 시리즈 통합)은 v33.18+ 향후 작업 (cohort_v29.js 갱신 필요)
+- v33.16의 trunk sigma 180 그대로
+
+### 신규 변수가 점수에 들어가는 방식
+- 변수 카드에서 percentile/Gaussian 평가 가능
+- 입력 CSV에 해당 변수 있으면 자동 평가
+- 코호트 percentile은 v33.18에서 cohort_v29.js category_vars 통합 시 활성화
+
+---
+
+# BBL v33.16 — Trunk sigma 완화 (9선수 통합 검증, 사용자 통찰 반영)
+**Build**: 2026-05-06 / **Patch**: v33.15 → v33.16 / **Type**: sigma 미세 조정
+
+### 사용자 통찰 (검증됨)
+> "정예준 trunk 706 → 50점은 재고 필요. Uplift 수직축 측정 오차 + 느린 trunk가 팔 전달 효율적 타이밍 전략일 수 있음"
+
+### 9선수 통합 검증 (4선수 + 추가 5선수 Uplift 공식 리포트)
+
+| 선수 | Pelvis | Trunk | Arm | Speed Gain | X-Factor | 패턴 |
+|---|---|---|---|---|---|---|
+| 정예준 (S36, 메카닉 최고) | 483 | **706** ↓ | 1328 | 1.46 | **40°** | 메카닉 elite |
+| 김강연 (S07) | 488 | 821 | 1427 | 1.68 | 37° | 균형 elite |
+| **박명균 (S75)** | 518 | 790 | 1485 | 1.53 | **41°** | **균형 elite + X-Factor 41** |
+| **정지원 (S89, 좌투)** | 527 | 846 | 1645 ↑ | 1.61 | **42°** | **모든 변수 elite + X-Factor 42** |
+| 김진하 (S47) | 438 | **680** ↓ | 1493 | 1.55 | 38° | Trunk 약함 elite |
+| 정원진 | 612 ↑ | 836 | 1475 | 1.37 ↓ | 27° | Pelvis 폭주 |
+| 홍주환 | 635 ↑↑ | 843 | 1578 ↑ | 1.33 ↓ | 28° | 더 심한 폭주 |
+| **이성민 (S65)** | **725 ↑↑↑** | 790 | **1815 ↑↑↑** | **1.09 ↓↓** | 25° | **극단 폭주** |
+| 이지환 (S29, 이날) | 529 | **555** ↓↓ | 1052 ↓↓ | 1.05 ↓ | 23° | 컨디션 약세 |
+
+### 결정적 검증 — Elite 4명 vs 폭주 3명 평균 점수 (v33.15 양방향 Gaussian)
+
+| 변수 | Elite 평균 | 폭주 평균 | 차별 | 진단 |
+|---|---|---|---|---|
+| **Speed Gain** | 93점 | 48점 | **+45** ★ | Elite 핵심 차별 |
+| **Pelvis** | 98점 | 39점 | +59 | 폭주형 진단 효과적 |
+| **Arm** | 75점 | 44점 | +31 | 폭주 + 부상 위험 |
+| **X-Factor** (raw) | 40° | 27° | +13° ★ | Elite 핵심 차별 |
+| **Trunk** | 91점 | 98점 | **-7** ❌ | **차별력 거의 없음, 오히려 역전** |
+
+→ **Trunk 단독 평가 비중을 회전 속도 1:1:1로 잡는 건 부적절**. Speed Gain·X-Factor가 진짜 elite 차별 변수.
+
+### v33.16 변경 — `metadata.js`
+| 변수 | v33.15 | v33.16 | 효과 |
+|---|---|---|---|
+| `peak_trunk_av` | sigma 126 | **sigma 180** | 정예준 50→71, 김진하 38→62 |
+| `max_trunk_twist_vel_dps` | sigma 126 | **sigma 180** | (alias 동일) |
+
+다른 변수(pelvis/arm/speedup) sigma는 그대로 — 폭주형 진단에 효과적이라 유지.
+
+### BBL CSV ↔ Uplift 측정 일관성 검증
+
+| 선수 | BBL 코호트 (peak_arm_av) | Uplift 측정 | 일치도 |
+|---|---|---|---|
+| 박명균 | 1490 | 1485 | **0.3% 차이** ✓ |
+| 이성민 | 1748 | 1815 | 3.7% ✓ |
+| 정지원 | 1715 | 1645 | 4.0% ✓ |
+| 김강연 | (CSV 없음) | 1427 | — |
+| 이지환 | 1801 | **1052** | ✗ (이날 다른 세션 컨디션) |
+
+→ BBL 코호트 정상 측정과 Uplift 시스템 측정 매우 일치. 이지환은 다른 세션 차이.
+
+### 변경 없음
+- 산식·LITERATURE_OVERRIDE 등록·oneSided 제거 (v33.15) 모두 그대로
+- pelvis/arm/speedup sigma 그대로
+- 카테고리 종합 산출 로직 동일
+
+---
+
 # BBL v33.15 — 회전 속도·speedup oneSided 제거 — 양방향 Gaussian (4선수 Uplift 공식 리포트 검증)
 **Build**: 2026-05-06 / **Patch**: v33.14 → v33.15 / **Type**: Gaussian 함수 형태 변경 (평가 기준은 Pro range 동일)
 

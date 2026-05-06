@@ -197,6 +197,13 @@ window.COHORT = {
         "cm",
         1,
         "lower"
+      ],
+      [
+        "wrist_release_speed_sd",
+        "손목 릴리스 속도 SD ★ v33.20",
+        "m/s",
+        2,
+        "lower"
       ]
     ],
     "P2_ArmSlot": [
@@ -252,6 +259,34 @@ window.COHORT = {
         "°",
         2,
         "lower"
+      ],
+      [
+        "pelvis_to_trunk_lag_ms_sd",
+        "골반→몸통 lag SD ★ v33.20",
+        "ms",
+        1,
+        "lower"
+      ],
+      [
+        "trunk_to_arm_lag_ms_sd",
+        "몸통→팔 lag SD ★ v33.20",
+        "ms",
+        1,
+        "lower"
+      ],
+      [
+        "pelvis_trunk_speedup_sd",
+        "골반→몸통 증폭률 SD ★ v33.20",
+        "x",
+        3,
+        "lower"
+      ],
+      [
+        "arm_trunk_speedup_sd",
+        "팔→몸통 증폭률 SD ★ v33.20",
+        "x",
+        3,
+        "lower"
       ]
     ],
     "P5_StrideConsistency": [
@@ -268,6 +303,13 @@ window.COHORT = {
         "m",
         2,
         "higher"
+      ],
+      [
+        "lead_knee_ext_change_fc_to_br_sd",
+        "앞다리 무릎 신전 변화 SD ★ v33.20",
+        "°",
+        2,
+        "lower"
       ]
     ],
     "P6_TrunkConsistency": [
@@ -276,6 +318,34 @@ window.COHORT = {
         "몸통 기울기 SD",
         "°",
         2,
+        "lower"
+      ],
+      [
+        "peak_trunk_av_sd",
+        "몸통 회전 속도 SD ★ v33.20",
+        "°/s",
+        1,
+        "lower"
+      ],
+      [
+        "max_x_factor_sd",
+        "X-Factor SD ★ v33.20",
+        "°",
+        2,
+        "lower"
+      ],
+      [
+        "trunk_tilt_at_br_trial_sd",
+        "릴리스 몸통 기울기 SD ★ v33.20",
+        "°",
+        2,
+        "lower"
+      ],
+      [
+        "trunk_flex_vel_max_sd",
+        "몸통 굴곡 속도 SD ★ v33.20",
+        "°/s",
+        1,
         "lower"
       ]
     ]
@@ -1143,6 +1213,37 @@ window.COHORT = {
       "q25":    0.162398,
       "q75":    0.188509,
       "n":      186
+    },
+    "_v33_20_note": "v33.20 (2026-05-06) — H1→H2 발달 신호(v33.17) + H2 elite 차별(v33.18) SD 변수 10종 코호트 분포 추가, P 시리즈 카테고리 통합",
+    "pelvis_to_trunk_lag_ms_sd": {
+      "mean": 19.9926, "stdev": 32.1909, "median": 11.4596, "q25": 6.7310, "q75": 20.9350, "n": 184
+    },
+    "trunk_to_arm_lag_ms_sd": {
+      "mean": 24.7345, "stdev": 35.1756, "median": 18.7983, "q25": 9.2497, "q75": 29.5292, "n": 179
+    },
+    "peak_trunk_av_sd": {
+      "mean": 39.2241, "stdev": 43.5509, "median": 27.7628, "q25": 19.4336, "q75": 42.7975, "n": 185
+    },
+    "pelvis_trunk_speedup_sd": {
+      "mean": 0.0874, "stdev": 0.0748, "median": 0.0685, "q25": 0.0466, "q75": 0.0983, "n": 185
+    },
+    "lead_knee_ext_change_fc_to_br_sd": {
+      "mean": 5.0684, "stdev": 4.0888, "median": 3.7926, "q25": 2.4013, "q75": 6.4486, "n": 185
+    },
+    "max_x_factor_sd": {
+      "mean": 4.7231, "stdev": 16.6295, "median": 2.1251, "q25": 1.5573, "q75": 2.8953, "n": 182
+    },
+    "trunk_tilt_at_br_trial_sd": {
+      "mean": 1.8127, "stdev": 2.1821, "median": 1.1193, "q25": 0.8650, "q75": 1.6165, "n": 185
+    },
+    "wrist_release_speed_sd": {
+      "mean": 1.2143, "stdev": 1.9532, "median": 0.2680, "q25": 0.1751, "q75": 0.6964, "n": 185
+    },
+    "trunk_flex_vel_max_sd": {
+      "mean": 26.8187, "stdev": 35.7407, "median": 19.4668, "q25": 14.9204, "q75": 26.9466, "n": 182
+    },
+    "arm_trunk_speedup_sd": {
+      "mean": 0.1948, "stdev": 0.3028, "median": 0.1098, "q25": 0.0686, "q75": 0.1979, "n": 185
     }
   },
   "var_sorted_lookup": {

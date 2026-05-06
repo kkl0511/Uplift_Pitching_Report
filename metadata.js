@@ -396,8 +396,13 @@ const EXTRA_VAR_SCORING = {
   //   결론: Pro range 초과 = "더 빠른 elite"가 아니라 "trunk·arm sync 못 한 폭주" 신호 (Speed Gain 미달이 직접 증거)
   //   조치: oneSided 제거 → Pro range 초과는 양방향 Gaussian으로 자연스럽게 감점
   //   효과: 홍주환 pelvis 635 → 47점, arm 1578 → 48점 (폭주형 정확히 진단) / 정예준·김강연 정중앙 케이스는 90+점 유지
-  'max_trunk_twist_vel_dps':      { optimal: 855, sigma: 126 },     // °/s — Uplift Pro 770~940 (양방향)
-  'peak_trunk_av':                { optimal: 855, sigma: 126 },     // °/s — alias
+  // ★ v33.16 (2026-05-06) — trunk sigma 126→180 완화 (사용자 통찰 + 9선수 검증)
+  //   근거 1: 사용자 지적 — Uplift 수직축 회전 측정 오차, 느린 trunk가 효율적 타이밍 전략일 수 있음
+  //   근거 2: 9선수 데이터 — Trunk 단독 점수는 elite vs 폭주 차별력 약함 (Elite 91 vs 폭주 98로 오히려 역전)
+  //   효과: 정예준(메카닉 최고) trunk 706 → 50점→71점 합리화, 다른 정상 케이스는 거의 영향 없음
+  //   Trunk는 단독 비중 낮추고 Speed Gain·X-Factor를 elite 차별 핵심으로
+  'max_trunk_twist_vel_dps':      { optimal: 855, sigma: 180 },     // °/s — Uplift Pro 770~940 (양방향, sigma 완화)
+  'peak_trunk_av':                { optimal: 855, sigma: 180 },     // °/s — alias
   'peak_pelvis_av':               { optimal: 512, sigma: 100 },     // °/s — Uplift Pro 445~580 (양방향)
   'peak_pelvis_rot_vel':          { optimal: 512, sigma: 100 },     // °/s — alias
   'max_pelvis_rot_vel_dps':       { optimal: 512, sigma: 100 },     // °/s — alias
@@ -444,6 +449,46 @@ const EXTRA_VAR_SCORING = {
   'trunk_tilt_sd_deg':            { optimal: 0, sigma: 6 },                    // ° — trial 간 forward tilt 변동성
   'arm_slot_sd_deg':              { optimal: 0, sigma: 8 },                    // ° — arm slot 변동성
   'release_height_sd_cm':         { optimal: 0, sigma: 10 },                   // cm — release height 변동성
+  // ★ v33.17 (2026-05-06) — H1→H2 발달 신호 SD 변수 5종 신규 추가
+  //   [근거] BBL 코호트 90명 H1·H2 매칭 분석 (사용자 통찰 검증):
+  //     - 향상 그룹(상위 1/3, 평균 Δarm +184) vs 정체 그룹(하위 1/3, 평균 Δarm -133) 비교
+  //     - SD(일관성) 변수가 발달 잠재력·동반 향상의 핵심 신호로 입증 (Cohen's d 0.5~1.1)
+  //     - 가장 강력한 신호: pelvis_to_trunk_lag (H1 d=+0.92, Δ d=-1.09 ★)
+  //     - 발달 시 lag 단축 + trunk 일관성 향상 + speedup 일관성 향상 + 무릎 일관성 향상
+  //   sigma 산출: 코호트 q75 도달 시 약 70점 기준 (q75 ≈ mean ± 1σ로 lower-better 변수)
+  'pelvis_to_trunk_lag_ms_sd':    { optimal: 0, sigma: 15 },                   // ms — 골반→몸통 타이밍 일관성 (q75 21ms, 코호트 mean 20)
+  'trunk_to_arm_lag_ms_sd':       { optimal: 0, sigma: 18 },                   // ms — 몸통→팔 타이밍 일관성 (q75 30ms, 코호트 mean 25)
+  'peak_trunk_av_sd':             { optimal: 0, sigma: 30 },                   // °/s — 몸통 회전 속도 일관성 (q75 43°/s, 코호트 mean 39)
+  'pelvis_trunk_speedup_sd':      { optimal: 0, sigma: 0.06 },                 // ratio — speedup 일관성 (q75 0.10, 코호트 mean 0.09)
+  'lead_knee_ext_change_fc_to_br_sd': { optimal: 0, sigma: 4 },                // ° — 앞다리 무릎 변화 일관성 (q75 6.4°, 사용자 요청 변인)
+  // ★ v33.18 (2026-05-06) — H2 elite 차별 SD 변수 5종 신규 추가
+  //   [근거] BBL 91명 H2 시점 상위 20% vs 하위 20% 비교 (peak_arm_av 기준, IQR outlier 제거)
+  //     상위 20명 평균 arm 1575 °/s vs 하위 20명 평균 arm 1088 °/s
+  //   Elite는 거의 모든 변수에서 SD가 작음 = "안정적 메카닉" 핵심 특성
+  //   사용자 통찰: "발달 그룹 특성 + elite 그룹 특성 모두 메카닉 평가에 반영"
+  //   sigma는 코호트 q75 기준 약 70점 도달
+  // ════════════════════════════════════════════════════════════════════
+  //  v33.21 (2026-05-06) — 다중회귀 MaxV 예측 모델 (사용자 요청)
+  // ════════════════════════════════════════════════════════════════════
+  //   master_fitness.xlsx 측정 구속(MaxV) 기반 OLS 학습
+  //   모델: 핵심 메카닉 5 + 신체 5 = 10 변수 → R² = 0.361, adj R² = 0.321 (n=169)
+  //   더 정밀한 모델 (메카닉 10 + 신체 5 = 15 변수): R² = 0.401, adj 0.343
+  //   사용 예: predictMaxVelocity(mechanics, fitness) → 예상 구속 (km/h)
+  //   잔차 (실측 - 예측) > +5 km/h = 효율 우수, < -5 = 잠재 미발현
+  //   김강연 H2 검증: 실측 146.3 / 예측 134.1 / 잔차 +12.2 km/h (효율 우수)
+  // const 정의는 LITERATURE_OVERRIDE 다음 ── 파일 하단으로
+  //
+  // ★ v33.19 (2026-05-06) — 다중회귀 유의 변수 추가 (실제 MaxV 169 sessions OLS, R²=0.235)
+  //   lead_knee_ext_change_fc_to_br_mean: β=+0.145, t=+1.95 * (다중회귀 유의)
+  //                                       Cohen d=+0.94 (H2 상위 vs 하위, 상위 +7.8° vs 하위 -2.5°)
+  //   생물역학적 의미: FC→BR 동안 무릎이 펴짐(양수)이 elite, 굽힘(음수)이 비-elite
+  //   현재 BBL은 KINETIC_FAULTS LeadKneeCollapse(<-22.2°)만 평가 → Gaussian 평가 추가로 elite 차별 명확화
+  'lead_knee_ext_change_fc_to_br': { optimal: 8, sigma: 8, oneSided: 'open_is_good' }, // ° — H2 상위 +5~8°, oneSided (더 펴질수록 좋음, 단 max 60° plausible)
+  'max_x_factor_sd':              { optimal: 0, sigma: 3 },                    // ° — 분리(X-Factor) 일관성 (★ d=-0.68, q75 2.9°)
+  'trunk_tilt_at_br_trial_sd':    { optimal: 0, sigma: 1.5 },                  // ° — 릴리스 자세 일관성 (d=-0.65, q75 1.6°)
+  'wrist_release_speed_sd':       { optimal: 0, sigma: 0.7 },                  // m/s — 손목 릴리스 속도 일관성 (d=-0.62, q75 0.7)
+  'trunk_flex_vel_max_sd':        { optimal: 0, sigma: 25 },                   // °/s — 몸통 굴곡 속도 일관성 (d=-0.60, q75 27)
+  'arm_trunk_speedup_sd':         { optimal: 0, sigma: 0.18 },                 // ratio — 팔→몸통 speedup 일관성 (d=-0.57, q75 0.20)
   // ★ v30.22 키네틱 체인 6단계 신규 변인 (Step A)
   'stride_time_ms':               { optimal: 250, sigma: 60 },                 // ms — KH→FC 시간 (Driveline elite 약 250 ms)
   'drive_hip_ext_vel_max':        { optimal: 600, sigma: 200 },                // °/s — drive leg hip 신전 peak
@@ -525,6 +570,22 @@ const LITERATURE_OVERRIDE = new Set([
   'hip_shoulder_sep_sd_deg',
   // ★ v30.21 옵션 B: 추가 SD 변수 (Mode B 변동성 감점)
   'mer_to_br_sd_ms',
+  // ★ v33.17 (2026-05-06) — H1→H2 발달 신호 SD 변수 5종 추가 (BBL 90명 매칭 분석 검증)
+  //   사용자 통찰: "타이밍 일관성 등 발달 그룹 특성을 메카닉 평가에 반영"
+  //   효과크기 d=0.5~1.1로 발달 잠재력·동반 향상의 핵심 신호 입증
+  'pelvis_to_trunk_lag_ms_sd',     // 골반→몸통 lag 일관성 (★ 가장 강력 신호)
+  'trunk_to_arm_lag_ms_sd',        // 몸통→팔 lag 일관성
+  'peak_trunk_av_sd',              // 몸통 회전 속도 일관성
+  'pelvis_trunk_speedup_sd',       // 골반→몸통 증폭률 일관성
+  'lead_knee_ext_change_fc_to_br_sd', // 앞다리 무릎 변화 일관성 (사용자 요청)
+  // ★ v33.18 (2026-05-06) — H2 elite 차별 SD 변수 5종 추가 (BBL 91명 상위 20% vs 하위 20%)
+  // ★ v33.19 (2026-05-06) — 다중회귀 유의 elite 차별 변수 추가
+  'lead_knee_ext_change_fc_to_br', // 앞다리 신전 — Gaussian (H2 상위 vs 하위 d=+0.94 ★ + 다중회귀 t=1.95 *)
+  'max_x_factor_sd',               // 분리(X-Factor) 일관성 (★ d=-0.68)
+  'trunk_tilt_at_br_trial_sd',     // 릴리스 자세 일관성 (d=-0.65)
+  'wrist_release_speed_sd',        // 손목 릴리스 속도 일관성 (d=-0.62)
+  'trunk_flex_vel_max_sd',         // 몸통 굴곡 속도 일관성 (d=-0.60)
+  'arm_trunk_speedup_sd',          // 팔→몸통 speedup 일관성 (d=-0.57)
   'trunk_tilt_sd_deg',
   'arm_slot_sd_deg',
   'release_height_sd_cm',
@@ -829,3 +890,88 @@ const INJURY_LITERATURE_THRESHOLDS = {
     source: 'Sport medicine general (Powers 2010, Pollard 2017)',
   },
 };
+
+// ════════════════════════════════════════════════════════════════════
+// v33.21 (2026-05-06) — VELO_REGRESSION 다중회귀 MaxV 예측 모델
+// ════════════════════════════════════════════════════════════════════
+//   master_fitness.xlsx 측정 구속 + bbl_per_session 매칭 데이터로 OLS 학습 (n=169)
+//   핵심 5 메카닉 변수 + 5 체력·신체 변수 = 10 변수 회귀
+//   R² = 0.361, adj R² = 0.321 (메카닉만 R²=0.235에서 +12.6%p 개선)
+//
+//   사용법:
+//     const predicted = predictMaxVelocity(input.mechanics, input.fitness);
+//     const residual = measured_velo - predicted;  // > +5 = 효율 우수, < -5 = 미발현
+//
+//   변수 명세 (BBL 입력 대응):
+//     - max_x_factor_mean         → mechanics.peak_x_factor
+//     - lead_knee_ext_change      → mechanics.lead_knee_ext_change_fc_to_br
+//     - proper_sequence_binary    → mechanics.proper_sequence_pct / 100  (또는 0~1)
+//     - pelvis_to_trunk_lag_ms_sd → mechanics.pelvis_to_trunk_lag_ms_sd
+//     - elbow_ext_vel_max         → mechanics.elbow_ext_vel_max
+//     - height_m                  → fitness.Height[M]   (또는 input.bodyHeight)
+//     - weight_kg                 → fitness.Weight[KG]
+//     - cmj_pp_bm                 → fitness.CMJ Peak Power / BM
+//     - imtp_pp_bm                → fitness.IMTP Peak Vertical Force / BM
+//     - grip                      → fitness.Grip Strength
+const VELO_REGRESSION_v33_21 = {
+  intercept: 15.6232,
+  // 비표준화 회귀계수 (실제 단위 그대로 곱셈)
+  coefs: {
+    max_x_factor_mean:                  0.177448,  // °     → +1° = +0.18 km/h
+    lead_knee_ext_change_fc_to_br_mean: 0.022751,  // °     → +1° = +0.02 km/h
+    proper_sequence_binary_mean:        8.733258,  // 0~1   → 0→1 = +8.7 km/h ★ 매우 큼
+    pelvis_to_trunk_lag_ms_sd:          0.001211,  // ms    → 미미
+    elbow_ext_vel_max_mean:             0.001436,  // °/s   → +100°/s = +0.14 km/h
+    height_m:                          40.226781,  // m     → +0.1m = +4.0 km/h ★
+    weight_kg:                          0.007379,  // kg    → 미미
+    cmj_pp_bm:                          0.050836,  // W/kg  → +10 = +0.5 km/h
+    imtp_pp_bm:                         0.308910,  // N/kg  → +5 = +1.5 km/h
+    grip_strength:                      0.280420,  // kg    → +5 = +1.4 km/h ★
+  },
+  R2: 0.361,
+  adj_R2: 0.321,
+  n: 169,
+  trained: '2026-05-06',
+  source: 'BBL 169 sessions × master_fitness MaxV (OLS)',
+  validation: {
+    'kimgangyeon_H2_2025-11-21': { measured: 146.3, predicted: 134.1, residual: +12.2 },
+  },
+  // 주요 표준화 β (해석용 — 단위 무관 비교)
+  std_beta_top: [
+    ['grip',                    +0.266],
+    ['max_x_factor_mean',       +0.256],
+    ['height',                  +0.253],
+    ['proper_sequence_binary',  +0.228],
+  ],
+};
+
+// 예측 함수 — input은 BBL의 mechanics + fitness 객체
+// 결측치는 코호트 mean으로 imputation (보수적 처리)
+function predictMaxVelocity(mech, fit) {
+  if (!mech || !fit) return null;
+  const w = VELO_REGRESSION_v33_21.coefs;
+  // 결측 시 코호트 mean으로 대체 (모델 평균 출력 유지)
+  const safe = (v, fallback) => (v != null && !isNaN(v)) ? v : fallback;
+  const x_factor = safe(mech.peak_x_factor, 30);  // 코호트 mean 30
+  const knee_ext = safe(mech.lead_knee_ext_change_fc_to_br, 3.3);
+  const seq = safe(mech.proper_sequence_pct, 90) / 100;  // 0~1 변환
+  const lag_sd = safe(mech.pelvis_to_trunk_lag_ms_sd, 20);
+  const elbow_ext = safe(mech.elbow_ext_vel_max, 1700);
+  const height = safe(fit.bodyHeight || fit.height_m, 1.78);  // 코호트 평균
+  const weight = safe(fit.bodyWeight || fit.weight_kg, 78);
+  const cmj = safe(fit.cmj_pp_bm || fit['CMJ Peak Power / BM'] || fit['CMJ Peak Power / BM [W/kg]'], 50);
+  const imtp = safe(fit.imtp_pp_bm || fit['IMTP Peak Vertical Force / BM'] || fit['IMTP Peak Vertical Force / BM [N/kg]'], 28);
+  const grip = safe(fit.grip || fit.grip_strength || fit['Grip Strength'], 50);
+  const v = VELO_REGRESSION_v33_21.intercept
+    + w.max_x_factor_mean * x_factor
+    + w.lead_knee_ext_change_fc_to_br_mean * knee_ext
+    + w.proper_sequence_binary_mean * seq
+    + w.pelvis_to_trunk_lag_ms_sd * lag_sd
+    + w.elbow_ext_vel_max_mean * elbow_ext
+    + w.height_m * height
+    + w.weight_kg * weight
+    + w.cmj_pp_bm * cmj
+    + w.imtp_pp_bm * imtp
+    + w.grip_strength * grip;
+  return Math.round(v * 10) / 10;
+}

@@ -207,6 +207,52 @@
 //                  - 홍주환 arm 1578 → 100점 → 48점 (Pro 1480 초과 + 부상 위험 감지)
 //                  - 정예준·김강연 (Pro 정중앙) → 90+점 elite 점수 유지
 //           v33.14 LITERATURE_OVERRIDE 재등록은 그대로 유지. 이번엔 Gaussian 함수 형태만 변경.
+//   v33.20 — 카테고리 통합 (cohort_v29.js category_vars + var_distributions, 2026-05-06)
+//           [근거] v33.17/v33.18 신규 10 SD 변수가 EXTRA_VAR_SCORING + LITERATURE_OVERRIDE에만 등록되고
+//                 카테고리 평균에는 들어가지 않아 종합 점수에 자동 반영 안 됐음
+//           조치: cohort_v29.js category_vars의 P 시리즈에 매핑 + var_distributions에 코호트 분포 추가
+//             - P1_ReleaseConsistency: + wrist_release_speed_sd
+//             - P4_TimingConsistency: + pelvis_to_trunk_lag_sd, trunk_to_arm_lag_sd, pelvis_trunk_speedup_sd, arm_trunk_speedup_sd
+//             - P5_StrideConsistency: + lead_knee_ext_change_fc_to_br_sd
+//             - P6_TrunkConsistency: + peak_trunk_av_sd, max_x_factor_sd, trunk_tilt_at_br_trial_sd, trunk_flex_vel_max_sd
+//           효과: 신규 10 SD 변수가 카테고리 평균(C_Score)에 들어가 종합 점수·percentile 자동 반영
+//           코호트 분포 (mean, sd, q25, q75, n)는 BBL 90~185 sessions 기반 산출
+//   v33.21 — 다중회귀 MaxV 예측 모델 IPS 통합 (사용자 요청 마무리, 2026-05-06)
+//           [근거] master_fitness.xlsx 측정 구속(MaxV) + bbl_per_session 매칭 데이터
+//           OLS 학습 (n=169 sessions):
+//             - 모델 1 (메카닉 10): R² = 0.234, adj 0.185
+//             - 모델 2 (메카닉 10 + 신체 5 = 15): R² = 0.401, adj 0.343 ★ 가장 정밀
+//             - 모델 3 (핵심 10: 메카닉 5 + 신체 5): R² = 0.361, adj 0.321 ★ IPS 통합용
+//           표준화 β top 4: grip(+0.266), x_factor(+0.256), height(+0.253), proper_sequence(+0.228)
+//           조치 — `metadata.js`에 추가:
+//             - VELO_REGRESSION_v33_21 = { intercept: 15.62, coefs: {...10변수}, R²: 0.361 }
+//             - predictMaxVelocity(mechanics, fitness) 함수 — 결측치 코호트 mean imputation
+//           검증 — 김강연 H2 (2025-11-21): 실측 146.3 / 모델 예측 134.1 / 잔차 +12.2 km/h
+//             → 모델 예측 대비 +12 km/h 효율 우수 (메카닉 + 신체로 설명 안 되는 향상)
+//           사용:
+//             const predicted = predictMaxVelocity(input.mechanics, input.fitness);
+//             const residual = measured_velo - predicted;  // > +5 km/h = 효율 우수
+//           UI 통합은 기존 ceiling 카드(ceiling_F100/M100/FM100)와 보완으로 향후 작업 가능
+//   v33.19 — 진짜 MaxV 데이터 + 다중회귀 모델 + lead_knee_ext_change Gaussian 추가 (2026-05-06)
+//           [근거] master_fitness.xlsx 측정 구속(MaxV) 데이터 확보 → peak_arm_av proxy 대신 진짜 구속 기반 분석
+//             - BBL session ↔ master_fitness Lab_ID 매칭: 175 sessions
+//             - H1·H2 둘 다 매칭된 선수: 85명
+//             - ΔMaxV 통계 (km/h): mean +3.5, median +2.9, q25 +0.1, q75 +5.8, max +14.8
+//             - H2 시점 169 sessions로 다중회귀 OLS 학습
+//           다중회귀 결과 (MaxV ~ 11 메카닉 변수):
+//             R² = 0.235, adj R² = 0.181 (메카닉만으로 MaxV 변동 23.5% 설명)
+//             통계적 유의 변수 (t-검정):
+//               1. max_x_factor_mean β=+0.302 t=+4.01 *** ★ 가장 강력
+//               2. proper_sequence_binary_mean β=+0.263 t=+3.45 ***
+//               3. lead_knee_ext_change_fc_to_br_mean β=+0.145 t=+1.95 *
+//               4. pelvis_trunk_speedup_mean β=-0.550 t=-1.92 * (다중공선성 의심)
+//           v33.18 검증 결과: peak_arm_av proxy 분석은 elbow_ext·peak_trunk 강력 신호로 봤으나
+//             진짜 MaxV로 보면 효과크기 약화 (peak_arm은 elite 차별 OK / MaxV proxy로는 부정확)
+//           조치: lead_knee_ext_change_fc_to_br_mean Gaussian 평가 추가 (사용자 요청 + 다중회귀 유의 입증)
+//             - optimal 8°, sigma 8, oneSided 'open_is_good'
+//             - H2 상위 +5~8° 범위 (FC→BR 무릎 펴짐), 비-elite 음수 (굽힘)
+//             - 기존 KINETIC_FAULTS LeadKneeCollapse(<-22.2°)와 보완 — Gaussian으로 elite 차별
+//           v33.20+ 향후: 카테고리 통합 (P 시리즈 + 신규 SD), MaxV 예측 모델 IPS 통합
 //   v33.18 — H2 elite 차별 SD 변수 5종 신규 추가 (BBL 91명 상위 20% vs 하위 20%, 2026-05-06)
 //           [근거] 사용자 통찰: "H2 기준 구속 상위/하위 20% 차이 특성도 메카닉 평가에 반영"
 //           BBL 91명 H2 시점 분석 (peak_arm_av 기준, IQR outlier 제거):
@@ -261,7 +307,7 @@
 //                  - 다른 정상 케이스(800~870): 거의 영향 없음 (이미 95+점)
 //           검증: 9선수 BBL CSV vs Uplift 측정 일관성 — 박명균 0.3% / 이성민 3.7% / 정지원 4% 일치
 //                 시스템 일관성 확인. 이지환은 다른 세션 컨디션 차이로 BBL 1801 vs Uplift 1052
-const ALGORITHM_VERSION = 'v33.18';
+const ALGORITHM_VERSION = 'v33.21';
 const ALGORITHM_DATE    = '2026-05-06';
 
 let CURRENT_AGE = '고교';
