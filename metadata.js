@@ -482,12 +482,23 @@ const LITERATURE_OVERRIDE = new Set([
   // ★ v32.5 (2026-05-04) — "more is better" 회전 속도 변수 percentile 전환
   //   max_trunk_twist_vel_dps, max_pelvis_rot_vel_dps, trunk_flex_vel_max는 코호트 분포 기반 평가
   // ★ v33.5 (2026-05-05) — Phase 2 16개 변수 134 코호트(186 세션) raw 분포 산출 완료 → percentile 전환
-  // 'peak_x_factor',           // → percentile (v33.5, n=183)
-  // 'max_trunk_twist_vel_dps', // → percentile (v32.5, n=199)
-  // 'peak_trunk_av',           // → percentile (v33.5, n=186)
-  // 'peak_pelvis_av',          // → percentile (v33.5, n=186)
-  // 'max_pelvis_rot_vel_dps',  // → percentile (v32.5, n=199)
-  // 'trunk_flex_vel_max',      // → percentile (v32.5, n=198)
+  // ★ v33.14 (2026-05-06) — 사용자 제안: 골반·몸통·팔 회전 속도를 Uplift 리포트 Pro 레인지로 재평가
+  //   근거: KinaTrax 비교(Exponent 2022)에서 Uplift는 pelvis rot vel을 KinaTrax 대비 ~2배 과대측정
+  //         외부 시스템 기준(MLB 표준 550°/s 등) 직접 비교 시 시스템 차이가 점수에 그대로 반영됨
+  //         Uplift 자체 Pro 레인지(445~580°/s)는 Uplift 시스템에서 측정된 분포라 시스템 차이 자동 흡수
+  //         사용자 김강연(2025-11-21 Uplift 리포트) 검증: peak_pelvis 488/peak_trunk 821/peak_arm 1427/speedup 1.68 — 모두 Pro 레인지 안
+  //   재등록: peak_pelvis_av·peak_trunk_av·peak_arm_av·max_pelvis_rot_vel_dps·max_trunk_twist_vel_dps·peak_pelvis_rot_vel·pelvis_trunk_speedup
+  //   sigma는 v31.47 그대로 유지 (Pro 레인지 = mean ± ~0.7σ로 약간 넓게 — 한국 고교 1학년이 미점이어도 점수 급락 방지)
+  'peak_pelvis_av',                // °/s — Uplift Pro 445~580 (optimal 512, sigma 100)
+  'peak_pelvis_rot_vel',           // °/s — alias
+  'max_pelvis_rot_vel_dps',        // °/s — alias
+  'peak_trunk_av',                 // °/s — Uplift Pro 770~940 (optimal 855, sigma 126)
+  'max_trunk_twist_vel_dps',       // °/s — alias (몸통 축회전)
+  'peak_arm_av',                   // °/s — Uplift Pro 1235~1480 (optimal 1357, sigma 182)
+  'pelvis_trunk_speedup',          // ratio — Uplift Pro 1.4~1.7 (optimal 1.55, sigma 0.22)
+  // ── 다른 percentile 변수는 그대로 유지 ──
+  // 'peak_x_factor',           // → percentile (v33.5, n=183) 유지
+  // 'trunk_flex_vel_max',      // → percentile (v32.5, n=198) 유지
   // 자세/각도 (Stodden 2001, Driveline) — 진짜 양방향 최적이 있어 가우시안 유지
   'trunk_forward_tilt_at_fc',
   'trunk_rotation_at_fc',
@@ -496,8 +507,7 @@ const LITERATURE_OVERRIDE = new Set([
   // [v33.10] shoulder_h_abd_at_fc 제거 — BBL은 횡단면(-horizontal_adduction), Theia는 전두면 외전 — 평면 자체 다름
   'arm_slot_mean_deg',
   // 에너지 전달/효율 (BBL 2026-05-03 정의)
-  // 'arm_trunk_speedup',     // → percentile (v33.5, n=186)
-  // 'pelvis_trunk_speedup',  // → percentile (v33.5, n=186)
+  // 'arm_trunk_speedup',     // → percentile (v33.5, n=186) 유지 (Uplift 리포트 미포함 변수)
   // 하체 드라이브 (Driveline)
   // 'lead_knee_ext_vel_max',  // → percentile (v32.5, n=196)
   // 'hip_ir_vel_max_drive',   // → percentile (v33.5, n=186)
@@ -551,9 +561,21 @@ const LITERATURE_OVERRIDE = new Set([
 //   * SD 변수는 max만 사용 (낮을수록 좋은 일관성 변수)
 // ════════════════════════════════════════════════════════════════════
 const PLAUSIBLE_RANGES = {
-  // ── 거리/길이
-  // [v33.10] stride_norm_height · stride_mean_m plausible 제거 — Theia 비교 결과 정의 본질 차이
-  'release_height_m':             { min: 1.0,  max: 2.5 },      // m
+  // ── 거리/길이 (Uplift markerless pose estimation 한계 — 카메라 깊이 추정 + 신장 스케일링 한계로 절대값 정확도 떨어짐)
+  // ★ v33.13 (2026-05-06) — 사용자 피드백: 거리 측정치 비상식 값 결측 처리
+  //   Uplift는 스마트폰 카메라 기반 markerless 시스템 (IMU 아님 — v33.13.2 정정)
+  //   → 절대 거리 정확도 한계 + Theia 비교 결과 시스템 측정 차이 (stride 30%↑)
+  //   코호트 분포 (n=186) 기반 mean ± 5σ 범위 + 물리적 상한 = 합리적 plausible
+  //   범위 밖 값은 isImplausible() → percentile 50점 결측 보정 + IMPLAUSIBLE_VARS 플래그
+  // ★ v33.14 (2026-05-06) — 사용자 김강연 Uplift 리포트(2025-11-21) 검증 후 재조정
+  //   Uplift 자체 stride 표시는 "% of height" — 김강연 104% × 신장 175cm ≈ 1.82m
+  //   BBL stride_mean_m 측정 2.04m도 markerless 깊이 추정 오차 ±10% 고려하면 정상 범위
+  //   v33.13의 {0.5, 1.6}은 정상값을 결측 처리하므로 {0.5, 2.2}로 재조정
+  //   (신장 200cm 선수 110% stride = 2.2m 포함, >2.2m는 명백한 측정 오류로 결측)
+  'stride_mean_m':                { min: 0.5,  max: 2.2 },      // m — Uplift 리포트 stride 90~110% of height 기반 (신장 175~200cm 선수 포용)
+  // ★ v33.13.1 — release_height_m은 arm_slot에 따라 합리 범위가 크게 달라 PLAUSIBLE_RANGES_DYNAMIC 사용 (아래)
+  //   여기 정적 범위는 arm_slot 미측정 시 fallback (가장 광범위 — 모든 arm_slot 포용)
+  'release_height_m':             { min: -0.2, max: 1.8 },      // m — fallback (arm_slot 미측정 시). 실제 평가는 arm_slot별 dynamic 분기
   // ── 일관성 SD 변수 (max만 — 이보다 크면 측정 오류)
   'stride_sd_cm':                 { max: 30 },                  // cm
   'mer_to_br_sd_ms':              { max: 50 },                  // ms (elite 5–15)
@@ -602,6 +624,27 @@ const PLAUSIBLE_RANGES = {
   'x_factor_to_peak_pelvis_lag_ms': { min: -400, max: 700 },     // ms
   'knee_varus_max_drive':           { min: 0,   max: 60 },       // °
   'forearm_length_m':               { min: 0.05, max: 0.40 },    // m
+};
+
+// ════════════════════════════════════════════════════════════════════
+// PLAUSIBLE_RANGES_DYNAMIC — 다른 변수 값에 의존하는 plausible 범위 (v33.13.1, 2026-05-06)
+// ════════════════════════════════════════════════════════════════════
+//   arm_slot, 신장 등 다른 변수에 따라 합리적 plausible 범위가 달라지는 변수 처리.
+//   PLAUSIBLE_RANGES (정적)보다 우선. arm_slot 미측정 시 정적 fallback 사용.
+//   isImplausible(varKey, value, mechanics) 호출 시 mechanics 객체 참조해서 동적 산출.
+const PLAUSIBLE_RANGES_DYNAMIC = {
+  // release_height_m — arm_slot_mean_deg에 따라 분기 (사용자 피드백 2026-05-06)
+  //   사이드암·언더암 투수는 release 위치가 훨씬 낮아 정통 오버핸드 기준 plausible로 잘못 결측 처리될 위험
+  //   분기: 오버핸드(>60°) / 쓰리쿼터(45~60°) / 사이드암(15~45°) / 언더암(<15°)
+  //   각 구간별 신장 170cm 기준 + markerless 측정 오차 여유 포함 (Uplift 카메라 깊이 한계로 ±20% 정도 마진)
+  'release_height_m': (m) => {
+    const arm = m && m.arm_slot_mean_deg;
+    if (arm == null || isNaN(arm)) return null;  // null 반환 → 정적 fallback 사용
+    if (arm >= 60) return { min: 0.4,  max: 1.8, _label: '오버핸드' };
+    if (arm >= 45) return { min: 0.3,  max: 1.4, _label: '쓰리쿼터' };
+    if (arm >= 15) return { min: 0.1,  max: 0.8, _label: '사이드암' };
+    return            { min: -0.2, max: 0.4, _label: '언더암' };
+  },
 };
 
 // ════════════════════════════════════════════════════════════════════

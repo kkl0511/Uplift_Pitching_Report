@@ -1,3 +1,180 @@
+# BBL v33.14 — 회전 속도 Uplift Pro 레인지 평가 + stride PLAUSIBLE 재조정
+**Build**: 2026-05-06 / **Patch**: v33.13.2 → v33.14 / **Type**: 평가 기준 변경 (산식 동일, 평가 기준만 외부→Uplift Pro)
+
+### 사용자 제안
+> "골반 몸통 팔 회전 속도는 업리프트 리포트에 제시한 프로 레인지를 기준으로 잡으면 어떨지?"
+
+### 근거
+**Exponent 2022 KinaTrax 비교 결과** (33 pitches, 4 camera views):
+
+| 변수 | KinaTrax MAX | Uplift MAX (best view) | MAPE |
+|---|---|---|---|
+| Shoulder rot vel | 4983~5036 °/s | 4283~4524 (V1~3) | 10~15% |
+| Trunk rot vel | 1075~1156 °/s | 919~1252 | 6~15% |
+| Elbow ext vel | 2113~2310 °/s | 1990~2115 (V3·4) | 8~9% |
+| **Pelvis rot vel** | **552~620 °/s** | **1001~1430 °/s** | **78~137% (Uplift 2배 과대)** |
+
+→ Uplift는 pelvis rot vel을 KinaTrax 대비 ~2배 과대측정. **외부 시스템 elite 기준(MLB 550°/s 등)을 그대로 적용하면 시스템 차이가 점수에 그대로 반영**되어 부정확.
+→ **Uplift 자체 Pro 레인지(445~580°/s)는 Uplift 시스템에서 측정된 분포라 시스템 차이 자동 흡수** → 시스템 일관성 확보
+
+**김강연 Uplift 리포트(2025-11-21, S07, 우투, 10 pitch) 검증**:
+
+| 변수 | 김강연 측정 | Uplift Pro | 위치 |
+|---|---|---|---|
+| Peak Pelvis Velocity | 488 °/s | 445~580 | ✓ Pro 레인지 안 |
+| Peak Trunk Velocity | 821 °/s | 770~940 | ✓ Pro 레인지 안 |
+| Peak Arm Velocity | 1427 °/s | 1235~1480 | ✓ Pro 상단(97%) |
+| Pelvis→Trunk Speed Gain | 1.68x | 1.4~1.7 | ✓ Pro 상단 |
+
+### v33.14 변경 1 — LITERATURE_OVERRIDE 재등록 (`metadata.js`)
+v33.5에서 `peak_pelvis_av`·`peak_trunk_av`·`max_pelvis_rot_vel_dps` 등을 percentile로 전환하면서 주석 처리됐던 4종을 다시 활성화 (alias 포함 7개 키):
+
+| 변수 | EXTRA_VAR_SCORING (이미 등록됨) | LITERATURE_OVERRIDE |
+|---|---|---|
+| `peak_pelvis_av` (+ rot_vel·dps alias) | optimal 512, sigma 100 — Uplift Pro 445~580 | ✅ 재등록 |
+| `peak_trunk_av` (+ twist_vel_dps alias) | optimal 855, sigma 126 — Uplift Pro 770~940 | ✅ 재등록 |
+| `peak_arm_av` | optimal 1357, sigma 182 — Uplift Pro 1235~1480 | ✅ 재등록 |
+| `pelvis_trunk_speedup` | optimal 1.55, sigma 0.22 — Uplift Pro 1.4~1.7x | ✅ 재등록 |
+
+EXTRA_VAR_SCORING의 sigma는 v31.47 시점 그대로 유지 (Pro 레인지 = mean ± ~0.7σ로 약간 넓게 — 한국 고교 1학년이 미점이어도 점수 급락 방지).
+
+### v33.14 변경 2 — stride_mean_m PLAUSIBLE 재조정 (`metadata.js`)
+사용자 김강연 Uplift 리포트 검증 결과 — Uplift는 stride length를 "% of height"로 표시. 김강연 104% × 175cm ≈ 1.82m. BBL 측정 2.04m도 markerless 깊이 추정 오차 ±10% 고려하면 정상 범위.
+
+| 시점 | PLAUSIBLE | 효과 |
+|---|---|---|
+| v33.13 | `{ min: 0.5, max: 1.6 }` | ❌ 김강연 정상값(1.82~2.04m)을 결측 처리 |
+| **v33.14** | **`{ min: 0.5, max: 2.2 }`** | ✅ 신장 175~200cm 선수의 90~110% stride 모두 포용 |
+
+### 변경 없음
+- 산식·코호트 분포·EXTRA_VAR_SCORING optimal/sigma 모두 v33.13.2와 동일
+- v33.12 모순 표현 제거 + Athlete Card + v33.11 라이트 톤 + v33.10 산식 보정 그대로
+- arm_trunk_speedup은 percentile 유지 (Uplift 리포트 미포함 변수)
+
+### 영향 — 김강연 케이스 시뮬레이션
+| 변수 | 측정값 | percentile (v33.13) | Uplift Pro Gaussian (v33.14) |
+|---|---|---|---|
+| peak_pelvis_av | 488 °/s | 코호트 위치별 (대략 50~70점) | ~98점 (mean 512에 매우 근접) |
+| peak_trunk_av | 821 °/s | (코호트 분포 기반) | ~96점 |
+| peak_arm_av | 1427 °/s | (코호트 분포 기반) | ~93점 |
+| pelvis_trunk_speedup | 1.68 | (코호트 분포 기반) | ~89점 |
+
+→ Uplift Pro 기준으로 정확히 elite 위치가 점수에 반영됨
+
+---
+
+# BBL v33.13.2 — Uplift 시스템 설명 정정 (스마트폰 markerless, IMU 아님)
+**Build**: 2026-05-06 / **Patch**: v33.13.1 → v33.13.2 / **Type**: 문서·주석 정정 (코드 동작 변경 없음)
+
+### 사용자 정정
+> "Uplift는 IMU가 아닌 스마트폰 기반"
+
+### 정정 내용
+v33.13/v33.13.1에서 거리 측정 정확도 한계의 근거를 "Uplift IMU 가속도 적분 누적 drift"로 기술했으나, 실제 Uplift는 **스마트폰 카메라 기반 markerless pose estimation** 시스템.
+
+| | 잘못된 설명 (정정 전) | 올바른 설명 (v33.13.2) |
+|---|---|---|
+| 시스템 종류 | IMU (가속도+자이로) | **스마트폰 카메라 기반 markerless** |
+| 거리 정확도 한계 원인 | 가속도 이중 적분 → drift 누적 | **카메라 깊이(z) 추정 한계 + 신장 스케일링 + 키포인트 검출 노이즈** |
+| 각속도 정확도 한계 | (해당 없음) | **frame rate(30~120fps) × 각도 미분 노이즈** |
+
+### 변경 위치
+- `app.js` 헤더 v33.13/v33.13.1 패치노트 정정 + v33.13.2 섹션 신설
+- `metadata.js` PLAUSIBLE_RANGES 코멘트 ("IMU position 추적 한계" → "markerless pose estimation 한계")
+- `README.md` v33.13 근거 섹션 정정
+- 메모리 `project_v33_13_changes.md` 정정
+
+### 동작 변경 없음
+- PLAUSIBLE_RANGES·PLAUSIBLE_RANGES_DYNAMIC 범위 그대로 (코호트 분포 기반 산출이라 시스템 종류 무관)
+- isImplausible 함수 동작 동일
+- 점수·산식 변경 없음
+
+---
+
+# BBL v33.13.1 — release_height_m을 arm_slot 기반 dynamic plausible로 분기
+**Build**: 2026-05-06 / **Patch**: v33.13 → v33.13.1 / **Type**: 결측 처리 정밀화
+
+### 사용자 요청 (v33.13 후속)
+> "릴리즈 높이는 사이드나 언더 암도 고려해야 하지 않나?"
+
+### 근거
+release 절대 높이는 **arm slot(투구 각도)** 에 따라 합리적 범위가 크게 다릅니다:
+
+| arm_slot | 합리 release 범위 (m) |
+|---|---|
+| 오버핸드 (>60°) | 0.4 ~ 1.8 |
+| 쓰리쿼터 (45~60°) | 0.3 ~ 1.4 |
+| 사이드암 (15~45°) | 0.1 ~ 0.8 |
+| 언더암 (<15°) | -0.2 ~ 0.4 |
+
+v33.13의 단일 `{min:0.15, max:1.0}`은 정통 오버핸드 큰 신장 선수가 잘못 결측 처리되거나, 사이드암·언더암 선수의 정상 측정값이 통과되는 문제 가능성.
+
+### v33.13.1 변경
+
+**`metadata.js`**: `PLAUSIBLE_RANGES_DYNAMIC` 신규 객체. `arm_slot_mean_deg` 값에 따라 함수로 분기:
+```js
+'release_height_m': (m) => {
+  const arm = m && m.arm_slot_mean_deg;
+  if (arm == null) return null;          // arm_slot 미측정 → 정적 fallback 사용
+  if (arm >= 60) return { min: 0.4, max: 1.8 };  // 오버핸드
+  if (arm >= 45) return { min: 0.3, max: 1.4 };  // 쓰리쿼터
+  if (arm >= 15) return { min: 0.1, max: 0.8 };  // 사이드암
+  return            { min: -0.2, max: 0.4 };      // 언더암
+}
+```
+
+**`app.js`** `isImplausible(varKey, value)` 함수 확장:
+- `PLAUSIBLE_RANGES_DYNAMIC[varKey]` 존재 + `mechanics.arm_slot_mean_deg` 측정값 있으면 dynamic 우선
+- arm_slot 미측정 시 정적 `PLAUSIBLE_RANGES['release_height_m']` (광범위 fallback `-0.2~1.8`)
+- 다른 변수의 isImplausible 동작 영향 없음
+
+### 효과
+- 사이드암 선수 release 0.5m → 정상 통과
+- 언더암 선수 release 0.2m → 정상 통과
+- 오버핸드 선수 release 1.5m → 정상 통과
+- arm_slot별 비상식 outlier(예: 사이드암인데 release 1.2m)는 결측 처리 → markerless 깊이 추정 오류 의심
+
+### 변경 없음
+- 산식·점수·코호트 분포 모두 v33.13과 동일
+- 다른 변수(stride_mean_m 등)의 plausible은 그대로 정적 사용
+
+---
+
+# BBL v33.13 — 거리·위치 변수 PLAUSIBLE_RANGES 코호트 기반 재설정 (Uplift markerless 한계 대응)
+**Build**: 2026-05-06 / **Patch**: v33.12 → v33.13 (+ v33.13.1, v33.13.2) / **Type**: 결측 처리 (산식·점수 변경 없음)
+
+### 사용자 요청 (김강연 리포트 검토 후속)
+> "각도가 아닌 거리 측정치는 Uplift 산출 방식 상 정확도가 많이 떨어질 것 같다. 비상식적으로 너무 크거나 작은 것은 결측치로 처리하자."
+
+### 근거
+- **Uplift는 스마트폰 카메라 기반 markerless pose estimation 시스템** (IMU 아님 — v33.13.2 정정)
+- 거리·위치 절대값 정확도 한계: 단일/dual 카메라 깊이(z) 추정 한계 + 신장 스케일링 한계 + 키포인트 검출 노이즈
+- **Theia 비교**: stride_length BBL 190cm vs Theia 146cm (30% 차이) — 단순 정의 차이가 아닌 측정 정확도 한계
+- **김강연 케이스**: stride 2.04m vs 코호트 mean **1.01m** (2배+), release 1.17m vs 코호트 mean **0.46m** (2.5배+)
+- **기존 잘못된 plausible**: `release_height_m: {min:1.0, max:2.5}` ← 코호트 mean 0.46m와 완전 어긋남. 1.17m가 정상으로 통과돼 부정확한 percentile 평가됨
+
+### v33.13 변경 — PLAUSIBLE_RANGES 갱신 (`metadata.js`)
+
+| 변수 | 기존 | 갱신 | 코호트 기준 |
+|---|---|---|---|
+| `stride_mean_m` | (v33.10 제거) | `{ min: 0.5, max: 1.6 }` | mean 1.01·sd 0.10 → ±5σ ≈ 0.5~1.5 |
+| `release_height_m` | `{ min: 1.0, max: 2.5 }` ❌ | `{ min: 0.15, max: 1.0 }` | mean 0.46·sd 0.10 → ±5σ ≈ 0~0.96 |
+
+### 효과 (기존 isImplausible 시스템 활용)
+- 범위 밖 값 → `percentile 50점 결측 보정` + `IMPLAUSIBLE_VARS` 플래그 → UI에 "결측 보정" 배지 노출
+- 김강연 stride 2.04m, release 1.17m가 자동 결측 처리되어 부정확한 점수가 종합 평가에 영향 안 미침
+- 정상 범위 측정값은 그대로 percentile 평가
+
+### 변경 없음
+- 점수 산식·코호트 분포·raw 산출 코드(stride_length_trial, release_height_trial) 모두 보존
+- v33.12 모순 표현 제거 + Athlete Card + v33.11 라이트 톤 + v33.10 산식 보정 모두 그대로 유지
+
+### 후속 작업 가능성
+- 각도·각속도 변수와 달리 거리 변수의 신뢰도 등급(Theia ICC 기반) UI 표시
+- wrist_3d_sd_cm 등 다른 SD 변수도 코호트 기반 max 재검토
+
+---
+
 # BBL v33.12 — 사용자 피드백 반영: 모순 표현 제거 + 코칭 표현 정리 + Athlete Card 신설
 **Build**: 2026-05-06 / **Patch**: v33.11 → v33.12 / **Type**: 메시지·UX (산식·점수 변경 없음)
 

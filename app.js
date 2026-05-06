@@ -156,7 +156,51 @@
 //                  - 위치: renderReportHtml 마지막. 잘되는 점·가장 먼저 볼 점·선수 큐·오늘 할 훈련·6주 KPI 자동 생성
 //                  - 통일 cue: "앞발이 닿으면 빨리 버티고, 몸통 다음에 팔이 나오게 하자."
 //                  - cat_scores ≥ 75 강점 자동 추출, faults[0] focus, drills 3개 노출. .kbo-page-head + .kbo-plain + .cat-card 5색 활용
-const ALGORITHM_VERSION = 'v33.12';
+//   v33.13 — 거리·위치 변수 PLAUSIBLE_RANGES 코호트 기반 재설정 (사용자 피드백 2026-05-06)
+//           [근거] Uplift는 스마트폰 카메라 기반 markerless pose estimation 시스템 (IMU 아님 — 사용자 정정 2026-05-06)
+//                  → 절대 거리·위치 정확도 한계: 단일/dual 카메라 깊이(z) 추정 한계 + 신장 스케일링 한계 + 키포인트 검출 노이즈
+//                  Theia 비교: stride_length BBL 190cm vs Theia 146cm (30% 차이) — 측정 정확도 한계
+//                  김강연 케이스: stride 2.04m vs 코호트 mean 1.01m (2배), release 1.17m vs 코호트 mean 0.46m (2.5배)
+//                  기존 release_height_m PLAUSIBLE {min:1.0, max:2.5}는 코호트 mean 0.46m와 어긋난 잘못된 설정
+//           조치: PLAUSIBLE_RANGES 코호트 mean ± 5σ 기반으로 재설정
+//                  - stride_mean_m: 신규 추가 {min:0.5, max:1.6} (v33.10에서 제거된 plausible을 코호트 기반으로 재추가)
+//                  - release_height_m: {min:1.0, max:2.5} → fallback {min:-0.2, max:1.8} (실제는 dynamic — v33.13.1 참조)
+//   v33.13.1 — release_height_m을 arm_slot 기반 dynamic plausible로 분기 (사용자 피드백 2026-05-06 후속)
+//           [근거] release 절대 높이는 arm_slot(투구 각도)에 따라 합리적 범위가 크게 다름
+//                  오버핸드 1.0~1.8m / 쓰리쿼터 0.6~1.4m / 사이드암 0.3~0.8m / 언더암 0~0.4m
+//                  단일 plausible 범위로 잡으면 정통 오버핸드 큰 신장 또는 사이드암·언더암이 잘못 결측 처리됨
+//           조치: PLAUSIBLE_RANGES_DYNAMIC 신규 객체 (metadata.js) — arm_slot_mean_deg에 따라 함수로 분기
+//                  isImplausible() 함수 확장 — dynamic 우선, 없으면 정적 fallback
+//                  arm_slot 미측정 시 fallback {min:-0.2, max:1.8} 광범위 (모든 arm_slot 포용)
+//           효과: 사이드암 release 0.5m·언더암 release 0.2m도 정상 통과, 오버핸드 release 1.5m도 정상 통과
+//                  arm_slot 별 비상식 outlier만 결측 처리 (예: 사이드암인데 release 1.2m면 markerless 깊이 추정 오류 의심 → 결측)
+//   v33.13.2 — Uplift "IMU" 잘못 언급 정정 (사용자 정정 2026-05-06)
+//           [정정] v33.13/v33.13.1 패치노트와 코멘트에 "Uplift IMU 가속도 적분 누적 drift"로 잘못 기술된 것을 정정
+//                  실제: Uplift는 스마트폰 카메라 기반 markerless pose estimation 시스템 (IMU 아님)
+//                  결론(거리 절대값 정확도 떨어짐)은 동일하지만 근거는 다름:
+//                  - 단일/dual 카메라의 3D 깊이(z) 추정 한계
+//                  - 신장 스케일링 한계 (알려진/추정 신장으로 픽셀→미터 변환 시 오차)
+//                  - 키포인트 검출 노이즈 (가려짐·블러·조명·복장)
+//                  - frame rate (보통 30~120fps) × 미분 → 각속도 노이즈 민감
+//           영향: app.js 헤더 + metadata.js PLAUSIBLE_RANGES 코멘트 + README v33.13/v33.13.1 섹션 + 메모리 모두 정정
+//                 plausible 범위 자체는 동일 (코호트 분포 기반 산출이라 시스템 종류 무관)
+//   v33.14 — 회전 속도 4변수 LITERATURE_OVERRIDE 재등록 + stride PLAUSIBLE 재조정 (사용자 제안 2026-05-06)
+//           [근거] 사용자 제안: "골반 몸통 팔 회전 속도는 업리프트 리포트에 제시한 프로 레인지를 기준으로"
+//                  Exponent 2022 KinaTrax 비교 결과: Uplift는 pelvis rot vel을 KinaTrax 대비 ~2배 과대측정 (MAPE 78~137%)
+//                  → 외부 시스템 기준(MLB 550°/s) 비교 시 시스템 차이가 점수에 그대로 반영
+//                  → Uplift 자체 Pro 레인지는 Uplift 시스템에서 측정된 분포라 시스템 차이 자동 흡수 = 시스템 일관성 확보
+//                  김강연 Uplift 리포트(2025-11-21) 검증: peak_pelvis 488/peak_trunk 821/peak_arm 1427/speedup 1.68 — 모두 Pro 레인지 안
+//           조치 1: LITERATURE_OVERRIDE에 회전 속도 4종 + alias 재등록
+//                  - peak_pelvis_av · peak_pelvis_rot_vel · max_pelvis_rot_vel_dps (Uplift Pro 445~580°/s)
+//                  - peak_trunk_av · max_trunk_twist_vel_dps (Uplift Pro 770~940°/s)
+//                  - peak_arm_av (Uplift Pro 1235~1480°/s)
+//                  - pelvis_trunk_speedup (Uplift Pro 1.4~1.7x)
+//                  EXTRA_VAR_SCORING의 sigma는 v31.47 그대로 유지 (Pro 레인지 = mean ± ~0.7σ)
+//           조치 2: stride_mean_m PLAUSIBLE {0.5, 1.6} → {0.5, 2.2} 재조정
+//                  Uplift 리포트 stride length 표시는 "% of height" — 김강연 104% × 175cm ≈ 1.82m
+//                  BBL 측정 2.04m도 markerless 깊이 추정 오차 ±10% 고려하면 정상 범위 (v33.13에서 잘못 결측 처리)
+//                  새 범위는 신장 175~200cm 선수 90~110% stride 모두 포용
+const ALGORITHM_VERSION = 'v33.14';
 const ALGORITHM_DATE    = '2026-05-06';
 
 let CURRENT_AGE = '고교';
@@ -287,7 +331,14 @@ const IMPLAUSIBLE_VARS = new Set();
 function resetImplausibleFlags() { IMPLAUSIBLE_VARS.clear(); }
 function isImplausible(varKey, value) {
   if (value == null || isNaN(value)) return false;
-  const p = PLAUSIBLE_RANGES[varKey];
+  // ★ v33.13.1 — PLAUSIBLE_RANGES_DYNAMIC 우선 (arm_slot 등 다른 변수 의존 변수)
+  //   arm_slot 측정값 기준으로 동적 plausible 산출 → 미측정 시 null 반환되어 정적 fallback 사용
+  let p = PLAUSIBLE_RANGES[varKey];
+  if (typeof PLAUSIBLE_RANGES_DYNAMIC !== 'undefined' && PLAUSIBLE_RANGES_DYNAMIC[varKey]) {
+    const mechanics = (typeof CURRENT_INPUT !== 'undefined' && CURRENT_INPUT) ? (CURRENT_INPUT.mechanics || {}) : {};
+    const dyn = PLAUSIBLE_RANGES_DYNAMIC[varKey](mechanics);
+    if (dyn) p = dyn;  // dynamic 산출 성공 시 정적 대신 사용
+  }
   if (!p) return false;
   // ★ v31.46 useAbs 변수는 절댓값으로 체크 (좌투수 raw 부호 차이 흡수)
   //   예: peak_x_factor 좌투수 raw -40.4° → |40.4| = 40.4°가 PLAUSIBLE 범위 안인지 체크
