@@ -893,23 +893,21 @@
       <button type="button" class="text-xs text-[var(--text-muted)] underline" onclick="clearVideoInput()">지우기</button>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
+    <!-- 영상 파일 드롭존 (드래그 앤 드롭 + 클릭 선택) -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="md:col-span-2">
         <label class="text-xs text-[var(--text-muted)] block mb-1">영상 파일 (mp4 권장)</label>
-        <input type="file" class="input-field" id="player-video-file" accept="video/*" onchange="onVideoFileSelected(event)">
-        <div id="player-video-info" class="text-[11px] text-[var(--text-muted)] mt-1 font-mono"></div>
+        <div class="file-drop py-4" id="player-video-drop-zone" onclick="document.getElementById('player-video-file').click()">
+          <div class="text-2xl mb-1">🎥</div>
+          <div class="text-sm font-medium">영상을 드래그 앤 드롭하거나 클릭해서 선택</div>
+          <div class="text-xs text-[var(--text-muted)] mt-1" id="player-video-info">파일명에 _NNN_ 또는 trial_NNNN 패턴이 있으면 trial 자동 매칭</div>
+        </div>
+        <input type="file" id="player-video-file" accept="video/*" class="hidden" onchange="onVideoFileSelected(event)">
       </div>
       <div>
         <label class="text-xs text-[var(--text-muted)] block mb-1">영상 fps (기본 240 — 일반 카메라는 30)</label>
-        <input type="number" class="input-field" id="player-video-fps" placeholder="240" step="1" value="240">
+        <input type="number" class="input-field" id="player-video-fps" placeholder="240" step="0.01" value="240">
       </div>
-    </div>
-
-    <!-- 다중 trial 매칭: 영상이 어느 trial인지 선택 (단일 trial이면 숨김) -->
-    <div id="player-video-trial-wrap" class="hidden mt-4">
-      <label class="text-xs text-[var(--text-muted)] block mb-1">📌 이 영상이 어느 trial인지 선택 (Uplift CSV 다중 업로드 시)</label>
-      <select class="input-field" id="player-video-trial-select" onchange="onTrialSelectChange(event)"></select>
-      <div class="text-[11px] text-[var(--text-muted)] mt-1">💡 영상 파일명에 trial 번호 또는 CSV 파일명이 포함되면 자동 선택됩니다. 빗나갔으면 직접 선택.</div>
     </div>
 
     <div class="text-xs text-[var(--text-muted)] mt-4 mb-2">⏱ 4 이벤트 시점 (초 단위, 영상 시작 0.00s 기준)</div>

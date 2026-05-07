@@ -4595,30 +4595,12 @@ function _makeTrialEventEntry(index, filename, fps, events, captureDate) {
   };
 }
 
-// Trial selector UI 렌더 — Step 3.5에 trial 드롭다운 표시
-function renderTrialSelector() {
-  const wrap = document.getElementById('player-video-trial-wrap');
-  const sel  = document.getElementById('player-video-trial-select');
-  if (!wrap || !sel) return;
-
-  if (CURRENT_UPLIFT_TRIAL_EVENTS.length <= 1) {
-    // 단일 trial: 드롭다운 숨김, 값은 0으로 고정
-    wrap.classList.add('hidden');
-    return;
-  }
-
-  // 다중 trial: 드롭다운 채우기
-  wrap.classList.remove('hidden');
-  sel.innerHTML = CURRENT_UPLIFT_TRIAL_EVENTS.map((t, i) => {
-    const t1 = t.eventTimes;
-    const summary = ['kh','fc','mer','br'].map(k => {
-      const v = t1[k + '_time'];
-      return v != null ? `${k.toUpperCase()}=${v.toFixed(2)}s` : `${k.toUpperCase()}=?`;
-    }).join(' · ');
-    return `<option value="${i}">Trial ${i+1} — ${escapeHtmlSafe(t.filename || 'unknown')} (${summary})</option>`;
-  }).join('');
-  sel.value = String(CURRENT_UPLIFT_SELECTED_TRIAL);
-}
+// Trial selector — UI 드롭다운 제거됨 (2026-05-07).
+//   영상 파일명 자동 매칭이 신뢰성 높아 드롭다운을 없앴고, 매칭 결과는 status 메시지에만 표시.
+//   override가 필요하면 사용자가 4 timestamp 입력란을 직접 수정하면 됨.
+//   호출처 호환성을 위해 함수는 유지 (no-op).
+function renderTrialSelector() { /* no-op — 드롭다운 UI 제거됨 */ }
+function onTrialSelectChange() { /* no-op — 드롭다운 UI 제거됨 */ }
 
 // 영상 파일명과 trial 파일명을 매칭
 //   매칭 순서 (강한 신호 → 약한 신호):
@@ -4734,20 +4716,53 @@ function autofillVideoEventsFromUplift(opts) {
   }
 }
 
-function onVideoFileSelected(event) {
-  const file = event.target.files && event.target.files[0];
+// 영상 파일 적용 (input change + drag-drop 공용)
+function _applyVideoFile(file) {
   if (!file) return;
+  if (!file.type.startsWith('video/') && !/\.(mp4|mov|m4v|avi|mkv|webm)$/i.test(file.name)) {
+    alert('영상 파일이 아닙니다 (mp4, mov, m4v, avi, mkv, webm 지원)');
+    return;
+  }
   if (CURRENT_VIDEO_OBJECT_URL) URL.revokeObjectURL(CURRENT_VIDEO_OBJECT_URL);
   CURRENT_VIDEO_FILE = file;
   CURRENT_VIDEO_OBJECT_URL = URL.createObjectURL(file);
   const info = document.getElementById('player-video-info');
-  if (info) info.textContent = `✓ ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`;
-  // 다중 trial이 이미 로드돼 있으면 영상 파일명으로 자동 trial 매칭 시도
-  if (CURRENT_UPLIFT_TRIAL_EVENTS.length > 1) {
+  if (info) info.innerHTML = `<span class="font-mono">✓ ${escapeHtmlSafe(file.name)}</span> · ${(file.size / 1024 / 1024).toFixed(1)} MB`;
+  // 다중 trial이 이미 로드돼 있으면 파일명으로 자동 trial 매칭 시도
+  if (CURRENT_UPLIFT_TRIAL_EVENTS.length > 0) {
     CURRENT_UPLIFT_SELECTED_TRIAL = _autoMatchTrialByFilename(file.name);
-    renderTrialSelector();
     autofillVideoEventsFromUplift({ overwrite: true });
   }
+}
+
+function onVideoFileSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  _applyVideoFile(file);
+}
+
+// 영상 드롭존 셋업 — DOMContentLoaded에서 호출
+function setupVideoDropZone() {
+  const zone = document.getElementById('player-video-drop-zone');
+  if (!zone) return;
+  ['dragover', 'dragenter'].forEach(evt => {
+    zone.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      zone.classList.add('dragover');
+    });
+  });
+  ['dragleave', 'dragend'].forEach(evt => {
+    zone.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      zone.classList.remove('dragover');
+    });
+  });
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    zone.classList.remove('dragover');
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    _applyVideoFile(files[0]);
+  });
 }
 
 function clearVideoInput() {
@@ -7792,6 +7807,7 @@ window.addEventListener('DOMContentLoaded', () => {
   selectAge('고교');
   setupDropZone('fitness-drop-zone', 'fitness');
   setupDropZone('mech-drop-zone', 'mechanics');
+  setupVideoDropZone();  // 영상 드롭존 (Step 3.5)
   loadSavedReports();
   // 알고리즘 변경에 대응해 저장된 모든 리포트를 현재 calculateScores로 재계산 + UI 토스트 알림
   const _recomputeResult = recomputeAllSavedReports();
