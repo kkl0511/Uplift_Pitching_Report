@@ -230,9 +230,10 @@ async function _captureFramesAt(videoUrl, timestamps) {
     dPixels[key] = dCtx.getImageData(0, 0, dW, dH).data;
   }
 
-  // 3) 픽셀별 최대 변화 (RGB 합 0~765) → 임계 → bbox
+  // 3) 픽셀별 최대 변화 (RGB 합 0~765) → 임계 → motion 좌표 모음
+  //    percentile bbox: 2nd~98th percentile 좌표 사용 (이상치/노이즈 제외 → 더 타이트)
   const THRESHOLD = 90;  // 평균 채널 30 변화 ≈ 명확한 움직임
-  let minX = dW, minY = dH, maxX = -1, maxY = -1, motionCount = 0;
+  const motionXs = [], motionYs = [];
   for (let y = 0; y < dH; y++) {
     for (let x = 0; x < dW; x++) {
       const i = (y * dW + x) * 4;
@@ -246,26 +247,29 @@ async function _captureFramesAt(videoUrl, timestamps) {
         if (maxDiff > THRESHOLD) break;
       }
       if (maxDiff > THRESHOLD) {
-        motionCount++;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
+        motionXs.push(x);
+        motionYs.push(y);
       }
     }
   }
 
-  // 4) bbox 검증: motion 비율 2~95% 범위에서만 crop 적용
+  // 4) bbox: 2nd~98th percentile (이상치 제거 → 빈 공간 과감히 제거)
   let cropX = 0, cropY = 0, cropW = W, cropH = H;
-  const motionRatio = motionCount / (dW * dH);
-  if (motionRatio >= 0.02 && motionRatio <= 0.95 && maxX > minX && maxY > minY) {
-    // 다운샘플 좌표 → 원본 좌표
+  const motionRatio = motionXs.length / (dW * dH);
+  if (motionRatio >= 0.01 && motionRatio <= 0.95 && motionXs.length > 50) {
+    motionXs.sort((a, b) => a - b);
+    motionYs.sort((a, b) => a - b);
+    const P = 0.02;  // 2nd / 98th percentile
+    const loX = motionXs[Math.floor(motionXs.length * P)];
+    const hiX = motionXs[Math.min(motionXs.length - 1, Math.ceil(motionXs.length * (1 - P)))];
+    const loY = motionYs[Math.floor(motionYs.length * P)];
+    const hiY = motionYs[Math.min(motionYs.length - 1, Math.ceil(motionYs.length * (1 - P)))];
     const inv = (v) => Math.round(v / dScale);
-    let bx = inv(minX), by = inv(minY);
-    let bw = inv(maxX + 1) - bx, bh = inv(maxY + 1) - by;
-    // 8% 패딩 (각 변)
-    const padX = Math.round(bw * 0.08);
-    const padY = Math.round(bh * 0.08);
+    let bx = inv(loX), by = inv(loY);
+    let bw = inv(hiX + 1) - bx, bh = inv(hiY + 1) - by;
+    // 패딩 — 좌우 4%, 상하 3% (사용자 피드백: 위아래 빈 공간 더 잘라내기)
+    const padX = Math.round(bw * 0.04);
+    const padY = Math.round(bh * 0.03);
     bx -= padX; by -= padY; bw += 2 * padX; bh += 2 * padY;
     // 화면 밖 클램프
     bx = Math.max(0, bx); by = Math.max(0, by);
