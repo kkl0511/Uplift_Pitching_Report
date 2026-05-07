@@ -574,8 +574,9 @@ function percentileOfCohort(varKey, value, polarity) {
 // 폼 렌더링
 // ════════════════════════════════════════════════════════════════════
 function renderInputs() {
-  // 모든 입력 폼은 CSV 전용 UI로 대체됨. 코호트 정보 헤더만 갱신.
-  document.getElementById('cohort-info').textContent =
+  // 모든 입력 폼은 CSV 전용 UI로 대체됨. 코호트 정보 헤더만 갱신 (헤더에서 제거되면 noop).
+  const el = document.getElementById('cohort-info');
+  if (el) el.textContent =
     `코호트: ${COHORT.meta.cohort_n_players}명 / ${COHORT.meta.cohort_size}회 측정 · 18 카테고리 / ${Object.keys(COHORT.var_distributions).length} 변수`;
 }
 
