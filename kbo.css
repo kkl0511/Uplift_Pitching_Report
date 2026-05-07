@@ -1,0 +1,51 @@
+/* ════════════════════════════════════════════════════════════════════
+   kbo.css — v2 Kinematic-Only Report 전용 스코프 스타일
+   .kbo-scope 네임스페이스로 기존 페이지 스타일과 격리
+   원본: build_park_offline_v2.js의 KBO_CSS 블록 (2026-05-07 인라인 분리)
+   ════════════════════════════════════════════════════════════════════ */
+
+.kbo-scope {
+  font-family: 'Inter', 'Noto Sans KR', 'Malgun Gothic', -apple-system, system-ui, sans-serif;
+  font-size: 15px; line-height: 1.55; color: #0F1419; background: #FFFFFF;
+  --kbo-navy: #0F2A4A; --kbo-navy-soft: #3B5A82; --kbo-navy-tint: #EAF0F7;
+  --kbo-bg-card: #FFFFFF; --kbo-bg-elev: #F6F7F9;
+  --kbo-border: #E1E5EB; --kbo-text: #0F1419; --kbo-text-muted: #6B7280;
+  --kbo-good: #3F7D5C; --kbo-caution: #A87333; --kbo-leak: #A8443A;
+  --kbo-shadow: none;
+}
+.kbo-scope * { box-sizing: border-box; }
+.kbo-scope .kbo-pad { padding: 24px 20px 40px; }
+.kbo-scope .kbo-display { font-family: 'Space Grotesk', system-ui, sans-serif; font-weight: 700; letter-spacing: -0.01em; }
+.kbo-scope .kbo-mono { font-family: 'JetBrains Mono', 'SF Mono', monospace; }
+.kbo-scope .kbo-plain { background: var(--kbo-navy-tint); border-radius: 10px; padding: 12px 14px; margin-top: 14px; display: flex; gap: 10px; align-items: flex-start; }
+.kbo-scope .kbo-plain-tag { flex: 0 0 auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: var(--kbo-navy); letter-spacing: 0.08em; text-transform: uppercase; background: #fff; border: 1px solid var(--kbo-navy); padding: 3px 7px; border-radius: 4px; line-height: 1; margin-top: 1px; }
+.kbo-scope .kbo-plain-text { font-size: 13.5px; color: #0F1419; line-height: 1.55; }
+.kbo-scope .kbo-plain-text b { font-weight: 700; color: var(--kbo-navy); }
+.kbo-scope .kbo-page-head { display: flex; align-items: baseline; gap: 8px; padding-bottom: 14px; margin-bottom: 20px; border-bottom: 2px solid var(--kbo-navy); flex-wrap: wrap; }
+.kbo-scope .kbo-page-num { font-family: 'Space Grotesk', system-ui, sans-serif; font-weight: 700; font-size: 11px; letter-spacing: 0.16em; color: var(--kbo-navy); padding: 4px 9px; border: 1.5px solid var(--kbo-navy); border-radius: 4px; }
+.kbo-scope .kbo-page-title-en { font-family: 'Space Grotesk', system-ui, sans-serif; font-weight: 700; font-size: 20px; color: var(--kbo-navy); letter-spacing: -0.01em; }
+.kbo-scope .kbo-page-title-kr { font-size: 13px; color: var(--kbo-text-muted); margin-left: 2px; }
+.kbo-scope .kbo-page-q { flex-basis: 100%; font-size: 12px; color: var(--kbo-text-muted); margin-top: 4px; }
+.kbo-scope .kbo-headline { font-family: 'Space Grotesk', system-ui, sans-serif; font-weight: 700; font-size: 22px; line-height: 1.32; letter-spacing: -0.012em; color: var(--kbo-text); }
+.kbo-scope .kbo-headline em { font-style: normal; color: var(--kbo-navy); }
+.kbo-scope .kbo-card { background: var(--kbo-bg-card); border: 1px solid var(--kbo-border); border-radius: 10px; box-shadow: var(--kbo-shadow); }
+.kbo-scope .kbo-conf { display: inline-flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; letter-spacing: 0.04em; text-transform: uppercase; }
+.kbo-scope .kbo-conf-h { color: var(--kbo-good); background: rgba(63,125,92,0.08); border: 1px solid var(--kbo-good); }
+.kbo-scope .kbo-conf-m { color: var(--kbo-caution); background: rgba(168,115,51,0.08); border: 1px solid var(--kbo-caution); }
+.kbo-scope .kbo-conf-l { color: var(--kbo-leak); background: rgba(168,68,58,0.06); border: 1px solid var(--kbo-leak); }
+.kbo-scope .kbo-pill { display: inline-flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 4px; letter-spacing: 0.06em; text-transform: uppercase; }
+.kbo-scope .kbo-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.kbo-scope .kbo-pill-good { color: var(--kbo-good); background: rgba(63,125,92,0.10); }
+.kbo-scope .kbo-pill-caution { color: var(--kbo-caution); background: rgba(168,115,51,0.10); }
+.kbo-scope .kbo-pill-leak { color: var(--kbo-leak); background: rgba(168,68,58,0.10); }
+.kbo-scope .kbo-eyebrow { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.14em; color: var(--kbo-text-muted); text-transform: uppercase; }
+.kbo-scope .kbo-metric-num { font-family: 'Space Grotesk', system-ui, sans-serif; font-weight: 700; line-height: 0.95; letter-spacing: -0.02em; }
+.kbo-scope .kbo-metric-unit { font-family: 'Inter', sans-serif; font-weight: 400; color: var(--kbo-text-muted); font-size: 0.4em; margin-left: 4px; }
+.kbo-scope .kbo-na { color: #9CA3AF; font-style: italic; }
+@media (max-width: 768px) {
+  .kbo-scope .kbo-pad { padding: 18px 14px 32px; }
+  .kbo-scope .kbo-page-title-en { font-size: 17px; }
+  .kbo-scope .kbo-headline { font-size: 18px; }
+  .kbo-scope .kbo-card > div[style*="grid-template-columns: 140px 1fr 80px 1fr"] { grid-template-columns: 100px 1fr !important; }
+  .kbo-scope .kbo-card > div[style*="grid-template-columns: repeat(3, 1fr)"] { grid-template-columns: 1fr !important; }
+}

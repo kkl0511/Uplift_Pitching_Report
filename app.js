@@ -4556,26 +4556,44 @@ function generateReport() {
     alert('⚠️ 입력된 변수가 없습니다. 최소 1개 이상의 변수를 입력해주세요.');
     return;
   }
-  
+
   const playerName = document.getElementById('player-name').value || '신규 선수';
   const measuredVelo = parseFloat(document.getElementById('player-velo').value) || null;
   const date = document.getElementById('player-date').value || '';
-  const result = calculateScores(CURRENT_INPUT, CURRENT_AGE, measuredVelo);
-  CURRENT_REPORT_RESULT = result;  // setMechMode 등이 참조
 
-  const reportHtml = renderReportHtml(playerName, measuredVelo, date, result, totalFit, totalMech);
+  // calculateScores는 autoSaveReport가 의존하므로 결과는 계속 계산해서 CURRENT_REPORT_RESULT에 저장
+  const result = calculateScores(CURRENT_INPUT, CURRENT_AGE, measuredVelo);
+  CURRENT_REPORT_RESULT = result;
+
+  // ★ 2026-05-07 — v1 → v2 6페이지 narrative 리포트로 인라인 교체
+  //   기존: renderReportHtml(...) 호출 + renderRadarCharts/renderOutputTransferChart/setupCoachVideoDropZone
+  //   변경: buildKinematicOnlyReport({ playerId, ageGroup, measuredVelocity, fitness, mechanics }) 결과 HTML을 그대로 삽입
+  //         새 창/팝업 차단 이슈 회피 + 보고서 한 종류로 통합
+  const v2Input = {
+    playerId: playerName,
+    ageGroup: CURRENT_AGE,
+    measuredVelocity: measuredVelo,
+    fitness: CURRENT_INPUT.fitness || {},
+    mechanics: CURRENT_INPUT.mechanics || {},
+    // video 필드는 향후 UI 확장 시 채움 — 현재는 미설정으로 두면 영상 영역 자동 숨김
+  };
+
+  let reportHtml;
+  if (typeof buildKinematicOnlyReport === 'function') {
+    // 빌더 결과를 .kbo-scope 컨테이너로 감싸서 KBO 스타일이 적용되도록 함
+    const inner = buildKinematicOnlyReport(v2Input);
+    reportHtml = `<div class="kbo-scope" style="max-width:1100px; margin:0 auto;">${inner}</div>`;
+  } else {
+    console.error('buildKinematicOnlyReport 미로드 — kinematic_only_report.js script 태그를 확인하세요.');
+    reportHtml = `<div class="card p-6"><div class="text-red-500">v2 리포트 빌더가 로드되지 않았습니다. (kinematic_only_report.js 누락)</div></div>`;
+  }
+
   const area = document.getElementById('report-area');
   area.innerHTML = reportHtml;
   area.classList.remove('hidden');
-  // DOM에 캔버스가 박힌 후 레이더 차트 렌더 + 동영상 드롭존 초기화
-  renderRadarCharts();
-  // ★ Phase 3 v33.7 — 출력 vs 전달 사분면 차트
-  renderOutputTransferChart(result);
-  setupCoachVideoDropZone();
+
   // 자동 저장 (같은 name+date+age면 update, 아니면 add)
   const _savedReport = autoSaveReport(true);
-  // ★ Phase 3 v33.7.4 — 신규 7변수가 mechanics에 들어가서 자동 저장됐으면 사용자에게 알림
-  //   (silent 모드인 autoSaveReport는 토스트 없이 저장만 — 사용자가 저장 사실 모름)
   if (_savedReport && CURRENT_INPUT.mechanics && CURRENT_INPUT.mechanics.wrist_release_speed != null) {
     showAutoSavedToast(_savedReport.name);
   }
