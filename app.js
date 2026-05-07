@@ -4620,20 +4620,63 @@ function renderTrialSelector() {
   sel.value = String(CURRENT_UPLIFT_SELECTED_TRIAL);
 }
 
-// 영상 파일명과 trial 파일명을 매칭 (숫자 매칭 우선, 부분 문자열 매칭 fallback)
+// 영상 파일명과 trial 파일명을 매칭
+//   매칭 순서 (강한 신호 → 약한 신호):
+//   1) 영상명의 _NNN_ (3-5자리, 언더스코어 둘러쌓임) → trial 번호 (예: _009_ → 9)
+//   2) 영상명의 trial_NNN / trial-NNN
+//   3) 영상명의 clip.N / clip_N / clip-N (예: clip.9 → 9)
+//   4) trial CSV 파일명이 영상명에 부분 포함
+//   5) 영상명 모든 _NNN_ 후보 (2자리 포함)
+//   6) 영상명의 첫 번째 숫자 (마지막 fallback)
+//   매칭은 trial CSV 파일명의 trial 번호와 비교 (선행 0 무시: 009 == 0009 == 9)
 function _autoMatchTrialByFilename(videoFilename) {
   if (!videoFilename || CURRENT_UPLIFT_TRIAL_EVENTS.length === 0) return 0;
-  const vname = videoFilename.toLowerCase().replace(/\.[^.]+$/, '');  // 확장자 제거
-  // 1) 영상명에 숫자 N이 있으면 trial N (1-based) 매칭
-  const numMatch = vname.match(/\d+/);
-  if (numMatch) {
-    const n = parseInt(numMatch[0], 10);
-    if (n >= 1 && n <= CURRENT_UPLIFT_TRIAL_EVENTS.length) return n - 1;
+  const vname = videoFilename.toLowerCase().replace(/\.[^.]+$/, '');
+
+  // trial CSV 별로 trial 번호 추출 (trial_NNNN 패턴 우선, 그 외 첫 숫자)
+  const trialNumbers = CURRENT_UPLIFT_TRIAL_EVENTS.map((t, i) => {
+    const tname = (t.filename || '').toLowerCase().replace(/\.[^.]+$/, '');
+    let num = null;
+    const m1 = tname.match(/trial[_-]?(\d+)/);
+    if (m1) num = parseInt(m1[1], 10);
+    else {
+      const m2 = tname.match(/(\d+)/);
+      if (m2) num = parseInt(m2[1], 10);
+    }
+    return { index: i, num };
+  });
+
+  // 영상명에서 trial 번호 후보 추출 (우선순위 순)
+  const candidates = [];
+  // 1) _NNN_ (3-5자리 언더스코어 둘러쌓임) — 가장 강한 신호
+  for (const m of vname.matchAll(/_(\d{3,5})_/g)) candidates.push(parseInt(m[1], 10));
+  // 2) trial_NNN
+  const tm = vname.match(/trial[_-]?(\d+)/);
+  if (tm) candidates.push(parseInt(tm[1], 10));
+  // 3) clip.N / clip_N / clip-N
+  const cm = vname.match(/clip[._\-](\d+)/);
+  if (cm) candidates.push(parseInt(cm[1], 10));
+  // 5) 모든 _NNN_ (2자리 포함, 3-5자리 다음 우선순위)
+  for (const m of vname.matchAll(/_(\d{1,5})_/g)) candidates.push(parseInt(m[1], 10));
+
+  // 후보별로 trial 번호와 매칭 시도
+  for (const cand of candidates) {
+    const match = trialNumbers.find(t => t.num != null && t.num === cand);
+    if (match) return match.index;
   }
-  // 2) trial 파일명이 영상명에 부분 포함, 또는 그 반대
+
+  // 4) 부분 문자열 매칭 fallback
   for (let i = 0; i < CURRENT_UPLIFT_TRIAL_EVENTS.length; i++) {
     const tname = (CURRENT_UPLIFT_TRIAL_EVENTS[i].filename || '').toLowerCase().replace(/\.[^.]+$/, '');
     if (tname && (vname.includes(tname) || tname.includes(vname))) return i;
+  }
+
+  // 6) 첫 번째 숫자 fallback
+  const numMatch = vname.match(/(\d+)/);
+  if (numMatch) {
+    const n = parseInt(numMatch[1], 10);
+    const match = trialNumbers.find(t => t.num != null && t.num === n);
+    if (match) return match.index;
   }
   return 0;
 }
