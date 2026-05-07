@@ -180,7 +180,11 @@ function setupVideoDropZone() {
   });
 }
 
-// ── frame 캡처 (단일 video element 재사용) ─────────────────────────
+// ── frame 캡처 + 자동 crop (모션 영역 union bbox) ──────────────────
+//   1) 4 frame 풀 해상도로 캡처
+//   2) 다운샘플(320px) 후 픽셀별 최대 변화량으로 motion mask 산출
+//   3) motion mask의 bounding box → 8% 패딩 → 모든 frame을 동일 영역으로 crop
+//   4) 검출 실패(motion 너무 적거나 너무 많음) 시 원본 frame 유지
 async function _captureFramesAt(videoUrl, timestamps) {
   const video = document.createElement('video');
   Object.assign(video, { muted: true, playsInline: true, preload: 'auto', src: videoUrl });
@@ -191,12 +195,13 @@ async function _captureFramesAt(videoUrl, timestamps) {
     video.addEventListener('error', () => { clearTimeout(timer); reject(new Error('영상 로드 실패')); }, { once: true });
   });
 
-  const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  const ctx = canvas.getContext('2d');
+  const W = video.videoWidth, H = video.videoHeight;
+  const fullCanvas = document.createElement('canvas');
+  fullCanvas.width = W; fullCanvas.height = H;
+  const fullCtx = fullCanvas.getContext('2d');
 
-  const frames = {};
+  // 1) 풀 해상도 capture (ImageData 보관)
+  const imgData = {};
   for (const [key, t] of Object.entries(timestamps)) {
     const safeT = Math.max(0, Math.min(t, (video.duration || 9999) - 0.001));
     await new Promise((resolve, reject) => {
@@ -204,8 +209,80 @@ async function _captureFramesAt(videoUrl, timestamps) {
       video.addEventListener('seeked', () => { clearTimeout(timer); resolve(); }, { once: true });
       video.currentTime = safeT;
     });
-    ctx.drawImage(video, 0, 0);
-    frames[key] = canvas.toDataURL('image/jpeg', 0.85);
+    fullCtx.drawImage(video, 0, 0);
+    imgData[key] = fullCtx.getImageData(0, 0, W, H);
+  }
+
+  // 2) 다운샘플 motion 검출 (320px 폭)
+  const DETECT_W = 320;
+  const dScale = Math.min(1, DETECT_W / W);
+  const dW = Math.max(1, Math.round(W * dScale));
+  const dH = Math.max(1, Math.round(H * dScale));
+  const dCanvas = document.createElement('canvas');
+  dCanvas.width = dW; dCanvas.height = dH;
+  const dCtx = dCanvas.getContext('2d');
+
+  const dPixels = {};
+  const keys = Object.keys(timestamps);
+  for (const key of keys) {
+    fullCtx.putImageData(imgData[key], 0, 0);
+    dCtx.drawImage(fullCanvas, 0, 0, dW, dH);
+    dPixels[key] = dCtx.getImageData(0, 0, dW, dH).data;
+  }
+
+  // 3) 픽셀별 최대 변화 (RGB 합 0~765) → 임계 → bbox
+  const THRESHOLD = 90;  // 평균 채널 30 변화 ≈ 명확한 움직임
+  let minX = dW, minY = dH, maxX = -1, maxY = -1, motionCount = 0;
+  for (let y = 0; y < dH; y++) {
+    for (let x = 0; x < dW; x++) {
+      const i = (y * dW + x) * 4;
+      let maxDiff = 0;
+      for (let a = 0; a < keys.length; a++) {
+        for (let b = a + 1; b < keys.length; b++) {
+          const A = dPixels[keys[a]], B = dPixels[keys[b]];
+          const d = Math.abs(A[i] - B[i]) + Math.abs(A[i+1] - B[i+1]) + Math.abs(A[i+2] - B[i+2]);
+          if (d > maxDiff) { maxDiff = d; if (maxDiff > THRESHOLD) break; }
+        }
+        if (maxDiff > THRESHOLD) break;
+      }
+      if (maxDiff > THRESHOLD) {
+        motionCount++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  // 4) bbox 검증: motion 비율 2~95% 범위에서만 crop 적용
+  let cropX = 0, cropY = 0, cropW = W, cropH = H;
+  const motionRatio = motionCount / (dW * dH);
+  if (motionRatio >= 0.02 && motionRatio <= 0.95 && maxX > minX && maxY > minY) {
+    // 다운샘플 좌표 → 원본 좌표
+    const inv = (v) => Math.round(v / dScale);
+    let bx = inv(minX), by = inv(minY);
+    let bw = inv(maxX + 1) - bx, bh = inv(maxY + 1) - by;
+    // 8% 패딩 (각 변)
+    const padX = Math.round(bw * 0.08);
+    const padY = Math.round(bh * 0.08);
+    bx -= padX; by -= padY; bw += 2 * padX; bh += 2 * padY;
+    // 화면 밖 클램프
+    bx = Math.max(0, bx); by = Math.max(0, by);
+    bw = Math.min(W - bx, bw); bh = Math.min(H - by, bh);
+    if (bw > 50 && bh > 50) { cropX = bx; cropY = by; cropW = bw; cropH = bh; }
+  }
+
+  // 5) 각 frame을 동일 bbox로 crop → JPEG data URL
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = cropW; outCanvas.height = cropH;
+  const outCtx = outCanvas.getContext('2d');
+  const frames = {};
+  for (const key of keys) {
+    fullCtx.putImageData(imgData[key], 0, 0);
+    outCtx.clearRect(0, 0, cropW, cropH);
+    outCtx.drawImage(fullCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+    frames[key] = outCanvas.toDataURL('image/jpeg', 0.85);
   }
   return frames;
 }
