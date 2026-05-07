@@ -37,18 +37,16 @@ function fetchUrl(url) {
   console.log(`✓ index.html 로드 (${html.length.toLocaleString()} bytes)`);
 
   // 2) 우리 JS 5개 인라인
-  // ★ inline 시 HTML parser가 script 블록을 조기 종료하지 않도록 모든 위험 패턴 escape:
-  //    - </script  → <\/script  (직접 종료)
-  //    - <script   → <\script   (script data escaped state에서 nested script 시작 인식)
-  //    - <!--      → <\!--      (script data escaped state 진입 트리거)
-  //    - -->       → --\>       (escaped state 종료)
-  //   JS는 \\ 를 \ 로 처리하므로 실행 시엔 의미 동일, HTML parser만 회피.
+  // ★ inline 시 HTML parser가 외부 script 블록을 조기 종료/오인식하지 않도록 escape:
+  //    - </script  → <\/script  (직접 종료 차단)
+  //    - <script   → <\script   (HTML5 script data double escape 진입 차단)
+  //   <!-- 와 --> 는 건드리지 않음 — xlsx 라이브러리가 /<!--.*?-->/g 정규식 사용해서 깨짐.
+  //   <!--만 있으면 escape state 진입하지만 </script>는 여전히 종료 인식되므로 안전.
+  //   문제는 <!-- + <script 조합인데 <script만 escape하면 그 조합 자체가 안 만들어짐.
   function escapeForInlineScript(code) {
     return code
       .replace(/<\/script/gi, '<\\/script')
-      .replace(/<script/gi,   '<\\script')
-      .replace(/<!--/g,         '<\\!--')
-      .replace(/-->/g,          '--\\>');
+      .replace(/<script/gi,   '<\\script');
   }
 
   const jsFiles = ['cohort_v29.js', 'metadata.js', 'kinematic_only_report.js', 'video_input.js', 'app.js'];
