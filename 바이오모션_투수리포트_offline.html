@@ -10378,17 +10378,13 @@ function renderGlobalVideoPlayer(video, idSuffix = 'main') {
   if (!_hasVideo(video)) return '';
   const id = `kbo-video-${idSuffix}`;
   const fps = video.fps ?? 240;
-  // crop 정보가 있으면 영상도 같은 영역만 보이게 CSS 클리핑 (frame과 동일 영역)
   const c = video.crop;
   const useCrop = c && c.w > 50 && c.h > 50 && c.originalW > 0 && c.originalH > 0;
 
-  // 공통 video element — muted + 자체 onclick으로 토글 + 0.1× 자동
-  //   muted: 소리 제거 (사용자 요청) + autoplay/play 정책 우회로 click이 확실히 동작
-  //   onclick: video 자체에 직접 바인딩 — wrapper의 querySelector 의존 제거
-  //   controls 제거: 크롭 영역 밖이라 부분적으로 안 보여서 혼란만 줌
+  // video element 공통 속성 — muted, 0.1×, 클릭 토글 + onloadedmetadata에서 controls 바 wiring
   const baseAttrs = `id="${id}" preload="auto" playsinline disablepictureinpicture muted
     onclick="this.paused?this.play():this.pause();"
-    onloadedmetadata="this.playbackRate=0.1; this.muted=true;"
+    onloadedmetadata="this.playbackRate=0.1; this.muted=true; if(window.kboBindVideoControls)kboBindVideoControls(this);"
     onplay="this.playbackRate=0.1"
     onratechange="if(this.playbackRate!==0.1)this.playbackRate=0.1"`;
   const cropStyle = useCrop
@@ -10399,30 +10395,35 @@ function renderGlobalVideoPlayer(video, idSuffix = 'main') {
     이 브라우저는 video 태그를 지원하지 않습니다.
   </video>`;
 
-  if (useCrop) {
-    const aspectPct = (c.h / c.w * 100).toFixed(2);
-    return `<div class="kbo-video-wrap" style="max-width:560px; margin:12px auto;">
-      <div style="position:relative; background:#000; border-radius:10px; overflow:hidden; padding-top:${aspectPct}%;">
-        ${videoTag}
-        <div style="position:absolute; top:8px; left:10px; background:rgba(15,42,74,0.85); color:#fff; padding:3px 8px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700; letter-spacing:0.06em; pointer-events:none;">
-          투구 영상 · ${fps} fps · 0.1× 슬로우 · 음소거
-        </div>
-        <div style="position:absolute; bottom:8px; right:10px; background:rgba(15,42,74,0.85); color:#fff; padding:3px 8px; border-radius:4px; font-family:Inter,sans-serif; font-size:10.5px; pointer-events:none;">
-          영상 클릭 → 재생/일시정지
-        </div>
+  // 화면 영역 (cropped or full)
+  const videoArea = useCrop
+    ? `<div style="position:relative; background:#000; border-top-left-radius:10px; border-top-right-radius:10px; overflow:hidden; padding-top:${(c.h / c.w * 100).toFixed(2)}%;">
+         ${videoTag}
+         <div style="position:absolute; top:8px; left:10px; background:rgba(15,42,74,0.85); color:#fff; padding:3px 8px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700; letter-spacing:0.06em; pointer-events:none;">
+           투구 영상 · ${fps} fps · 0.1× 슬로우 · 음소거
+         </div>
+       </div>`
+    : `<div style="position:relative; background:#000; border-top-left-radius:10px; border-top-right-radius:10px; overflow:hidden;">
+         ${videoTag}
+         <div style="position:absolute; top:8px; left:10px; background:rgba(15,42,74,0.85); color:#fff; padding:3px 8px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700; letter-spacing:0.06em; pointer-events:none;">
+           투구 영상 · ${fps} fps · 0.1× 슬로우 · 음소거
+         </div>
+       </div>`;
+
+  // 커스텀 controls 바 — 재생/일시정지 + 시간 + 클릭/드래그 가능 진행 바
+  const controlsBar = `<div class="kbo-video-controls-bar" style="display:flex; align-items:center; gap:10px; padding:8px 12px; background:#F2F5FA; border:1px solid #E1E5EB; border-top:none; border-bottom-left-radius:10px; border-bottom-right-radius:10px;">
+      <button class="kbo-play-btn" type="button"
+              onclick="var v=this.closest('.kbo-video-wrap').querySelector('video'); if(v){v.paused?v.play():v.pause();}"
+              style="width:34px; height:34px; border:none; background:#0F2A4A; color:#fff; border-radius:50%; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; line-height:1;">▶</button>
+      <span class="kbo-time" style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#0F2A4A; min-width:90px; white-space:nowrap;">0:00.00 / 0:00.00</span>
+      <div class="kbo-track" style="flex:1; height:8px; background:#D5DAE0; border-radius:4px; cursor:pointer; position:relative; user-select:none;">
+        <div class="kbo-fill" style="width:0%; height:100%; background:#0F2A4A; border-radius:4px; pointer-events:none;"></div>
       </div>
     </div>`;
-  }
+
   return `<div class="kbo-video-wrap" style="max-width:560px; margin:12px auto;">
-    <div style="position:relative; background:#000; border-radius:10px; overflow:hidden;">
-      ${videoTag}
-      <div style="position:absolute; top:8px; left:10px; background:rgba(15,42,74,0.85); color:#fff; padding:3px 8px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700; letter-spacing:0.06em; pointer-events:none;">
-        투구 영상 · ${fps} fps · 0.1× 슬로우 · 음소거
-      </div>
-      <div style="position:absolute; bottom:8px; right:10px; background:rgba(15,42,74,0.85); color:#fff; padding:3px 8px; border-radius:4px; font-family:Inter,sans-serif; font-size:10.5px; pointer-events:none;">
-        영상 클릭 → 재생/일시정지
-      </div>
-    </div>
+    ${videoArea}
+    ${controlsBar}
   </div>`;
 }
 
@@ -11789,10 +11790,61 @@ async function kboSaveReportHtml(filename) {
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
 }
 function kboPrintReport() { window.print(); }
-// 전역 등록 (onclick 핸들러에서 직접 호출 가능)
+
+// 영상 커스텀 controls 바 wiring — onloadedmetadata에서 호출
+//   기능: 진행 바 클릭/드래그 seek + 재생/일시정지 아이콘 갱신 + 시간 표시
+function kboBindVideoControls(videoEl) {
+  if (!videoEl || videoEl._kboBound) return;
+  videoEl._kboBound = true;
+  const wrap = videoEl.closest('.kbo-video-wrap');
+  if (!wrap) return;
+  const playBtn = wrap.querySelector('.kbo-play-btn');
+  const timeEl  = wrap.querySelector('.kbo-time');
+  const track   = wrap.querySelector('.kbo-track');
+  const fill    = wrap.querySelector('.kbo-fill');
+  if (!track || !fill) return;
+
+  const fmt = (s) => {
+    if (!isFinite(s) || s < 0) return '0:00.00';
+    const m = Math.floor(s / 60);
+    const sec = s - m * 60;
+    return `${m}:${sec.toFixed(2).padStart(5, '0')}`;
+  };
+  const updateUI = () => {
+    if (!isFinite(videoEl.duration) || videoEl.duration <= 0) return;
+    fill.style.width = (videoEl.currentTime / videoEl.duration * 100) + '%';
+    if (timeEl) timeEl.textContent = `${fmt(videoEl.currentTime)} / ${fmt(videoEl.duration)}`;
+  };
+
+  videoEl.addEventListener('timeupdate', updateUI);
+  videoEl.addEventListener('seeked', updateUI);
+  videoEl.addEventListener('play',  () => { if (playBtn) playBtn.textContent = '⏸'; });
+  videoEl.addEventListener('pause', () => { if (playBtn) playBtn.textContent = '▶'; });
+
+  // 클릭/드래그로 seek
+  let dragging = false;
+  const seekFromX = (clientX) => {
+    if (!isFinite(videoEl.duration) || videoEl.duration <= 0) return;
+    const rect = track.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    videoEl.currentTime = pct * videoEl.duration;
+  };
+  track.addEventListener('mousedown', (e) => { dragging = true; seekFromX(e.clientX); e.preventDefault(); });
+  document.addEventListener('mousemove', (e) => { if (dragging) seekFromX(e.clientX); });
+  document.addEventListener('mouseup',   () => { dragging = false; });
+  // 모바일 터치 지원
+  track.addEventListener('touchstart', (e) => { if (e.touches[0]) { dragging = true; seekFromX(e.touches[0].clientX); } }, { passive: true });
+  document.addEventListener('touchmove', (e) => { if (dragging && e.touches[0]) seekFromX(e.touches[0].clientX); }, { passive: true });
+  document.addEventListener('touchend', () => { dragging = false; });
+
+  updateUI();
+}
+
+// 전역 등록 (onclick / onloadedmetadata 핸들러에서 직접 호출 가능)
 if (typeof window !== 'undefined') {
   window.kboSaveReportHtml = kboSaveReportHtml;
   window.kboPrintReport = kboPrintReport;
+  window.kboBindVideoControls = kboBindVideoControls;
 }
 
 // placeholder 페이지 (Phase A에서 채울 예정)
