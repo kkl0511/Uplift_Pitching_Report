@@ -288,7 +288,8 @@ async function _captureFramesAt(videoUrl, timestamps) {
     outCtx.drawImage(fullCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
     frames[key] = outCanvas.toDataURL('image/jpeg', 0.85);
   }
-  return frames;
+  // crop 정보도 같이 반환 — 영상 player에서 동일 영역 CSS 클리핑에 사용
+  return { frames, crop: { x: cropX, y: cropY, w: cropW, h: cropH, originalW: W, originalH: H } };
 }
 
 // ── v2 input.video 객체 빌드 (영상 없으면 null) ────────────────────
@@ -308,7 +309,12 @@ async function buildVideoInputForV2() {
   if (!Object.values(ts).some(isNaN)) {
     videoObj.events = ts;
     try {
-      videoObj.eventFrames = await _captureFramesAt(CURRENT_VIDEO_OBJECT_URL, ts);
+      const result = await _captureFramesAt(CURRENT_VIDEO_OBJECT_URL, ts);
+      videoObj.eventFrames = result.frames;
+      // crop 영역(원본 좌표) 보존 — 영상 player CSS 클리핑에 사용
+      if (result.crop && result.crop.w < result.crop.originalW * 0.95) {
+        videoObj.crop = result.crop;
+      }
     } catch (e) {
       console.warn('영상 frame 캡처 실패 — events만 유지:', e.message);
     }
