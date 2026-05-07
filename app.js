@@ -4547,7 +4547,99 @@ function toggleArmSide() {
   if (typeof generateReport === 'function') generateReport();
 }
 
-function generateReport() {
+// ════════════════════════════════════════════════════════════════════
+// 영상 입력 헬퍼 — v2 P3 player + P6 정지 frame 3장 자동 캡처 (2026-05-07)
+// ════════════════════════════════════════════════════════════════════
+let CURRENT_VIDEO_FILE = null;        // 선택된 File 객체
+let CURRENT_VIDEO_OBJECT_URL = null;  // createObjectURL 결과 (해제 추적)
+
+function onVideoFileSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  if (CURRENT_VIDEO_OBJECT_URL) URL.revokeObjectURL(CURRENT_VIDEO_OBJECT_URL);
+  CURRENT_VIDEO_FILE = file;
+  CURRENT_VIDEO_OBJECT_URL = URL.createObjectURL(file);
+  const info = document.getElementById('player-video-info');
+  if (info) info.textContent = `✓ ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`;
+}
+
+function clearVideoInput() {
+  if (CURRENT_VIDEO_OBJECT_URL) {
+    URL.revokeObjectURL(CURRENT_VIDEO_OBJECT_URL);
+    CURRENT_VIDEO_OBJECT_URL = null;
+  }
+  CURRENT_VIDEO_FILE = null;
+  const fileEl = document.getElementById('player-video-file');
+  const infoEl = document.getElementById('player-video-info');
+  if (fileEl) fileEl.value = '';
+  if (infoEl) infoEl.textContent = '';
+  ['player-video-t-drive', 'player-video-t-fc', 'player-video-t-mer'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const fpsEl = document.getElementById('player-video-fps');
+  if (fpsEl) fpsEl.value = '240';
+}
+
+// 단일 video element를 재사용해서 여러 시점의 frame을 순차 캡처
+async function _captureFramesAt(videoUrl, timestamps) {
+  const video = document.createElement('video');
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'auto';
+  video.src = videoUrl;
+
+  // 메타데이터 로드 대기 (영상 크기·길이 확보)
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('영상 메타데이터 로드 타임아웃 (10s)')), 10000);
+    video.addEventListener('loadedmetadata', () => { clearTimeout(timer); resolve(); }, { once: true });
+    video.addEventListener('error', () => { clearTimeout(timer); reject(new Error('영상 로드 실패')); }, { once: true });
+  });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+
+  const frames = {};
+  for (const [key, t] of Object.entries(timestamps)) {
+    const safeT = Math.max(0, Math.min(t, (video.duration || 9999) - 0.001));
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`${key} seek 타임아웃 (5s)`)), 5000);
+      video.addEventListener('seeked', () => { clearTimeout(timer); resolve(); }, { once: true });
+      video.currentTime = safeT;
+    });
+    ctx.drawImage(video, 0, 0);
+    frames[key] = canvas.toDataURL('image/jpeg', 0.85);
+  }
+  return frames;
+}
+
+// v2 input.video 객체 빌드 (영상 없으면 null)
+async function buildVideoInputForV2() {
+  if (!CURRENT_VIDEO_OBJECT_URL) return null;
+  const fpsEl = document.getElementById('player-video-fps');
+  const fps = parseFloat(fpsEl && fpsEl.value) || 240;
+  const tDrive = parseFloat(document.getElementById('player-video-t-drive').value);
+  const tFc    = parseFloat(document.getElementById('player-video-t-fc').value);
+  const tMer   = parseFloat(document.getElementById('player-video-t-mer').value);
+
+  const videoObj = { src: CURRENT_VIDEO_OBJECT_URL, fps };
+
+  if (!isNaN(tDrive) && !isNaN(tFc) && !isNaN(tMer)) {
+    videoObj.events = { drive_start: tDrive, fc: tFc, mer: tMer };
+    try {
+      videoObj.eventFrames = await _captureFramesAt(CURRENT_VIDEO_OBJECT_URL, {
+        drive_start: tDrive, fc: tFc, mer: tMer,
+      });
+    } catch (e) {
+      console.warn('영상 frame 캡처 실패 — events만 유지:', e.message);
+    }
+  }
+  return videoObj;
+}
+
+async function generateReport() {
   resetImplausibleFlags();   // ★ 비상식 값 플래그 reset (2026-05-03)
   // 입력 변수 수 확인
   const totalFit = Object.keys(CURRENT_INPUT.fitness).length;
@@ -4565,17 +4657,31 @@ function generateReport() {
   const result = calculateScores(CURRENT_INPUT, CURRENT_AGE, measuredVelo);
   CURRENT_REPORT_RESULT = result;
 
+  // ★ 영상 입력이 있으면 frame 캡처 (비동기) — 버튼 로딩 상태 표시
+  let videoForV2 = null;
+  if (CURRENT_VIDEO_OBJECT_URL) {
+    const btn = document.querySelector('button[onclick="generateReport()"]');
+    const originalLabel = btn ? btn.innerHTML : null;
+    if (btn) { btn.innerHTML = '⏳ 영상 frame 캡처 중...'; btn.disabled = true; }
+    try {
+      videoForV2 = await buildVideoInputForV2();
+    } catch (e) {
+      console.error('영상 처리 실패:', e);
+      alert('영상 처리 중 문제가 발생했습니다: ' + e.message);
+    } finally {
+      if (btn && originalLabel != null) { btn.innerHTML = originalLabel; btn.disabled = false; }
+    }
+  }
+
   // ★ 2026-05-07 — v1 → v2 6페이지 narrative 리포트로 인라인 교체
-  //   기존: renderReportHtml(...) 호출 + renderRadarCharts/renderOutputTransferChart/setupCoachVideoDropZone
-  //   변경: buildKinematicOnlyReport({ playerId, ageGroup, measuredVelocity, fitness, mechanics }) 결과 HTML을 그대로 삽입
-  //         새 창/팝업 차단 이슈 회피 + 보고서 한 종류로 통합
+  //   영상 입력 시 P3 player + P6 정지 frame 3장 자동 포함
   const v2Input = {
     playerId: playerName,
     ageGroup: CURRENT_AGE,
     measuredVelocity: measuredVelo,
     fitness: CURRENT_INPUT.fitness || {},
     mechanics: CURRENT_INPUT.mechanics || {},
-    // video 필드는 향후 UI 확장 시 채움 — 현재는 미설정으로 두면 영상 영역 자동 숨김
+    ...(videoForV2 ? { video: videoForV2 } : {}),
   };
 
   let reportHtml;
