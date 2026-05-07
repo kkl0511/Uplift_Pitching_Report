@@ -37,11 +37,24 @@ function fetchUrl(url) {
   console.log(`✓ index.html 로드 (${html.length.toLocaleString()} bytes)`);
 
   // 2) 우리 JS 5개 인라인
+  // ★ inline 시 HTML parser가 script 블록을 조기 종료하지 않도록 모든 위험 패턴 escape:
+  //    - </script  → <\/script  (직접 종료)
+  //    - <script   → <\script   (script data escaped state에서 nested script 시작 인식)
+  //    - <!--      → <\!--      (script data escaped state 진입 트리거)
+  //    - -->       → --\>       (escaped state 종료)
+  //   JS는 \\ 를 \ 로 처리하므로 실행 시엔 의미 동일, HTML parser만 회피.
+  function escapeForInlineScript(code) {
+    return code
+      .replace(/<\/script/gi, '<\\/script')
+      .replace(/<script/gi,   '<\\script')
+      .replace(/<!--/g,         '<\\!--')
+      .replace(/-->/g,          '--\\>');
+  }
+
   const jsFiles = ['cohort_v29.js', 'metadata.js', 'kinematic_only_report.js', 'video_input.js', 'app.js'];
   for (const f of jsFiles) {
     const code = fs.readFileSync(path.join(REPO, f), 'utf8');
-    // </script> 안전 처리 (드물지만 문자열 안에 있을 수 있음)
-    const safe = code.replace(/<\/script>/gi, '<\\/script>');
+    const safe = escapeForInlineScript(code);
     const re = new RegExp(`<script src="${f.replace(/\./g, '\\.')}"[^>]*></script>`, 'g');
     if (!re.test(html)) { console.warn(`⚠ ${f} <script src> 못 찾음 — 위치 확인 필요`); continue; }
     html = html.replace(re, `<script>\n/* ${f} */\n${safe}\n</script>`);
@@ -62,7 +75,7 @@ function fetchUrl(url) {
   for (const dep of cdnDeps) {
     console.log(`  ⬇ ${dep.name} 다운로드...`);
     const code = fetchUrl(dep.url);
-    const safe = code.replace(/<\/script>/gi, '<\\/script>');
+    const safe = escapeForInlineScript(code);
     if (!dep.re.test(html)) { console.warn(`⚠ ${dep.name} 매칭 패턴 못 찾음`); continue; }
     html = html.replace(dep.re, `<script>\n/* ${dep.name} */\n${safe}\n</script>`);
     console.log(`✓ ${dep.name} 인라인 (${(code.length / 1024).toFixed(1)} KB)`);
